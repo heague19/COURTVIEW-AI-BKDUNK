@@ -1,0 +1,9 @@
+# 개발 환경 설정
+app:
+  debug: true
+
+gpu:
+  memory_fraction: 0.7
+
+detection:
+  confidence_threshold: 0.6

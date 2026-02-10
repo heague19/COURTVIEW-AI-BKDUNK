@@ -1,0 +1,86 @@
+# ==================== Python ====================
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# ==================== 가상환경 ====================
+.venv/
+venv/
+env/
+ENV/
+
+# ==================== IDE / 에디터 ====================
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ==================== 환경변수 / 시크릿 ====================
+.env
+.env.local
+*.env
+credentials.json
+secrets.*
+*.key
+*.pem
+
+# ==================== 로그 파일 ====================
+*.log
+logs/
+
+# ==================== 테스트 ====================
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# ==================== OS ====================
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# ==================== 임시 파일 ====================
+*.tmp
+*.temp
+tmp/
+temp/
+
+# ==================== 데이터베이스 ====================
+*.db
+*.sqlite
+*.sqlite3
+
+# ==================== 대용량 파일 ====================
+*.mp4
+*.avi
+*.mov
+*.pt
+*.pth
+*.onnx
+
+# ==================== 기타 ====================
+.ipynb_checkpoints
+.mypy_cache/
+
+# ==================== 프로젝트 데이터 ====================
+storage/

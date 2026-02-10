@@ -1,0 +1,30 @@
+# tests/core_foundation/config/fixtures/base.yaml
+# 기본 설정 (모든 환경 공통)
+
+app:
+  name: "COURTVIEW Desktop"
+  version: "1.0.0"
+  debug: false
+  log_level: "INFO"
+
+gpu:
+  device_id: 0
+  memory_fraction: 0.8
+  backend: "cuda"
+  batch_size: 8
+  enable_fp16: false
+
+camera:
+  min_count: 4
+  max_count: 8
+  resolution:
+    width: 1920
+    height: 1080
+  fps: 30
+  auto_exposure: true
+
+detection:
+  confidence_threshold: 0.75
+  nms_threshold: 0.45
+  max_detections: 100
+  enable_tracking: true

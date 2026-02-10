@@ -1,0 +1,5 @@
+# 잘못된 YAML (파싱 에러 테스트용)
+app:
+  name: "Test
+  invalid syntax here
+    indentation: wrong

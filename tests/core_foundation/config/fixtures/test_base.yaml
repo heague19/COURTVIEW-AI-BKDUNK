@@ -1,0 +1,21 @@
+# 테스트용 기본 설정 파일
+app:
+  name: "COURTVIEW Desktop"
+  version: "1.0.0"
+  debug: false
+
+gpu:
+  enabled: true
+  device_id: 0
+  memory_fraction: 0.9
+
+camera:
+  min_count: 4
+  resolution:
+    width: 1920
+    height: 1080
+  fps: 60
+
+detection:
+  confidence_threshold: 0.75
+  nms_threshold: 0.45

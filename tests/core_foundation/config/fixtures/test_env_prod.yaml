@@ -1,0 +1,9 @@
+# 프로덕션 환경 설정
+app:
+  debug: false
+
+gpu:
+  memory_fraction: 0.95
+
+detection:
+  confidence_threshold: 0.8

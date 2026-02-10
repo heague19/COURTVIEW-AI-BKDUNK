@@ -1,0 +1,14 @@
+# tests/core_foundation/config/fixtures/env_test.yaml
+# 테스트 환경 설정
+
+app:
+  debug: true
+  log_level: "DEBUG"
+
+gpu:
+  device_id: 0
+  batch_size: 2  # 테스트는 최소 배치
+
+camera:
+  min_count: 1
+  max_count: 2
