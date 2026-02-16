@@ -1,0 +1,17 @@
+{
+  "environment": "testing",
+  "app": {
+    "name": "COURTVIEW Test",
+    "version": "1.0.0-test",
+    "debug": true
+  },
+  "gpu": {
+    "cuda_device": "cuda:1",
+    "device_id": 1,
+    "memory_fraction": 0.6
+  },
+  "server": {
+    "host": "localhost",
+    "port": 9999
+  }
+}

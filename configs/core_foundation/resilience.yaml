@@ -1,0 +1,357 @@
+# =============================================================================
+# COURTVIEW - AI 농구 분석 플랫폼
+# Core Foundation - 복원력 모듈 설정
+# 파일: configs/core_foundation/resilience.yaml
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# 서킷 브레이커 (CircuitBreaker)
+# -----------------------------------------------------------------------------
+circuit_breaker:
+  # 활성화
+  enabled: true
+
+  # 서킷 상태
+  states:
+    closed:
+      label: "닫힘"
+      description: "정상 동작, 요청 통과"
+    open:
+      label: "열림"
+      description: "장애 상태, 요청 차단"
+    half_open:
+      label: "반열림"
+      description: "복구 테스트 중"
+
+  # 기본 설정
+  defaults:
+    # 실패 임계값 (실패 횟수)
+    failure_threshold: 5
+    # 성공 임계값 (half-open에서 closed로 전환)
+    success_threshold: 3
+    # 열림 상태 유지 시간 (초)
+    open_timeout: 30
+    # 반열림 상태에서 허용되는 요청 수
+    half_open_max_requests: 3
+    # 슬라이딩 윈도우 크기 (초)
+    window_size: 60
+    # 최소 요청 수 (통계 의미있는)
+    minimum_requests: 10
+
+  # 서비스별 설정
+  services:
+    database:
+      failure_threshold: 3
+      open_timeout: 60
+      critical: true
+
+    cache:
+      failure_threshold: 5
+      open_timeout: 30
+      critical: false
+
+    storage:
+      failure_threshold: 3
+      open_timeout: 45
+      critical: true
+
+    external_api:
+      failure_threshold: 5
+      open_timeout: 30
+      critical: false
+
+    model_inference:
+      failure_threshold: 3
+      open_timeout: 15
+      critical: true
+
+  # 실패 판정
+  failure_detection:
+    # 예외 기반
+    exceptions:
+      - "ConnectionError"
+      - "TimeoutError"
+      - "ServiceUnavailableError"
+    # 응답 코드 기반
+    status_codes:
+      - 500
+      - 502
+      - 503
+      - 504
+    # 타임아웃 (초)
+    timeout: 30
+
+  # 폴백 설정
+  fallback:
+    enabled: true
+    strategies:
+      # 캐시된 응답 반환
+      cached_response:
+        enabled: true
+        max_age_seconds: 300
+      # 기본값 반환
+      default_value:
+        enabled: true
+      # 대체 서비스 호출
+      alternative_service:
+        enabled: false
+
+  # 이벤트 및 콜백
+  events:
+    on_open:
+      log: true
+      alert: true
+    on_close:
+      log: true
+      alert: false
+    on_half_open:
+      log: true
+      alert: false
+
+  # 메트릭
+  metrics:
+    enabled: true
+    track_state_changes: true
+    track_request_count: true
+    track_failure_rate: true
+
+# -----------------------------------------------------------------------------
+# 재시도 메커니즘 (RetryMechanism)
+# -----------------------------------------------------------------------------
+retry:
+  # 활성화
+  enabled: true
+
+  # 백오프 전략
+  backoff_strategies:
+    constant:
+      label: "고정"
+      description: "일정한 대기 시간"
+    linear:
+      label: "선형"
+      description: "대기 시간 선형 증가"
+    exponential:
+      label: "지수"
+      description: "대기 시간 지수 증가"
+
+  # 기본 설정
+  defaults:
+    # 최대 재시도 횟수
+    max_attempts: 3
+    # 백오프 전략
+    backoff_strategy: "exponential"
+    # 초기 대기 시간 (초)
+    initial_delay: 1.0
+    # 최대 대기 시간 (초)
+    max_delay: 30.0
+    # 지수 백오프 배수
+    exponential_base: 2.0
+    # 지터 (무작위 변동)
+    jitter:
+      enabled: true
+      # 지터 범위 (0.0 ~ 1.0)
+      factor: 0.1
+
+  # 작업별 설정
+  operations:
+    database_connection:
+      max_attempts: 5
+      initial_delay: 0.5
+      max_delay: 10.0
+      backoff_strategy: "exponential"
+
+    api_request:
+      max_attempts: 3
+      initial_delay: 1.0
+      max_delay: 15.0
+      backoff_strategy: "exponential"
+
+    file_operation:
+      max_attempts: 3
+      initial_delay: 0.5
+      max_delay: 5.0
+      backoff_strategy: "linear"
+
+    model_load:
+      max_attempts: 2
+      initial_delay: 2.0
+      max_delay: 10.0
+      backoff_strategy: "constant"
+
+    s3_upload:
+      max_attempts: 5
+      initial_delay: 1.0
+      max_delay: 30.0
+      backoff_strategy: "exponential"
+
+  # 재시도 가능 예외
+  retryable_exceptions:
+    - "ConnectionError"
+    - "TimeoutError"
+    - "TemporaryError"
+    - "RetryableException"
+
+  # 재시도 불가 예외
+  non_retryable_exceptions:
+    - "ValidationError"
+    - "AuthenticationError"
+    - "PermissionError"
+    - "NonRetryableException"
+
+  # 재시도 가능 상태 코드
+  retryable_status_codes:
+    - 408  # Request Timeout
+    - 429  # Too Many Requests
+    - 500  # Internal Server Error
+    - 502  # Bad Gateway
+    - 503  # Service Unavailable
+    - 504  # Gateway Timeout
+
+  # 콜백
+  callbacks:
+    on_retry:
+      log: true
+      log_level: "WARNING"
+    on_success:
+      log: true
+      log_level: "INFO"
+    on_failure:
+      log: true
+      log_level: "ERROR"
+
+  # 메트릭
+  metrics:
+    enabled: true
+    track_attempts: true
+    track_delays: true
+    track_success_rate: true
+
+# -----------------------------------------------------------------------------
+# 타임아웃 설정
+# -----------------------------------------------------------------------------
+timeout:
+  # 기본 타임아웃 (초)
+  default: 30
+
+  # 작업별 타임아웃
+  operations:
+    # HTTP 요청
+    http_request: 30
+    # 데이터베이스 쿼리
+    database_query: 60
+    # 캐시 조회
+    cache_get: 5
+    # 캐시 저장
+    cache_set: 10
+    # 파일 업로드
+    file_upload: 300
+    # 파일 다운로드
+    file_download: 300
+    # 모델 추론
+    model_inference: 60
+    # 분석 작업
+    analysis_job: 600
+
+  # 타임아웃 처리
+  on_timeout:
+    # 예외 발생
+    raise_exception: true
+    # 로깅
+    log: true
+    # 메트릭 기록
+    record_metric: true
+
+# -----------------------------------------------------------------------------
+# 벌크헤드 (격리)
+# -----------------------------------------------------------------------------
+bulkhead:
+  # 활성화
+  enabled: true
+
+  # 기본 설정
+  defaults:
+    # 최대 동시 실행 수
+    max_concurrent: 10
+    # 대기열 크기
+    queue_size: 100
+    # 대기 타임아웃 (초)
+    queue_timeout: 30
+
+  # 작업별 설정
+  partitions:
+    analysis:
+      max_concurrent: 10
+      queue_size: 50
+      queue_timeout: 60
+
+    inference:
+      max_concurrent: 5
+      queue_size: 20
+      queue_timeout: 30
+
+    io_operations:
+      max_concurrent: 20
+      queue_size: 100
+      queue_timeout: 30
+
+    external_calls:
+      max_concurrent: 15
+      queue_size: 50
+      queue_timeout: 30
+
+  # 거부 정책
+  rejection_policy:
+    # 거부 시 동작: exception, drop, fallback
+    action: "exception"
+    # 폴백 활성화
+    fallback_enabled: true
+
+# -----------------------------------------------------------------------------
+# 레이트 리미터
+# -----------------------------------------------------------------------------
+rate_limiter:
+  # 활성화
+  enabled: true
+
+  # 알고리즘
+  algorithms:
+    token_bucket:
+      label: "토큰 버킷"
+      description: "버스트 허용"
+    sliding_window:
+      label: "슬라이딩 윈도우"
+      description: "정확한 제한"
+    fixed_window:
+      label: "고정 윈도우"
+      description: "단순한 제한"
+
+  # 기본 설정
+  defaults:
+    algorithm: "token_bucket"
+    # 초당 요청 수
+    requests_per_second: 100
+    # 버스트 크기
+    burst_size: 150
+
+  # 작업별 설정
+  limits:
+    api_requests:
+      requests_per_second: 100
+      burst_size: 150
+
+    analysis_requests:
+      requests_per_second: 10
+      burst_size: 15
+
+    model_inference:
+      requests_per_second: 50
+      burst_size: 75
+
+  # 제한 초과 처리
+  on_limit_exceeded:
+    # 응답 상태 코드
+    status_code: 429
+    # 재시도 헤더 포함
+    include_retry_after: true
+    # 대기 (블로킹)
+    wait: false

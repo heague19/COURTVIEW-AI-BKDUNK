@@ -1,21 +1,52 @@
 # 테스트용 기본 설정 파일
+environment: "development"
+
 app:
   name: "COURTVIEW Desktop"
   version: "1.0.0"
-  debug: false
+  debug: true
 
 gpu:
-  enabled: true
+  cuda_device: "cuda:0"
   device_id: 0
   memory_fraction: 0.9
+  tensorrt_enabled: true
+  precision: "fp16"
 
 camera:
-  min_count: 4
+  count: 4
   resolution:
     width: 1920
     height: 1080
   fps: 60
 
-detection:
+model:
+  model_type: "yolov8"
+  device: "cuda:0"
+  precision: "fp16"
   confidence_threshold: 0.75
   nms_threshold: 0.45
+
+analysis:
+  target_fps: 30
+  batch_size: 8
+  max_persons: 12
+
+database:
+  db_path: "data/courtview.db"
+  pool_size: 5
+
+storage:
+  cache_dir: "cache"
+  max_cache_size_mb: 1024
+
+logging:
+  level: "INFO"
+  file_path: "logs/courtview.log"
+  rotation_size_mb: 50
+  retention_days: 30
+
+server:
+  host: "0.0.0.0"
+  port: 8000
+  workers: 4
