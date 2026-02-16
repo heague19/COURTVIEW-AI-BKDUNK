@@ -1,0 +1,735 @@
+# -*- coding: utf-8 -*-
+"""
+COURTVIEW - AI 농구 분석 플랫폼
+
+모듈: shared/dto
+파일: scene_dto.py
+설명: 3D 씬 데이터 DTO (Data Transfer Object) 정의
+      - 씬 객체, 코트/골대 모델
+      - 3D 씬, 스냅샷, 타임라인
+      - 5개 언어 i18n 지원 (KO, EN, JA, ZH, ES)
+
+작성자: SPOIN_COURTVIEW
+최종 수정: 2026-02-03
+버전: 1.0.0
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from enum import Enum, unique
+from typing import TYPE_CHECKING, Any
+from uuid import UUID, uuid4
+
+import numpy as np
+
+from shared.constants.court_constants import (
+    COURT_LENGTH_M,
+    COURT_WIDTH_M,
+    HOOP_DIAMETER_M,
+    HOOP_HEIGHT_M,
+)
+from shared.dto.geometry_dto import BoundingBox3D, Point3D
+
+if TYPE_CHECKING:
+    from shared.constants.localization import SupportedLanguage
+
+
+# =============================================================================
+# i18n 번역 맵 (5개 언어 지원)
+# =============================================================================
+
+# SceneStatus 다국어 번역
+_SCENE_STATUS_I18N_MAP: dict[str, dict["SceneStatus", str]] = {
+    "ko": {
+        # SceneStatus.COMPLETE, PARTIAL 등은 클래스 정의 후 참조
+    },
+    "en": {},
+    "ja": {},
+    "zh": {},
+    "es": {},
+}
+
+# ObjectCategory 다국어 번역
+_OBJECT_CATEGORY_I18N_MAP: dict[str, dict["ObjectCategory", str]] = {
+    "ko": {},
+    "en": {},
+    "ja": {},
+    "zh": {},
+    "es": {},
+}
+
+
+def _init_scene_status_i18n() -> None:
+    """SceneStatus i18n 맵 초기화 (클래스 정의 후 호출)."""
+    global _SCENE_STATUS_I18N_MAP
+    _SCENE_STATUS_I18N_MAP = {
+        "ko": {
+            SceneStatus.COMPLETE: "완전",
+            SceneStatus.PARTIAL: "부분",
+            SceneStatus.UPDATING: "업데이트 중",
+            SceneStatus.INITIALIZING: "초기화 중",
+            SceneStatus.ERROR: "오류",
+        },
+        "en": {
+            SceneStatus.COMPLETE: "Complete",
+            SceneStatus.PARTIAL: "Partial",
+            SceneStatus.UPDATING: "Updating",
+            SceneStatus.INITIALIZING: "Initializing",
+            SceneStatus.ERROR: "Error",
+        },
+        "ja": {
+            SceneStatus.COMPLETE: "完全",
+            SceneStatus.PARTIAL: "部分的",
+            SceneStatus.UPDATING: "更新中",
+            SceneStatus.INITIALIZING: "初期化中",
+            SceneStatus.ERROR: "エラー",
+        },
+        "zh": {
+            SceneStatus.COMPLETE: "完整",
+            SceneStatus.PARTIAL: "部分",
+            SceneStatus.UPDATING: "更新中",
+            SceneStatus.INITIALIZING: "初始化中",
+            SceneStatus.ERROR: "错误",
+        },
+        "es": {
+            SceneStatus.COMPLETE: "Completo",
+            SceneStatus.PARTIAL: "Parcial",
+            SceneStatus.UPDATING: "Actualizando",
+            SceneStatus.INITIALIZING: "Inicializando",
+            SceneStatus.ERROR: "Error",
+        },
+    }
+
+
+def _init_object_category_i18n() -> None:
+    """ObjectCategory i18n 맵 초기화 (클래스 정의 후 호출)."""
+    global _OBJECT_CATEGORY_I18N_MAP
+    _OBJECT_CATEGORY_I18N_MAP = {
+        "ko": {
+            ObjectCategory.PLAYER: "선수",
+            ObjectCategory.REFEREE: "심판",
+            ObjectCategory.COACH: "코치",
+            ObjectCategory.BALL: "공",
+            ObjectCategory.COURT: "코트",
+            ObjectCategory.HOOP: "골대",
+            ObjectCategory.BACKBOARD: "백보드",
+            ObjectCategory.BENCH: "벤치",
+            ObjectCategory.UNKNOWN: "미분류",
+        },
+        "en": {
+            ObjectCategory.PLAYER: "Player",
+            ObjectCategory.REFEREE: "Referee",
+            ObjectCategory.COACH: "Coach",
+            ObjectCategory.BALL: "Ball",
+            ObjectCategory.COURT: "Court",
+            ObjectCategory.HOOP: "Hoop",
+            ObjectCategory.BACKBOARD: "Backboard",
+            ObjectCategory.BENCH: "Bench",
+            ObjectCategory.UNKNOWN: "Unknown",
+        },
+        "ja": {
+            ObjectCategory.PLAYER: "選手",
+            ObjectCategory.REFEREE: "審判",
+            ObjectCategory.COACH: "コーチ",
+            ObjectCategory.BALL: "ボール",
+            ObjectCategory.COURT: "コート",
+            ObjectCategory.HOOP: "ゴール",
+            ObjectCategory.BACKBOARD: "バックボード",
+            ObjectCategory.BENCH: "ベンチ",
+            ObjectCategory.UNKNOWN: "不明",
+        },
+        "zh": {
+            ObjectCategory.PLAYER: "球员",
+            ObjectCategory.REFEREE: "裁判",
+            ObjectCategory.COACH: "教练",
+            ObjectCategory.BALL: "篮球",
+            ObjectCategory.COURT: "球场",
+            ObjectCategory.HOOP: "篮筐",
+            ObjectCategory.BACKBOARD: "篮板",
+            ObjectCategory.BENCH: "替补席",
+            ObjectCategory.UNKNOWN: "未知",
+        },
+        "es": {
+            ObjectCategory.PLAYER: "Jugador",
+            ObjectCategory.REFEREE: "Árbitro",
+            ObjectCategory.COACH: "Entrenador",
+            ObjectCategory.BALL: "Balón",
+            ObjectCategory.COURT: "Cancha",
+            ObjectCategory.HOOP: "Aro",
+            ObjectCategory.BACKBOARD: "Tablero",
+            ObjectCategory.BENCH: "Banco",
+            ObjectCategory.UNKNOWN: "Desconocido",
+        },
+    }
+
+
+# =============================================================================
+# 열거형
+# =============================================================================
+
+@unique
+class SceneStatus(str, Enum):
+    """
+    씬 상태 열거형.
+
+    3D 씬의 현재 상태를 정의합니다.
+    """
+
+    # 완전 - 모든 객체가 추적됨
+    COMPLETE = "complete"
+
+    # 부분 - 일부 객체만 추적됨
+    PARTIAL = "partial"
+
+    # 업데이트 중 - 씬 재구성 중
+    UPDATING = "updating"
+
+    # 초기화 중 - 씬 초기 구성 중
+    INITIALIZING = "initializing"
+
+    # 오류 - 씬 구성 오류
+    ERROR = "error"
+
+    @property
+    def is_usable(self) -> bool:
+        """사용 가능한 상태인지."""
+        return self in (SceneStatus.COMPLETE, SceneStatus.PARTIAL)
+
+    @property
+    def is_complete(self) -> bool:
+        """완전한 상태인지."""
+        return self == SceneStatus.COMPLETE
+
+    @property
+    def to_korean(self) -> str:
+        """한글 상태명 반환 (하위 호환성)."""
+        from shared.constants.localization import SupportedLanguage
+        return self.get_name(SupportedLanguage.KO)
+
+    def get_name(self, lang: "SupportedLanguage") -> str:
+        """
+        다국어 상태명 반환.
+
+        Args:
+            lang: 지원 언어 (SupportedLanguage)
+
+        Returns:
+            해당 언어의 상태명
+        """
+        from shared.constants.localization import SupportedLanguage
+        lang_translations = _SCENE_STATUS_I18N_MAP.get(
+            lang.value,
+            _SCENE_STATUS_I18N_MAP.get(SupportedLanguage.KO.value, {})
+        )
+        return lang_translations.get(self, self.value)
+
+
+@unique
+class ObjectCategory(str, Enum):
+    """
+    씬 객체 카테고리 열거형.
+
+    3D 씬 내 객체의 카테고리를 정의합니다.
+    """
+
+    # 인물
+    PLAYER = "player"
+    REFEREE = "referee"
+    COACH = "coach"
+
+    # 공
+    BALL = "ball"
+
+    # 시설
+    COURT = "court"
+    HOOP = "hoop"
+    BACKBOARD = "backboard"
+    BENCH = "bench"
+
+    # 기타
+    UNKNOWN = "unknown"
+
+    @property
+    def is_person(self) -> bool:
+        """사람 카테고리 여부."""
+        return self in (
+            ObjectCategory.PLAYER,
+            ObjectCategory.REFEREE,
+            ObjectCategory.COACH,
+        )
+
+    @property
+    def is_static(self) -> bool:
+        """정적 객체 여부."""
+        return self in (
+            ObjectCategory.COURT,
+            ObjectCategory.HOOP,
+            ObjectCategory.BACKBOARD,
+            ObjectCategory.BENCH,
+        )
+
+    @property
+    def is_dynamic(self) -> bool:
+        """동적 객체 여부."""
+        return not self.is_static
+
+    @property
+    def to_korean(self) -> str:
+        """한글 카테고리명 반환 (하위 호환성)."""
+        from shared.constants.localization import SupportedLanguage
+        return self.get_name(SupportedLanguage.KO)
+
+    def get_name(self, lang: "SupportedLanguage") -> str:
+        """
+        다국어 카테고리명 반환.
+
+        Args:
+            lang: 지원 언어 (SupportedLanguage)
+
+        Returns:
+            해당 언어의 카테고리명
+        """
+        from shared.constants.localization import SupportedLanguage
+        lang_translations = _OBJECT_CATEGORY_I18N_MAP.get(
+            lang.value,
+            _OBJECT_CATEGORY_I18N_MAP.get(SupportedLanguage.KO.value, {})
+        )
+        return lang_translations.get(self, self.value)
+
+
+# i18n 맵 초기화 (enum 정의 후 호출)
+_init_scene_status_i18n()
+_init_object_category_i18n()
+
+
+# =============================================================================
+# 데이터 클래스
+# =============================================================================
+
+@dataclass
+class SceneObject:
+    """
+    씬 내 객체.
+
+    3D 씬에서 추적되는 단일 객체입니다.
+
+    Attributes:
+        object_id: 객체 고유 ID
+        category: 객체 카테고리
+        position: 3D 위치 (미터)
+        velocity: 속도 벡터 (m/s)
+        orientation: 방향 (yaw, pitch, roll in degrees)
+        bbox_3d: 3D 바운딩 박스
+        confidence: 위치 신뢰도
+        track_id: 연관된 트랙 ID
+        team: 팀 (선수인 경우)
+        jersey_number: 등번호 (선수인 경우)
+        attributes: 추가 속성
+    """
+
+    object_id: int = 0
+    category: ObjectCategory = ObjectCategory.UNKNOWN
+    position: Point3D | None = None
+    velocity: tuple[float, float, float] | None = None
+    orientation: tuple[float, float, float] | None = None  # yaw, pitch, roll
+    bbox_3d: BoundingBox3D | None = None
+    confidence: float = 0.0
+    track_id: int | None = None
+    team: str | None = None
+    jersey_number: int | None = None
+    attributes: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        """초기화 후 처리 - confidence 값 검증."""
+        # confidence를 [0.0, 1.0] 범위로 클램핑
+        self.confidence = max(0.0, min(1.0, self.confidence))
+
+    @property
+    def is_valid(self) -> bool:
+        """유효한 객체인지."""
+        return self.position is not None
+
+    @property
+    def is_person(self) -> bool:
+        """사람 객체인지."""
+        return self.category.is_person
+
+    @property
+    def is_player(self) -> bool:
+        """선수인지."""
+        return self.category == ObjectCategory.PLAYER
+
+    @property
+    def is_ball(self) -> bool:
+        """공인지."""
+        return self.category == ObjectCategory.BALL
+
+    @property
+    def has_velocity(self) -> bool:
+        """속도 정보 존재 여부."""
+        return self.velocity is not None
+
+    @property
+    def speed(self) -> float | None:
+        """속도 크기 (m/s)."""
+        if self.velocity is None:
+            return None
+        vx, vy, vz = self.velocity
+        return float(np.sqrt(vx**2 + vy**2 + vz**2))
+
+    def distance_to(self, other: "SceneObject") -> float | None:
+        """다른 객체까지의 3D 거리."""
+        if self.position is None or other.position is None:
+            return None
+        return self.position.distance_to(other.position)
+
+
+@dataclass
+class CourtModel:
+    """
+    코트 모델.
+
+    농구 코트의 3D 모델입니다.
+
+    Attributes:
+        length: 코트 길이 (미터)
+        width: 코트 너비 (미터)
+        center: 코트 중심 위치
+        orientation: 코트 방향 (도)
+        half_court_line: 하프 코트 라인 Y 좌표
+        three_point_distance: 3점 라인 거리 (미터)
+        free_throw_distance: 자유투 라인 거리 (미터)
+        key_width: 키 영역 너비 (미터)
+        markings: 코트 마킹 위치들
+    """
+
+    length: float = COURT_LENGTH_M
+    width: float = COURT_WIDTH_M
+    center: Point3D = field(default_factory=lambda: Point3D(0, 0, 0))
+    orientation: float = 0.0
+    half_court_line: float = 0.0
+    three_point_distance: float = 6.75
+    free_throw_distance: float = 4.6
+    key_width: float = 4.9
+    markings: dict[str, list[Point3D]] = field(default_factory=dict)
+
+    def __post_init__(self):
+        """초기화 후 처리."""
+        self.half_court_line = self.length / 2
+
+    @property
+    def area(self) -> float:
+        """코트 면적 (제곱미터)."""
+        return self.length * self.width
+
+    @property
+    def bounds(self) -> tuple[float, float, float, float]:
+        """코트 경계 (min_x, min_y, max_x, max_y)."""
+        half_length = self.length / 2
+        half_width = self.width / 2
+        return (
+            self.center.x - half_length,
+            self.center.y - half_width,
+            self.center.x + half_length,
+            self.center.y + half_width,
+        )
+
+    def is_in_court(self, position: Point3D) -> bool:
+        """위치가 코트 내인지."""
+        min_x, min_y, max_x, max_y = self.bounds
+        return (
+            min_x <= position.x <= max_x and
+            min_y <= position.y <= max_y
+        )
+
+    def is_in_three_point_range(
+        self,
+        position: Point3D,
+        hoop_position: Point3D,
+    ) -> bool:
+        """3점 라인 밖인지 (3점슛 거리)."""
+        distance = position.distance_to(hoop_position)
+        return distance >= self.three_point_distance
+
+
+@dataclass
+class HoopModel:
+    """
+    골대 모델.
+
+    농구 골대의 3D 모델입니다.
+
+    Attributes:
+        position: 골대 중심 위치 (3D)
+        height: 골대 높이 (미터)
+        diameter: 림 지름 (미터)
+        orientation: 골대 방향 (도)
+        backboard_position: 백보드 위치
+        backboard_width: 백보드 너비 (미터)
+        backboard_height: 백보드 높이 (미터)
+        is_left_side: 왼쪽 골대 여부
+    """
+
+    position: Point3D = field(default_factory=lambda: Point3D(0, 0, HOOP_HEIGHT_M))
+    height: float = HOOP_HEIGHT_M
+    diameter: float = HOOP_DIAMETER_M
+    orientation: float = 0.0
+    backboard_position: Point3D | None = None
+    backboard_width: float = 1.8
+    backboard_height: float = 1.05
+    is_left_side: bool = True
+
+    @property
+    def radius(self) -> float:
+        """림 반지름."""
+        return self.diameter / 2
+
+    @property
+    def rim_center(self) -> Point3D:
+        """림 중심 위치."""
+        return self.position
+
+    def distance_from(self, position: Point3D) -> float:
+        """위치에서 골대까지 거리 (2D 바닥 기준)."""
+        dx = position.x - self.position.x
+        dy = position.y - self.position.y
+        return float(np.sqrt(dx**2 + dy**2))
+
+
+@dataclass
+class Scene3D:
+    """
+    3D 씬.
+
+    특정 시점의 전체 3D 씬입니다.
+
+    Attributes:
+        scene_id: 씬 고유 ID
+        status: 씬 상태
+        objects: 씬 객체 목록
+        court: 코트 모델
+        hoops: 골대 모델 목록 (양쪽)
+        ball: 공 객체 (있는 경우)
+        timestamp: 타임스탬프
+        frame_index: 프레임 인덱스
+        camera_count: 사용된 카메라 수
+        confidence: 씬 전체 신뢰도
+    """
+
+    scene_id: UUID = field(default_factory=uuid4)
+    status: SceneStatus = SceneStatus.PARTIAL
+    objects: list[SceneObject] = field(default_factory=list)
+    court: CourtModel | None = None
+    hoops: list[HoopModel] = field(default_factory=list)
+    ball: SceneObject | None = None
+    timestamp: datetime | None = None
+    frame_index: int = 0
+    camera_count: int = 0
+    confidence: float = 0.0
+
+    def __post_init__(self) -> None:
+        """초기화 후 처리 - confidence 값 검증."""
+        # confidence를 [0.0, 1.0] 범위로 클램핑
+        self.confidence = max(0.0, min(1.0, self.confidence))
+
+    @property
+    def num_objects(self) -> int:
+        """객체 수."""
+        return len(self.objects)
+
+    @property
+    def players(self) -> list[SceneObject]:
+        """선수 목록."""
+        return [obj for obj in self.objects if obj.is_player]
+
+    @property
+    def num_players(self) -> int:
+        """선수 수."""
+        return len(self.players)
+
+    @property
+    def has_ball(self) -> bool:
+        """공이 있는지."""
+        return self.ball is not None
+
+    @property
+    def is_complete(self) -> bool:
+        """완전한 씬인지."""
+        return self.status.is_complete
+
+    def get_object(self, object_id: int) -> SceneObject | None:
+        """ID로 객체 조회."""
+        for obj in self.objects:
+            if obj.object_id == object_id:
+                return obj
+        return None
+
+    def get_objects_by_category(
+        self,
+        category: ObjectCategory,
+    ) -> list[SceneObject]:
+        """카테고리별 객체 조회."""
+        return [obj for obj in self.objects if obj.category == category]
+
+    def get_team_players(self, team: str) -> list[SceneObject]:
+        """팀별 선수 조회."""
+        return [
+            obj for obj in self.objects
+            if obj.is_player and obj.team == team
+        ]
+
+    def get_nearest_player_to_ball(self) -> SceneObject | None:
+        """공에 가장 가까운 선수."""
+        if self.ball is None:
+            return None
+        players = self.players
+        if not players:
+            return None
+        return min(
+            players,
+            key=lambda p: p.distance_to(self.ball) or float('inf')
+        )
+
+
+@dataclass
+class SceneSnapshot:
+    """
+    씬 스냅샷.
+
+    특정 프레임의 씬 상태입니다.
+
+    Attributes:
+        scene: 3D 씬
+        frame_index: 프레임 인덱스
+        timestamp: 타임스탬프 (초)
+        processing_time_ms: 처리 시간 (밀리초)
+    """
+
+    scene: Scene3D = field(default_factory=Scene3D)
+    frame_index: int = 0
+    timestamp: float = 0.0
+    processing_time_ms: float = 0.0
+
+    @property
+    def num_objects(self) -> int:
+        """객체 수."""
+        return self.scene.num_objects
+
+    @property
+    def has_ball(self) -> bool:
+        """공이 있는지."""
+        return self.scene.has_ball
+
+
+@dataclass
+class SceneTimeline:
+    """
+    씬 타임라인.
+
+    시간에 따른 씬의 변화입니다.
+
+    Attributes:
+        timeline_id: 타임라인 고유 ID
+        snapshots: 스냅샷 목록
+        start_frame: 시작 프레임
+        end_frame: 종료 프레임
+        fps: 프레임 레이트
+        duration_seconds: 지속 시간 (초)
+    """
+
+    timeline_id: UUID = field(default_factory=uuid4)
+    snapshots: list[SceneSnapshot] = field(default_factory=list)
+    start_frame: int = 0
+    end_frame: int = 0
+    fps: float = 30.0
+    duration_seconds: float = 0.0
+
+    @property
+    def num_snapshots(self) -> int:
+        """스냅샷 수."""
+        return len(self.snapshots)
+
+    @property
+    def frame_count(self) -> int:
+        """프레임 수."""
+        return self.end_frame - self.start_frame + 1
+
+    def get_snapshot_at_frame(
+        self,
+        frame_index: int,
+    ) -> SceneSnapshot | None:
+        """프레임 인덱스로 스냅샷 조회."""
+        for snapshot in self.snapshots:
+            if snapshot.frame_index == frame_index:
+                return snapshot
+        return None
+
+    def get_object_trajectory(
+        self,
+        object_id: int,
+    ) -> list[Point3D]:
+        """객체의 궤적 조회."""
+        trajectory = []
+        for snapshot in self.snapshots:
+            obj = snapshot.scene.get_object(object_id)
+            if obj and obj.position:
+                trajectory.append(obj.position)
+        return trajectory
+
+
+@dataclass
+class SceneMetadata:
+    """
+    씬 메타데이터.
+
+    씬 생성에 대한 메타데이터입니다.
+
+    Attributes:
+        camera_count: 카메라 수
+        fps: 프레임 레이트
+        resolution: 해상도 (너비, 높이)
+        calibration_quality: 캘리브레이션 품질
+        fusion_method: 융합 방법
+        created_at: 생성 시간
+        processing_time_total_ms: 총 처리 시간
+    """
+
+    camera_count: int = 0
+    fps: float = 30.0
+    resolution: tuple[int, int] = (1920, 1080)
+    calibration_quality: float = 0.0
+    fusion_method: str = "triangulation"
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    processing_time_total_ms: float = 0.0
+
+    @property
+    def aspect_ratio(self) -> float:
+        """종횡비."""
+        if self.resolution[1] == 0:
+            return 0.0
+        return self.resolution[0] / self.resolution[1]
+
+
+# =============================================================================
+# 모듈 Export 정의 (PHASE_01 정의서 준수)
+# =============================================================================
+
+__all__ = [
+    # Enum
+    "SceneStatus",
+    "ObjectCategory",
+
+    # 데이터 클래스
+    "SceneObject",
+    "CourtModel",
+    "HoopModel",
+    "Scene3D",
+    "SceneSnapshot",
+    "SceneTimeline",
+    "SceneMetadata",
+]
+
+# 모듈 버전 정보
+__version__ = "1.0.0"
