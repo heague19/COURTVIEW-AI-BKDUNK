@@ -4,10 +4,11 @@ COURTVIEW - AI 농구 분석 플랫폼
 
 모듈: core_foundation/registry
 파일: rule_set_manager.py
+버전: 1.0.0
 설명: 7개 리그 규칙 세트 로딩/캐싱 - FIBA, NBA, KBL, NBL, NCAA, B.League, PBA 심판 규정 관리
 
 작성자: SPOIN_COURTVIEW
-최종 수정: 2026-02-16
+최종 수정: 2026-03-12
 
 주요 기능:
     - 7개 리그 규칙 세트 관리 (FIBA, NBA, KBL, NBL, NCAA, B.League, PBA)
@@ -60,11 +61,9 @@ import yaml
 # ============================================================
 # shared 임포트
 # ============================================================
-from shared.constants.error_codes import ErrorCode
 from shared.exceptions.validation_exceptions import (
     RuleSetNotFoundException,
     RuleSetValidationException,
-    RuleSetVersionMismatchException,
 )
 
 # ============================================================
@@ -291,7 +290,7 @@ PERSONAL_FOUL_LIMIT: dict[League, int] = {
 # ============================================================
 # 데이터 클래스
 # ============================================================
-@dataclass
+@dataclass(slots=True)
 class RuleCondition:
     """
     규칙 조건.
@@ -341,7 +340,7 @@ class RuleCondition:
             return False
 
 
-@dataclass
+@dataclass(slots=True)
 class Penalty:
     """
     패널티 정의.
@@ -377,7 +376,7 @@ class Penalty:
         return result
 
 
-@dataclass
+@dataclass(slots=True)
 class Rule:
     """
     개별 규칙.
@@ -462,7 +461,7 @@ class Rule:
         }
 
 
-@dataclass
+@dataclass(slots=True)
 class RuleSetMetadata:
     """
     규칙 세트 메타데이터.
@@ -495,7 +494,7 @@ class RuleSetMetadata:
         return elapsed > ttl_seconds
 
 
-@dataclass
+@dataclass(slots=True)
 class RuleSet:
     """
     규칙 세트.
@@ -577,7 +576,7 @@ class RuleSet:
         }
 
 
-@dataclass
+@dataclass(slots=True)
 class LeagueConfig:
     """
     리그별 설정.
@@ -710,6 +709,17 @@ class RuleSetManager:
                 "cache_ttl": self._cache_ttl,
                 "supported_leagues": list(SUPPORTED_LEAGUES),
             },
+        )
+
+    def __repr__(self) -> str:
+        """RuleSetManager 인스턴스 표현."""
+        with self._lock:
+            cached = len(self._cache)
+            builtin = sum(len(r) for r in self._builtin_rules.values())
+        return (
+            f"RuleSetManager(cached={cached}, "
+            f"builtin_rules={builtin}, "
+            f"cache_ttl={self._cache_ttl}s)"
         )
 
     def _initialize_builtin_rules(self) -> None:

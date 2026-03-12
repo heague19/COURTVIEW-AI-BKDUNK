@@ -4,10 +4,11 @@ COURTVIEW - AI 농구 분석 플랫폼
 
 모듈: core_foundation/registry
 파일: model_registry.py
+버전: 1.0.0
 설명: AI 모델 등록, 버전 관리, 로드/언로드 - 엔터프라이즈급 모델 레지스트리
 
 작성자: SPOIN_COURTVIEW
-최종 수정: 2026-02-16
+최종 수정: 2026-03-12
 
 주요 기능:
     - AI 모델 등록 및 메타데이터 관리
@@ -26,30 +27,19 @@ from __future__ import annotations
 import logging
 import os
 import threading
-import time
 import hashlib
-import weakref
 from collections import OrderedDict
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from enum import Enum, auto
+from enum import Enum
 from pathlib import Path
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Callable,
-    Generic,
-    Iterator,
-    Protocol,
-    TypeVar,
-    runtime_checkable,
-)
+from typing import TYPE_CHECKING, Any, Generic, Iterator, Protocol, TypeVar, runtime_checkable
 
 # ============================================================
 # utils 임포트
 # ============================================================
-from utils.time_utils import get_current_timestamp, Timer
+from utils.time_utils import Timer
 
 # ============================================================
 # core_foundation 내부 임포트 (Direct Import)
@@ -251,7 +241,7 @@ ModelT = TypeVar("ModelT", bound=IModel)
 # ============================================================
 # 데이터 클래스
 # ============================================================
-@dataclass
+@dataclass(slots=True)
 class ModelVersion:
     """
     모델 버전 정보.
@@ -340,7 +330,7 @@ class ModelVersion:
         }
 
 
-@dataclass
+@dataclass(slots=True)
 class ModelMetrics:
     """
     모델 성능 메트릭.
@@ -489,7 +479,7 @@ class ModelMetrics:
         }
 
 
-@dataclass
+@dataclass(slots=True)
 class ModelConfig:
     """
     모델 설정.
@@ -554,7 +544,7 @@ class ModelConfig:
         }
 
 
-@dataclass
+@dataclass(slots=True)
 class ModelInfo:
     """
     모델 정보.
@@ -649,7 +639,7 @@ class ModelInfo:
         }
 
 
-@dataclass
+@dataclass(slots=True)
 class LoadedModel(Generic[ModelT]):
     """
     로드된 모델 래퍼.
@@ -843,6 +833,17 @@ class ModelRegistry:
         logger.info(
             f"ModelRegistry 초기화 완료: max_models={max_models}, "
             f"auto_unload={enable_auto_unload}"
+        )
+
+    def __repr__(self) -> str:
+        """ModelRegistry 인스턴스 표현."""
+        with self._lock:
+            total = len(self._models)
+            loaded = len(self._loaded_models)
+        return (
+            f"ModelRegistry(models={total}/{self._max_models}, "
+            f"loaded={loaded}, "
+            f"auto_unload={self._enable_auto_unload})"
         )
 
     def _load_config(self) -> None:

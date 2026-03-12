@@ -7,7 +7,8 @@ COURTVIEW - AI 농구 분석 플랫폼
 설명: 시스템 및 로컬 의존성 헬스 체크 - Desktop Edition
 
 작성자: SPOIN_COURTVIEW
-최종 수정: 2026-02-16
+최종 수정: 2026-03-11
+버전: 1.0.0
 
 주요 기능:
     - 시스템 리소스 헬스 체크 (CPU, 메모리, 디스크)
@@ -56,7 +57,6 @@ from __future__ import annotations
 # ============================================================
 import asyncio
 import logging
-import os
 import platform
 import socket
 import threading
@@ -66,11 +66,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeou
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import (
-    Any,
-    Callable,
-    Coroutine,
-)
+from typing import Any, Callable, Coroutine
 
 # ============================================================
 # 서드파티 (선택적)
@@ -233,7 +229,7 @@ class DependencyType(Enum):
 # ============================================================
 # 데이터 클래스 정의
 # ============================================================
-@dataclass
+@dataclass(slots=True)
 class HealthCheckResult:
     """
     헬스 체크 결과.
@@ -350,7 +346,7 @@ class HealthCheckResult:
         )
 
 
-@dataclass
+@dataclass(slots=True)
 class DependencyHealth:
     """
     의존성 헬스 상태.
@@ -434,7 +430,7 @@ class DependencyHealth:
         }
 
 
-@dataclass
+@dataclass(slots=True)
 class SystemHealth:
     """
     시스템 전체 헬스 상태.
@@ -493,7 +489,7 @@ class SystemHealth:
         return self.overall_status in (HealthStatus.HEALTHY, HealthStatus.DEGRADED)
 
 
-@dataclass
+@dataclass(slots=True)
 class HealthCheckConfig:
     """
     헬스 체크 설정.
@@ -868,12 +864,12 @@ def check_tcp_port(
         HealthCheckResult
     """
     start_time = time.perf_counter()
+    sock: socket.socket | None = None
 
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(timeout)
         result = sock.connect_ex((host, port))
-        sock.close()
 
         elapsed_ms = (time.perf_counter() - start_time) * 1000
 
@@ -914,6 +910,13 @@ def check_tcp_port(
             message=f"Failed to check {host}:{port}",
             error=str(e),
         )
+
+    finally:
+        if sock is not None:
+            try:
+                sock.close()
+            except OSError:
+                pass
 
 
 # ============================================================
@@ -1267,6 +1270,14 @@ class HealthChecker:
         logger.info(
             f"HealthChecker 초기화 완료: enabled={self._enabled}, "
             f"timeout={self._default_timeout}s, interval={self._default_interval}s"
+        )
+
+    def __repr__(self) -> str:
+        """문자열 표현."""
+        return (
+            f"HealthChecker(enabled={self._enabled}, "
+            f"checks={len(self._checks)}, "
+            f"timeout={self._default_timeout}s)"
         )
 
     def _load_yaml_config(self) -> dict[str, Any]:

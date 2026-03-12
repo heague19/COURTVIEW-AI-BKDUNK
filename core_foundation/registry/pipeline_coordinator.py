@@ -4,10 +4,11 @@ COURTVIEW - AI 농구 분석 플랫폼
 
 모듈: core_foundation/registry
 파일: pipeline_coordinator.py
+버전: 1.0.0
 설명: 파이프라인 실행 조율, 단계 관리 - 엔터프라이즈급 분석 파이프라인 시스템
 
 작성자: SPOIN_COURTVIEW
-최종 수정: 2026-02-16
+최종 수정: 2026-03-12
 
 주요 기능:
     - 분석 파이프라인 실행 조율
@@ -31,21 +32,12 @@ import json
 import logging
 import os
 import threading
-import time
 import uuid
-from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    AsyncIterator,
-    Callable,
-    Coroutine,
-    TypeVar,
-)
+from typing import TYPE_CHECKING, Any, Callable, Coroutine, TypeVar
 
 # ============================================================
 # shared 임포트
@@ -53,11 +45,6 @@ from typing import (
 from shared.constants.error_codes import ErrorCode
 from shared.constants.status_codes import AnalysisPhase
 from shared.exceptions.analysis_exceptions import AnalysisException
-
-# ============================================================
-# utils 임포트
-# ============================================================
-from utils.time_utils import get_current_timestamp
 
 # ============================================================
 # core_foundation 내부 임포트
@@ -599,7 +586,7 @@ class PipelineConfigError(PipelineException):
 # ============================================================
 # 데이터 클래스
 # ============================================================
-@dataclass
+@dataclass(slots=True)
 class StageConfig:
     """
     스테이지 설정.
@@ -634,7 +621,7 @@ class StageConfig:
         }
 
 
-@dataclass
+@dataclass(slots=True)
 class StageResult:
     """
     스테이지 결과.
@@ -683,7 +670,7 @@ class StageResult:
         }
 
 
-@dataclass
+@dataclass(slots=True)
 class PipelineConfig:
     """
     파이프라인 설정.
@@ -733,7 +720,7 @@ class PipelineConfig:
         }
 
 
-@dataclass
+@dataclass(slots=True)
 class PipelineProgress:
     """
     파이프라인 진행 상태.
@@ -814,7 +801,7 @@ class PipelineProgress:
         }
 
 
-@dataclass
+@dataclass(slots=True)
 class CheckpointData:
     """
     체크포인트 데이터.
@@ -869,7 +856,7 @@ class CheckpointData:
         )
 
 
-@dataclass
+@dataclass(slots=True)
 class PipelineContext:
     """
     파이프라인 컨텍스트.
@@ -1172,6 +1159,17 @@ class PipelineCoordinator:
             f"(max_concurrent={max_concurrent}, "
             f"parallelism={self._config_provider.parallelism_enabled}, "
             f"checkpointing={self._config_provider.checkpointing_enabled})"
+        )
+
+    def __repr__(self) -> str:
+        """PipelineCoordinator 인스턴스 표현."""
+        with self._lock:
+            active = len(self._active_pipelines)
+            handlers = len(self._stage_handlers)
+        return (
+            f"PipelineCoordinator(active={active}, "
+            f"handlers={handlers}, "
+            f"parallelism={self._config_provider.parallelism_enabled})"
         )
 
     def _setup_default_handlers(self) -> None:

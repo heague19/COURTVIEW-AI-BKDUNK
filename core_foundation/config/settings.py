@@ -7,7 +7,8 @@ COURTVIEW - AI 농구 분석 플랫폼 (Desktop Edition)
 설명: 전역 설정 관리 (Singleton) - 타입 안전한 설정 접근 레이어
 
 작성자: SPOIN_COURTVIEW
-최종 수정: 2026-02-16
+최종 수정: 2026-03-10
+버전: 1.0.0
 
 주요 기능:
     - ConfigLoader(YAML 로드) + SchemaValidator(검증)를 결합한 상위 레이어
@@ -46,16 +47,18 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum, auto
 from pathlib import Path
-from typing import (
-    Any,
-    Callable,
-    Type,
-    TypeVar,
-)
+from typing import Any, Callable, TypeVar
 
 # =============================================================================
-# 프로젝트 모듈 (core_foundation)
+# 서드파티 라이브러리 (Third-party)
 # =============================================================================
+from pydantic import ValidationError
+
+# =============================================================================
+# 프로젝트 모듈 (shared → core_foundation)
+# =============================================================================
+from shared.exceptions.validation_exceptions import ConfigurationException
+
 from core_foundation.config.loader import ConfigLoader
 from core_foundation.config.validator import (
     AppConfig,
@@ -79,6 +82,12 @@ logger = logging.getLogger(__name__)
 # 타입 변수
 # =============================================================================
 T = TypeVar("T")
+
+# =============================================================================
+# 상수 정의
+# =============================================================================
+_MAX_LISTENERS: int = 64             # 변경 리스너 최대 등록 수
+_MAX_NESTING_DEPTH: int = 32         # diff 재귀 최대 깊이
 
 
 # =============================================================================
@@ -113,7 +122,7 @@ class Environment(Enum):
 # =============================================================================
 # 데이터 클래스
 # =============================================================================
-@dataclass
+@dataclass(slots=True)
 class SettingsMetadata:
     """
     설정 메타데이터.
@@ -202,24 +211,27 @@ class Settings:
         >>> print(settings.is_gpu_available)          # True
     """
 
-    # 싱글톤 인스턴스
-    _instance: "Settings" | None = None
+    # 싱글톤 인스턴스 + 초기화 보호 lock
+    _instance: Settings | None = None
     _lock: threading.Lock = threading.Lock()
+    # 직접 생성 차단용 내부 토큰 (get_instance()에서만 전달)
+    _INTERNAL_TOKEN: object = object()
 
-    def __new__(cls) -> "Settings":
-        """싱글톤 인스턴스 생성."""
-        if cls._instance is None:
-            with cls._lock:
-                if cls._instance is None:
-                    cls._instance = super().__new__(cls)
-                    cls._instance._initialized = False
-        return cls._instance
+    def __new__(cls, *, _token: object = None) -> Settings:
+        """직접 생성 차단 — get_instance() 또는 initialize()를 사용하세요."""
+        if _token is not cls._INTERNAL_TOKEN:
+            raise TypeError(
+                "Settings()를 직접 호출할 수 없습니다. "
+                "Settings.get_instance() 또는 Settings.initialize()를 사용하세요."
+            )
+        return super().__new__(cls)
 
-    def __init__(self) -> None:
-        """초기화."""
-        if getattr(self, "_initialized", False):
-            return
+    def __init__(self, *, _token: object = None) -> None:
+        """내부 초기화 — get_instance()에서 호출."""
+        pass
 
+    def _do_init(self) -> None:
+        """실제 초기화 로직 (get_instance의 lock 내에서 1회 호출)."""
         # 상태
         self._state: SettingsState = SettingsState.UNINITIALIZED
         self._state_lock = threading.RLock()
@@ -236,15 +248,13 @@ class Settings:
         # 메타데이터
         self._metadata: SettingsMetadata = SettingsMetadata()
 
-        # 변경 리스너
+        # 변경 리스너 (id 기반 O(1) 중복 체크)
         self._change_listeners: list[Callable[[AppConfig, AppConfig], None]] = []
+        self._listener_ids: set[int] = set()
         self._listeners_lock = threading.Lock()
 
         # 설정 스냅샷 (이전 설정 보관)
         self._previous_config: AppConfig | None = None
-
-        # 초기화 완료
-        self._initialized = True
 
         logger.debug("Settings 인스턴스 생성됨 (미로드 상태)")
 
@@ -252,9 +262,12 @@ class Settings:
     # 클래스 메서드 (초기화/접근)
     # --------------------------------------------------------
     @classmethod
-    def get_instance(cls) -> "Settings":
+    def get_instance(cls) -> Settings:
         """
         싱글톤 인스턴스 반환.
+
+        free-threaded Python 대비: lock 내에서 생성 + 초기화를 원자적으로 수행.
+        __new__ + __init__ DCL 패턴의 경쟁 조건을 완전히 제거합니다.
 
         Returns:
             Settings 인스턴스
@@ -264,7 +277,14 @@ class Settings:
             초기화 전에도 인스턴스는 반환되지만, config 접근 시
             기본값(AppConfig 기본 생성자)이 사용됩니다.
         """
-        return cls()
+        if cls._instance is not None:
+            return cls._instance
+        with cls._lock:
+            if cls._instance is None:
+                inst = cls.__new__(cls, _token=cls._INTERNAL_TOKEN)
+                inst._do_init()
+                cls._instance = inst
+        return cls._instance
 
     @classmethod
     def initialize(
@@ -292,7 +312,7 @@ class Settings:
         Raises:
             ConfigurationException: 설정 로드 또는 검증 실패 시
         """
-        instance = cls()
+        instance = cls.get_instance()
         instance._load_config(config_path, config_dir, validate)
         return instance
 
@@ -309,6 +329,8 @@ class Settings:
                 cls._instance._config = None
                 cls._instance._raw_config = {}
                 cls._instance._previous_config = None
+                cls._instance._change_listeners = []
+                cls._instance._listener_ids = set()
                 cls._instance._metadata = SettingsMetadata()
             cls._instance = None
 
@@ -349,35 +371,41 @@ class Settings:
                 logger.warning(f"설정 파일 없음, 기본값 사용: {config_path}")
 
             # 로드된 딕셔너리 가져오기
-            self._raw_config = self._loader.to_dict()
+            raw_config = self._loader.to_dict()
 
             # Pydantic 검증 및 AppConfig 생성
-            if validate and self._raw_config:
+            new_config: AppConfig
+            if validate and raw_config:
                 validation_result = self._validator.validate(
-                    self._raw_config, AppConfig
+                    raw_config, AppConfig
                 )
 
                 if validation_result.is_valid:
-                    self._config = validation_result.data
+                    new_config = validation_result.data
                 else:
                     # 검증 실패 시 경고 후 기본값 사용
                     error_msgs = [e.message for e in validation_result.errors[:5]]
                     logger.warning(
                         f"설정 검증 실패, 기본값 사용: {'; '.join(error_msgs)}"
                     )
-                    self._config = AppConfig()
+                    new_config = AppConfig()
             else:
                 # 검증 건너뛰기 또는 빈 설정 → 기본값
-                if self._raw_config:
+                if raw_config:
                     try:
-                        self._config = AppConfig.model_validate(self._raw_config)
-                    except Exception as e:
+                        new_config = AppConfig.model_validate(raw_config)
+                    except (ValidationError, ValueError, TypeError) as e:
                         logger.warning(
                             f"설정 검증 실패 (model_validate), 기본값 사용: {e}"
                         )
-                        self._config = AppConfig()
+                        new_config = AppConfig()
                 else:
-                    self._config = AppConfig()
+                    new_config = AppConfig()
+
+            # config_lock 내에서 원자적으로 갱신
+            with self._config_lock:
+                self._raw_config = raw_config
+                self._config = new_config
 
             # 메타데이터 업데이트
             self._metadata.mark_loaded(
@@ -400,11 +428,16 @@ class Settings:
                 self._state = SettingsState.ERROR
 
             # 오류 시에도 기본값으로 동작 가능하도록
-            if self._config is None:
-                self._config = AppConfig()
+            with self._config_lock:
+                if self._config is None:
+                    self._config = AppConfig()
 
             logger.error(f"설정 로드 실패: {e}")
-            raise
+            raise ConfigurationException(
+                message=f"설정 로드 실패: {e}",
+                config_file=str(config_path),
+                cause=e,
+            ) from e
 
     def reload(self, config_path: str | Path | None = None) -> bool:
         """
@@ -425,25 +458,32 @@ class Settings:
             self._state = SettingsState.RELOADING
 
         try:
-            # 이전 설정 보관
-            self._previous_config = deepcopy(self._config)
+            # 이전 설정 보관 (lock 내에서 읽기)
+            with self._config_lock:
+                self._previous_config = deepcopy(self._config)
 
             # 재로드
             self._load_config(Path(path), config_dir=None, validate=True)
             self._metadata.mark_reloaded()
 
-            # 변경 리스너 호출
-            if self._previous_config and self._config:
-                self._notify_change_listeners(self._previous_config, self._config)
+            # 변경 리스너 호출 (lock 내에서 참조 획득)
+            with self._config_lock:
+                prev = self._previous_config
+                curr = self._config
+
+            if prev and curr:
+                self._notify_change_listeners(prev, curr)
 
             logger.info(f"설정 재로드 완료: {path}")
             return True
 
         except Exception as e:
-            # 실패 시 이전 설정 복원
-            if self._previous_config:
-                self._config = self._previous_config
-                logger.warning(f"설정 재로드 실패, 이전 설정 복원: {e}")
+            # 실패 시 이전 설정 복원 (lock 내에서 쓰기)
+            with self._config_lock:
+                if self._previous_config:
+                    self._config = self._previous_config
+
+            logger.warning(f"설정 재로드 실패, 이전 설정 복원: {e}")
 
             with self._state_lock:
                 self._state = SettingsState.READY
@@ -536,8 +576,8 @@ class Settings:
 
     @property
     def metadata(self) -> SettingsMetadata:
-        """메타데이터."""
-        return self._metadata
+        """메타데이터 (방어적 복사)."""
+        return deepcopy(self._metadata)
 
     # --------------------------------------------------------
     # Desktop 전용 편의 프로퍼티
@@ -600,7 +640,7 @@ class Settings:
         """
         return self._loader.get(key, default)
 
-    def get_typed(self, key: str, default: T = None, value_type: Type[T] = None) -> T:
+    def get_typed(self, key: str, default: T | None = None, value_type: type[T] | None = None) -> T | None:
         """
         타입 변환 포함 설정 접근.
 
@@ -643,16 +683,25 @@ class Settings:
             >>> settings.on_change(on_settings_change)
         """
         with self._listeners_lock:
-            if listener not in self._change_listeners:
+            lid = id(listener)
+            if lid not in self._listener_ids:
+                if len(self._change_listeners) >= _MAX_LISTENERS:
+                    logger.warning(
+                        f"리스너 최대 등록 수({_MAX_LISTENERS}) 초과, 등록 거부"
+                    )
+                    return
                 self._change_listeners.append(listener)
+                self._listener_ids.add(lid)
 
     def off_change(
         self, listener: Callable[[AppConfig, AppConfig], None]
     ) -> None:
         """설정 변경 리스너 해제."""
         with self._listeners_lock:
-            if listener in self._change_listeners:
+            lid = id(listener)
+            if lid in self._listener_ids:
                 self._change_listeners.remove(listener)
+                self._listener_ids.discard(lid)
 
     def _notify_change_listeners(
         self, old_config: AppConfig, new_config: AppConfig
@@ -678,7 +727,8 @@ class Settings:
         Returns:
             현재 설정의 딥 카피 딕셔너리
         """
-        return deepcopy(self.to_dict())
+        # model_dump()는 이미 새 dict를 생성하므로 deepcopy 불필요
+        return self.to_dict()
 
     def diff(self, other: dict[str, Any]) -> dict[str, Any]:
         """
@@ -698,8 +748,12 @@ class Settings:
         dict_a: dict[str, Any],
         dict_b: dict[str, Any],
         prefix: str = "",
+        _depth: int = 0,
     ) -> dict[str, Any]:
-        """재귀적 차이점 탐색."""
+        """재귀적 차이점 탐색 (깊이 제한 적용)."""
+        if _depth >= _MAX_NESTING_DEPTH:
+            return {}
+
         diff = {}
         all_keys = set(dict_a.keys()) | set(dict_b.keys())
 
@@ -710,7 +764,9 @@ class Settings:
 
             if val_a != val_b:
                 if isinstance(val_a, dict) and isinstance(val_b, dict):
-                    nested = self._find_diff(val_a, val_b, full_key)
+                    nested = self._find_diff(
+                        val_a, val_b, full_key, _depth + 1
+                    )
                     diff.update(nested)
                 else:
                     diff[full_key] = {"old": val_a, "new": val_b}

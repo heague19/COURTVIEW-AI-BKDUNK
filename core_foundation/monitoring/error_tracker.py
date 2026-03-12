@@ -7,7 +7,8 @@ COURTVIEW Desktop - AI 농구 분석 플랫폼
 설명: 에러 추적, 집계, 통계 분석 - 시스템 에러 모니터링 (Desktop Edition)
 
 작성자: SPOIN_COURTVIEW
-최종 수정: 2026-02-16
+최종 수정: 2026-03-11
+버전: 1.0.0
 
 주요 기능:
     - 에러 기록 및 추적
@@ -55,9 +56,7 @@ from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
 from enum import Enum
-from typing import (
-    Any,
-)
+from typing import Any
 
 # ============================================================
 # shared 임포트
@@ -289,7 +288,7 @@ class TrackingCategory(Enum):
 # ============================================================
 # 데이터 클래스
 # ============================================================
-@dataclass
+@dataclass(slots=True)
 class ErrorContext:
     """
     에러 발생 컨텍스트.
@@ -345,24 +344,24 @@ class ErrorContext:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ErrorContext:
-        """딕셔너리에서 생성."""
-        extra = data.pop("extra", {})
+        """딕셔너리에서 생성 (원본 dict 변형 없음)."""
         known_keys = {
             "request_id", "user_id", "session_id", "analysis_id",
             "video_id", "endpoint", "method", "ip_address", "user_agent"
         }
 
-        # 알려진 키 분리
+        # 알려진 키 분리 (원본 보존)
         known = {k: v for k, v in data.items() if k in known_keys}
-        unknown = {k: v for k, v in data.items() if k not in known_keys}
+        unknown = {k: v for k, v in data.items() if k not in known_keys and k != "extra"}
 
-        # extra에 unknown 병합
+        # extra 병합 (원본 dict 변형 방지 — 복사본 사용)
+        extra = dict(data.get("extra", {}))
         extra.update(unknown)
 
         return cls(**known, extra=extra)
 
 
-@dataclass
+@dataclass(slots=True)
 class ErrorRecord:
     """
     에러 기록.
@@ -527,7 +526,7 @@ class ErrorRecord:
         )
 
 
-@dataclass
+@dataclass(slots=True)
 class ErrorSummary:
     """
     에러 요약.
@@ -574,7 +573,7 @@ class ErrorSummary:
         }
 
 
-@dataclass
+@dataclass(slots=True)
 class ErrorTrend:
     """
     에러 추세.
@@ -752,6 +751,14 @@ class ErrorTracker:
         logger.info(
             f"ErrorTracker 초기화 완료 "
             f"(max_records={max_records}, enabled={enabled})"
+        )
+
+    def __repr__(self) -> str:
+        """문자열 표현."""
+        return (
+            f"ErrorTracker(enabled={self._enabled}, "
+            f"records={len(self._records)}/{self._max_records}, "
+            f"unique={len(self._error_hashes)})"
         )
 
     # --------------------------------------------------------

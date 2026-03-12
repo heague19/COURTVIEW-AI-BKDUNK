@@ -7,7 +7,8 @@ COURTVIEW Desktop - AI 농구 분석 플랫폼
 설명: Loguru 기반 중앙 로깅 시스템 (Desktop Edition)
 
 작성자: SPOIN_COURTVIEW
-최종 수정: 2026-02-16
+버전: 1.0.0
+최종 수정: 2026-03-11
 
 주요 기능:
     - Loguru 기반 구조화 로깅 (JSON 지원)
@@ -58,18 +59,13 @@ from __future__ import annotations
 # ============================================================
 import atexit
 import logging
-import os
-import platform
 import re
 import sys
 import threading
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import (
-    Any,
-    Callable,
-)
+from typing import Any, Callable
 
 # ============================================================
 # 선택적 임포트: Loguru
@@ -231,7 +227,7 @@ class LogLevel(Enum):
 # ============================================================
 # 데이터 클래스
 # ============================================================
-@dataclass
+@dataclass(slots=True)
 class SinkConfig:
     """
     로그 싱크(출력 대상) 설정.
@@ -263,7 +259,7 @@ class SinkConfig:
     filter_func: Callable | None = None
 
 
-@dataclass
+@dataclass(slots=True)
 class LoggingConfig:
     """
     로깅 전체 설정.
@@ -477,6 +473,14 @@ class LogManager:
     def initialized(self) -> bool:
         """초기화 완료 여부."""
         return self._initialized
+
+    def __repr__(self) -> str:
+        """LogManager 인스턴스 표현."""
+        return (
+            f"LogManager(initialized={self._initialized}, "
+            f"level={self._config.level!r}, "
+            f"sinks={list(self._sink_ids.keys())})"
+        )
 
     @property
     def config(self) -> LoggingConfig:

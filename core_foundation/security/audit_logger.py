@@ -7,7 +7,8 @@ COURTVIEW - AI 농구 분석 플랫폼
 설명: 감사 로그 기록 - 보안 이벤트, 접근 기록, 변조 방지
 
 작성자: SPOIN_COURTVIEW
-최종 수정: 2026-02-16
+버전: 1.0.0
+최종 수정: 2026-03-12
 
 주요 기능:
     - 감사 이벤트 기록 (인증, 권한, 데이터 접근, 설정 변경, 시스템, 보안)
@@ -69,18 +70,14 @@ import os
 import gzip
 import hashlib
 import threading
-import queue
 import uuid
 from abc import ABC, abstractmethod
 from collections import deque
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
-from enum import Enum, auto, unique
+from enum import Enum, unique
 from pathlib import Path
-from typing import (
-    TYPE_CHECKING,
-    Any,
-)
+from typing import TYPE_CHECKING, Any
 
 # ============================================================
 # shared 임포트
@@ -295,7 +292,7 @@ EVENT_DEFAULT_SEVERITY: dict[str, AuditSeverity] = {
 # ============================================================
 # 감사 이벤트 데이터클래스
 # ============================================================
-@dataclass
+@dataclass(slots=True)
 class AuditEvent:
     """
     감사 이벤트 데이터 클래스.
@@ -399,7 +396,7 @@ class AuditEvent:
 # ============================================================
 # 감사 로그 항목 데이터클래스
 # ============================================================
-@dataclass
+@dataclass(slots=True)
 class AuditLogEntry:
     """
     감사 로그 항목 데이터 클래스.
@@ -2508,6 +2505,18 @@ class AuditLogger:
         self._start_flush_thread()
 
         logger.info("감사 로거 초기화 완료")
+
+    def __repr__(self) -> str:
+        """AuditLogger 인스턴스 표현."""
+        with self._lock:
+            storages = len(self._storages)
+            alerts = len(self._alert_handlers)
+            seq = self._sequence_number
+        return (
+            f"AuditLogger(storages={storages}, "
+            f"alerts={alerts}, "
+            f"sequence={seq})"
+        )
 
     def _load_config(self) -> dict[str, Any]:
         """설정 로드."""

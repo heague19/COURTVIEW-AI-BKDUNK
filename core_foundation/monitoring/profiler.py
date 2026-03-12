@@ -7,7 +7,8 @@ COURTVIEW - AI 농구 분석 플랫폼
 설명: 성능 프로파일링 (CPU, 메모리, GPU, 함수 실행 시간) - Desktop Edition
 
 작성자: SPOIN_COURTVIEW
-최종 수정: 2026-02-16
+버전: 1.0.0
+최종 수정: 2026-03-11
 
 주요 기능:
     - CPU 프로파일링 (cProfile 기반)
@@ -65,12 +66,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from functools import wraps
-from typing import (
-    Any,
-    Callable,
-    Generator,
-    TypeVar,
-)
+from typing import Any, Callable, Generator, TypeVar
 import time
 
 # ============================================================
@@ -200,7 +196,7 @@ class ResourceType(Enum):
 # ============================================================
 # 데이터 클래스
 # ============================================================
-@dataclass
+@dataclass(slots=True)
 class MemorySnapshot:
     """
     메모리 스냅샷.
@@ -245,7 +241,7 @@ class MemorySnapshot:
         return self.current_mb >= MEMORY_WARNING_MB
 
 
-@dataclass
+@dataclass(slots=True)
 class CPUSnapshot:
     """
     CPU 스냅샷.
@@ -286,7 +282,7 @@ class CPUSnapshot:
         }
 
 
-@dataclass
+@dataclass(slots=True)
 class GPUSnapshot:
     """
     GPU 스냅샷.
@@ -333,7 +329,7 @@ class GPUSnapshot:
         }
 
 
-@dataclass
+@dataclass(slots=True)
 class FunctionProfile:
     """
     함수 프로파일.
@@ -397,7 +393,7 @@ class FunctionProfile:
         return self.average_time_ms > threshold_ms
 
 
-@dataclass
+@dataclass(slots=True)
 class ProfileResult:
     """
     프로파일 결과.
@@ -1157,6 +1153,17 @@ class PerformanceProfiler:
                 # 시간 정보
                 "created_at": self._created_at.isoformat(),
             }
+
+    def __repr__(self) -> str:
+        """PerformanceProfiler 인스턴스 표현."""
+        with self._lock:
+            profiles_count = len(self._profiles)
+            func_count = len(self._function_profiles)
+        return (
+            f"PerformanceProfiler(enabled={self._enabled}, "
+            f"profiles={profiles_count}/{self._max_profiles}, "
+            f"functions={func_count})"
+        )
 
     @property
     def enabled(self) -> bool:

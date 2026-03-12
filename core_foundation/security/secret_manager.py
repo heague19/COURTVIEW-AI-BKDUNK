@@ -7,7 +7,8 @@ COURTVIEW - AI 농구 분석 플랫폼
 설명: 시크릿 관리 - AWS Secrets Manager, 환경변수, Vault 연동
 
 작성자: SPOIN_COURTVIEW
-최종 수정: 2026-02-16
+버전: 1.0.0
+최종 수정: 2026-03-12
 
 주요 기능:
     - 다중 시크릿 제공자 지원 (AWS Secrets Manager, Vault, 환경변수, 파일)
@@ -62,11 +63,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
 from enum import Enum, auto
 from pathlib import Path
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Callable,
-)
+from typing import TYPE_CHECKING, Any, Callable
 
 # ============================================================
 # 서드파티 (조건부 임포트)
@@ -300,7 +297,7 @@ class SecretProviderException(SecretException):
 # ============================================================
 # 데이터 클래스
 # ============================================================
-@dataclass
+@dataclass(slots=True)
 class SecretVersion:
     """
     시크릿 버전 정보.
@@ -325,7 +322,7 @@ class SecretVersion:
             self.created_at = datetime.now(timezone.utc)
 
 
-@dataclass
+@dataclass(slots=True)
 class SecretInfo:
     """
     시크릿 정보.
@@ -391,7 +388,7 @@ class SecretInfo:
         }
 
 
-@dataclass
+@dataclass(slots=True)
 class CachedSecret:
     """
     캐시된 시크릿.
@@ -447,7 +444,7 @@ class CachedSecret:
         return elapsed >= (total_ttl * threshold)
 
 
-@dataclass
+@dataclass(slots=True)
 class SecretValidationRule:
     """
     시크릿 유효성 검증 규칙.
@@ -1184,6 +1181,18 @@ class SecretManager:
         self._init_providers()
 
         logger.info("SecretManager 초기화 완료")
+
+    def __repr__(self) -> str:
+        """SecretManager 인스턴스 표현."""
+        with self._lock:
+            providers = len(self._providers)
+            cached = len(self._cache)
+            rules = len(self._validation_rules)
+        return (
+            f"SecretManager(providers={providers}, "
+            f"cached={cached}, "
+            f"rules={rules})"
+        )
 
     def _load_config(self) -> dict[str, Any]:
         """
@@ -1942,7 +1951,7 @@ class SecretEncryption:
 # ============================================================
 # 시크릿 로테이션 스케줄러
 # ============================================================
-@dataclass
+@dataclass(slots=True)
 class RotationSchedule:
     """시크릿 로테이션 스케줄."""
 

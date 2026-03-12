@@ -7,7 +7,8 @@ COURTVIEW - AI 농구 분석 플랫폼 (Desktop Edition)
 설명: 설정 스키마 검증, Pydantic 기반 유효성 검사
 
 작성자: SPOIN_COURTVIEW
-최종 수정: 2026-02-16
+최종 수정: 2026-03-10
+버전: 1.0.0
 
 주요 기능:
     - Pydantic 기반 설정 스키마 정의
@@ -39,12 +40,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import (
-    Any,
-    Generic,
-    Type,
-    TypeVar,
-)
+from typing import Any, Generic, TypeVar
 
 # =============================================================================
 # 서드파티 라이브러리 (Third-party)
@@ -71,7 +67,13 @@ logger = logging.getLogger(__name__)
 # 타입 변수
 # =============================================================================
 T = TypeVar("T", bound=BaseModel)
-ConfigT = TypeVar("ConfigT", bound="BaseConfigModel")
+
+# =============================================================================
+# 사전 컴파일 정규식 패턴
+# =============================================================================
+_DEVICE_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
+    re.compile(p) for p in (r"^cpu$", r"^cuda$", r"^cuda:\d+$", r"^mps$")
+)
 
 
 # =============================================================================
@@ -93,7 +95,7 @@ class ValidationStatus(Enum):
 # =============================================================================
 # 검증 결과 데이터 클래스
 # =============================================================================
-@dataclass
+@dataclass(slots=True)
 class ValidationErrorDetail:
     """
     단일 검증 오류.
@@ -120,7 +122,7 @@ class ValidationErrorDetail:
         }
 
 
-@dataclass
+@dataclass(slots=True)
 class ValidationResult(Generic[T]):
     """
     검증 결과.
@@ -176,6 +178,7 @@ class BaseConfigModel(BaseModel):
         "validate_default": True,       # 기본값도 검증
         "str_strip_whitespace": True,   # 문자열 공백 제거
         "frozen": False,                # 변경 가능
+        "populate_by_name": True,       # alias와 필드명 모두 허용
     }
 
 
@@ -495,7 +498,7 @@ class CameraConfig(BaseConfigModel):
         return v_lower
 
     @property
-    def resolution(self) -> tuple:
+    def resolution(self) -> tuple[int, int]:
         """해상도 튜플 반환 (width, height)."""
         return (self.resolution_width, self.resolution_height)
 
@@ -592,13 +595,7 @@ class ModelConfig(BaseConfigModel):
     @classmethod
     def validate_device(cls, v: str) -> str:
         """디바이스 검증."""
-        valid_patterns = [
-            r"^cpu$",
-            r"^cuda$",
-            r"^cuda:\d+$",
-            r"^mps$",
-        ]
-        if not any(re.match(pattern, v) for pattern in valid_patterns):
+        if not any(p.match(v) for p in _DEVICE_PATTERNS):
             raise ValueError(
                 f"유효하지 않은 디바이스: {v}. "
                 "cpu, cuda, cuda:0, mps 형식을 사용하세요."
@@ -819,7 +816,7 @@ class LoggingConfig(BaseConfigModel):
 
     Attributes:
         level: 로그 레벨
-        format: 로그 포맷
+        log_format: 로그 포맷
         output: 출력 방식 (console, file, both)
         file_path: 로그 파일 경로
         max_file_size_mb: 최대 로그 파일 크기
@@ -831,8 +828,9 @@ class LoggingConfig(BaseConfigModel):
         default="INFO",
         description="로그 레벨",
     )
-    format: str = Field(
+    log_format: str = Field(
         default="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        alias="format",
         description="로그 포맷",
     )
     output: str = Field(
@@ -1004,10 +1002,17 @@ class SchemaValidator:
             f"(strict={strict_mode}, coerce={coerce_types}, defaults={apply_defaults})"
         )
 
+    def __repr__(self) -> str:
+        """문자열 표현."""
+        return (
+            f"SchemaValidator(strict={self._strict_mode}, "
+            f"coerce={self._coerce_types}, defaults={self._apply_defaults})"
+        )
+
     def validate(
         self,
         data: dict[str, Any],
-        schema: Type[T],
+        schema: type[T],
         partial: bool = False,
     ) -> ValidationResult[T]:
         """
@@ -1021,6 +1026,10 @@ class SchemaValidator:
         Returns:
             검증 결과
         """
+        if not isinstance(data, dict):
+            raise TypeError(
+                f"data는 dict여야 합니다, 전달됨: {type(data).__name__}"
+            )
         schema_name = schema.__name__
 
         try:
@@ -1063,7 +1072,7 @@ class SchemaValidator:
     def validate_or_raise(
         self,
         data: dict[str, Any],
-        schema: Type[T],
+        schema: type[T],
     ) -> T:
         """
         데이터 검증 (실패 시 예외 발생).
@@ -1092,7 +1101,7 @@ class SchemaValidator:
     def validate_field(
         self,
         value: Any,
-        schema: Type[T],
+        schema: type[T],
         field_name: str,
     ) -> ValidationResult[Any]:
         """
@@ -1108,7 +1117,7 @@ class SchemaValidator:
         """
         return self.validate({field_name: value}, schema)
 
-    def get_schema_info(self, schema: Type[T]) -> dict[str, Any]:
+    def get_schema_info(self, schema: type[T]) -> dict[str, Any]:
         """
         스키마 정보 조회.
 
@@ -1122,12 +1131,12 @@ class SchemaValidator:
             "name": schema.__name__,
             "fields": {
                 name: {
-                    "type": str(field.annotation),
-                    "required": field.is_required(),
-                    "default": field.default if field.default is not None else None,
-                    "description": field.description,
+                    "type": str(field_info.annotation),
+                    "required": field_info.is_required(),
+                    "default": None if field_info.is_required() else field_info.default,
+                    "description": field_info.description,
                 }
-                for name, field in schema.model_fields.items()
+                for name, field_info in schema.model_fields.items()
             },
         }
 
@@ -1157,7 +1166,7 @@ class SchemaValidator:
 # =============================================================================
 def validate_config(
     data: dict[str, Any],
-    schema: Type[T],
+    schema: type[T],
     strict: bool = False,
 ) -> T:
     """
@@ -1183,7 +1192,7 @@ def validate_config(
     return validator.validate_or_raise(data, schema)
 
 
-def get_default_config(schema: Type[T]) -> T:
+def get_default_config(schema: type[T]) -> T:
     """
     기본 설정 생성 헬퍼 함수.
 

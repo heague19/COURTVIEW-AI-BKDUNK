@@ -7,7 +7,8 @@ COURTVIEW - AI 농구 분석 플랫폼
 설명: 설정 파일 변경 감지 및 자동 리로드
 
 작성자: SPOIN_COURTVIEW
-최종 수정: 2026-02-16
+최종 수정: 2026-03-10
+버전: 1.0.0
 
 주요 기능:
     - 설정 파일 변경 실시간 감지 (watchdog 기반)
@@ -46,11 +47,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum, auto
 from pathlib import Path
-from typing import (
-    Any,
-    Callable,
-    TypeAlias,
-)
+from typing import Any, Callable, TypeAlias
 
 # =============================================================================
 # 서드파티 라이브러리 (Third-party)
@@ -122,6 +119,15 @@ DEFAULT_RETRY_INTERVAL: float = 5.0
 # 기본 무시 패턴 - config.yaml의 hot_reload.ignore_patterns로 오버라이드
 DEFAULT_IGNORE_PATTERNS: tuple[str, ...] = ("*.tmp", "*.bak", ".*", "__pycache__")
 
+# 디바운스 이벤트 캐시 최대 크기
+_MAX_PENDING_EVENTS: int = 1024
+
+# 콜백 최대 등록 수
+_MAX_CALLBACKS: int = 64
+
+# 재귀 최대 깊이 (dict diff / flatten)
+_MAX_NESTING_DEPTH: int = 32
+
 
 # =============================================================================
 # Enum 정의
@@ -181,7 +187,7 @@ class LogLevel(Enum):
 # =============================================================================
 # 데이터 클래스
 # =============================================================================
-@dataclass
+@dataclass(slots=True)
 class HotReloadConfig:
     """
     핫 리로드 설정.
@@ -274,7 +280,7 @@ class HotReloadConfig:
         }
 
 
-@dataclass
+@dataclass(slots=True)
 class ConfigChangeEvent:
     """
     설정 변경 이벤트.
@@ -335,7 +341,7 @@ class ConfigChangeEvent:
         }
 
 
-@dataclass
+@dataclass(slots=True)
 class WatchedFile:
     """
     감시 중인 파일 정보.
@@ -381,7 +387,8 @@ class WatchedFile:
         try:
             content = self.path.read_bytes()
             return hashlib.md5(content).hexdigest()
-        except Exception:
+        except OSError as e:
+            logger.warning(f"파일 해시 계산 실패: {self.path}, {e}")
             return ""
 
     def mark_reloaded(self, success: bool) -> None:
@@ -395,7 +402,7 @@ class WatchedFile:
             self.consecutive_errors += 1
 
 
-@dataclass
+@dataclass(slots=True)
 class ReloadStatistics:
     """
     리로드 통계.
@@ -483,18 +490,18 @@ class ConfigFileEventHandler(FileSystemEventHandler):
     def __init__(
         self,
         manager: "HotReloadManager",
-        watched_files: set[str],
+        watched_files: frozenset[str],
         supported_extensions: tuple[str, ...],
-        ignore_patterns: list[str],
+        ignore_patterns: tuple[str, ...],
     ) -> None:
         """
         초기화.
 
         Args:
             manager: HotReloadManager 인스턴스
-            watched_files: 감시 대상 파일 경로 집합
+            watched_files: 감시 대상 파일 경로 스냅샷 (불변)
             supported_extensions: 지원하는 파일 확장자
-            ignore_patterns: 무시할 파일 패턴 목록
+            ignore_patterns: 무시할 파일 패턴 (불변)
         """
         super().__init__()
         self._manager = manager
@@ -575,6 +582,11 @@ class ConfigFileEventHandler(FileSystemEventHandler):
 
             if current_time - last_event_time < debounce_time:
                 return False
+
+            # 캐시 크기 제한 — 오래된 항목 퇴거
+            if len(self._pending_events) >= _MAX_PENDING_EVENTS:
+                oldest_key = min(self._pending_events, key=self._pending_events.get)
+                del self._pending_events[oldest_key]
 
             self._pending_events[file_path] = current_time
             return True
@@ -717,8 +729,9 @@ class HotReloadManager:
         self._watched_files: dict[str, WatchedFile] = {}
         self._paths_lock = threading.Lock()
 
-        # 콜백 관리
+        # 콜백 관리 (id 기반 O(1) 중복 체크)
         self._callbacks: list[ConfigChangeCallback] = []
+        self._callback_ids: set[int] = set()
         self._callbacks_lock = threading.Lock()
 
         # 리로드 큐 (디바운싱 후 처리)
@@ -838,13 +851,13 @@ class HotReloadManager:
 
     @property
     def hot_reload_config(self) -> HotReloadConfig:
-        """핫 리로드 설정."""
-        return self._hot_reload_config
+        """핫 리로드 설정 (방어적 복사)."""
+        return HotReloadConfig.from_dict(self._hot_reload_config.to_dict())
 
     @property
     def ignore_patterns(self) -> list[str]:
-        """무시 패턴 목록."""
-        return self._hot_reload_config.ignore_patterns
+        """무시 패턴 목록 (방어적 복사)."""
+        return list(self._hot_reload_config.ignore_patterns)
 
     @property
     def supported_extensions(self) -> tuple[str, ...]:
@@ -948,8 +961,15 @@ class HotReloadManager:
             callback: 변경 시 호출될 콜백 함수
         """
         with self._callbacks_lock:
-            if callback not in self._callbacks:
+            cid = id(callback)
+            if cid not in self._callback_ids:
+                if len(self._callbacks) >= _MAX_CALLBACKS:
+                    logger.warning(
+                        f"콜백 최대 등록 수({_MAX_CALLBACKS}) 초과, 등록 거부"
+                    )
+                    return
                 self._callbacks.append(callback)
+                self._callback_ids.add(cid)
                 callback_name = getattr(callback, "__name__", repr(callback))
                 logger.debug(f"콜백 등록됨: {callback_name}")
 
@@ -961,8 +981,10 @@ class HotReloadManager:
             callback: 해제할 콜백 함수
         """
         with self._callbacks_lock:
-            if callback in self._callbacks:
+            cid = id(callback)
+            if cid in self._callback_ids:
                 self._callbacks.remove(callback)
+                self._callback_ids.discard(cid)
                 callback_name = getattr(callback, "__name__", repr(callback))
                 logger.debug(f"콜백 해제됨: {callback_name}")
 
@@ -970,6 +992,7 @@ class HotReloadManager:
         """모든 콜백 제거."""
         with self._callbacks_lock:
             self._callbacks.clear()
+            self._callback_ids.clear()
             logger.debug("모든 콜백 제거됨")
 
     # --------------------------------------------------------
@@ -1143,12 +1166,12 @@ class HotReloadManager:
 
         path_obj = Path(path_str)
 
-        # 이벤트 핸들러 생성 (ignore_patterns 전달)
+        # 이벤트 핸들러 생성 (스냅샷 전달 — 원본 참조 방지)
         handler = ConfigFileEventHandler(
             manager=self,
-            watched_files=self._watched_paths,
+            watched_files=frozenset(self._watched_paths),
             supported_extensions=self._hot_reload_config.supported_extensions,
-            ignore_patterns=self._hot_reload_config.ignore_patterns,
+            ignore_patterns=tuple(self._hot_reload_config.ignore_patterns),
         )
 
         # 감시 대상 디렉토리 결정
@@ -1407,18 +1430,23 @@ class HotReloadManager:
         old_config: dict[str, Any],
         new_config: dict[str, Any],
         prefix: str = "",
+        _depth: int = 0,
     ) -> list[str]:
         """
-        변경된 키 찾기.
+        변경된 키 찾기 (깊이 제한 적용).
 
         Args:
             old_config: 이전 설정
             new_config: 새 설정
             prefix: 키 접두사 (재귀용)
+            _depth: 현재 재귀 깊이
 
         Returns:
             변경된 키 목록
         """
+        if _depth >= _MAX_NESTING_DEPTH:
+            return []
+
         changed_keys = []
 
         all_keys = set(old_config.keys()) | set(new_config.keys())
@@ -1432,7 +1460,9 @@ class HotReloadManager:
                 if isinstance(old_value, dict) and isinstance(new_value, dict):
                     # 중첩 딕셔너리 재귀 비교
                     changed_keys.extend(
-                        self._find_changed_keys(old_value, new_value, full_key)
+                        self._find_changed_keys(
+                            old_value, new_value, full_key, _depth + 1
+                        )
                     )
                 else:
                     changed_keys.append(full_key)
@@ -1443,30 +1473,32 @@ class HotReloadManager:
         self,
         data: dict[str, Any],
         prefix: str = "",
+        _depth: int = 0,
     ) -> dict[str, Any]:
-        """딕셔너리 평탄화."""
+        """딕셔너리 평탄화 (깊이 제한 적용)."""
+        if _depth >= _MAX_NESTING_DEPTH:
+            return {}
+
         result = {}
 
         for key, value in data.items():
             full_key = f"{prefix}.{key}" if prefix else key
 
             if isinstance(value, dict):
-                result.update(self._flatten_dict(value, full_key))
+                result.update(self._flatten_dict(value, full_key, _depth + 1))
             else:
                 result[full_key] = value
 
         return result
 
-    def _calculate_file_hash(self, path: Path) -> str:
-        """파일 해시 계산."""
+    @staticmethod
+    def _calculate_file_hash(path: Path) -> str:
+        """파일 해시 계산 (WatchedFile 위임)."""
         if not path.exists():
             return ""
-
-        try:
-            content = path.read_bytes()
-            return hashlib.md5(content).hexdigest()
-        except Exception:
-            return ""
+        # WatchedFile 인스턴스를 임시 생성하여 해시 계산 위임
+        temp = WatchedFile(path=path)
+        return temp._calculate_hash()
 
     # --------------------------------------------------------
     # 상태 조회 메서드
@@ -1537,6 +1569,15 @@ class HotReloadManager:
     def __exit__(self, *args: Any) -> None:
         """컨텍스트 매니저 종료."""
         self.stop()
+
+    def __repr__(self) -> str:
+        """문자열 표현."""
+        return (
+            f"HotReloadManager(state={self._state.name}, "
+            f"watched={len(self._watched_paths)}, "
+            f"callbacks={len(self._callbacks)}, "
+            f"debounce={self._debounce_time}s)"
+        )
 
 
 # =============================================================================

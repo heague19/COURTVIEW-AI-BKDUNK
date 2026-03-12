@@ -7,7 +7,8 @@ COURTVIEW - AI 농구 분석 플랫폼
 설명: Prometheus 스타일 메트릭 수집 (Counter, Gauge, Histogram, Summary) - Desktop Edition
 
 작성자: SPOIN_COURTVIEW
-최종 수정: 2026-02-16
+버전: 1.0.0
+최종 수정: 2026-03-11
 
 주요 기능:
     - Counter: 단조 증가 카운터 (요청 수, 에러 수 등)
@@ -77,12 +78,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from functools import wraps
-from typing import (
-    Any,
-    Callable,
-    Generator,
-    TypeVar,
-)
+from typing import Any, Callable, Generator, TypeVar
 
 # ============================================================
 # core_foundation 내부 임포트 (shared/utils 불필요 - datetime/time 직접 사용)
@@ -218,7 +214,7 @@ class MetricUnit(Enum):
 # ============================================================
 # 데이터 클래스
 # ============================================================
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class MetricLabels:
     """
     메트릭 레이블.
@@ -272,7 +268,7 @@ class MetricLabels:
         return hash(self.labels)
 
 
-@dataclass
+@dataclass(slots=True)
 class MetricValue:
     """
     메트릭 값.
@@ -298,7 +294,7 @@ class MetricValue:
         }
 
 
-@dataclass
+@dataclass(slots=True)
 class MetricSnapshot:
     """
     메트릭 스냅샷.
@@ -1692,6 +1688,21 @@ class MetricsCollector:
                 summary.reset()
 
         logger.info("모든 메트릭 리셋 완료")
+
+    def __repr__(self) -> str:
+        """MetricsCollector 인스턴스 표현."""
+        with self._lock:
+            total = (
+                len(self._counters)
+                + len(self._gauges)
+                + len(self._histograms)
+                + len(self._summaries)
+            )
+        return (
+            f"MetricsCollector(enabled={self._enabled}, "
+            f"prefix={self._prefix!r}, "
+            f"metrics={total}/{self._max_metrics})"
+        )
 
     @property
     def enabled(self) -> bool:

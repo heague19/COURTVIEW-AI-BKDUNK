@@ -4,10 +4,11 @@ COURTVIEW - AI 농구 분석 플랫폼
 
 모듈: core_foundation/registry
 파일: dependency_injector.py
+버전: 1.0.0
 설명: DI 컨테이너, 의존성 주입 관리 - 엔터프라이즈급 의존성 주입 시스템
 
 작성자: SPOIN_COURTVIEW
-최종 수정: 2026-02-16
+최종 수정: 2026-03-12
 
 주요 기능:
     - 서비스 등록 및 해결 (Singleton, Transient, Scoped)
@@ -89,15 +90,7 @@ import threading
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Callable,
-    Generic,
-    Iterator,
-    TypeVar,
-    get_type_hints,
-)
+from typing import Any, Callable, Generic, Iterator, TypeVar, get_type_hints
 
 # ============================================================
 # shared 임포트
@@ -125,6 +118,9 @@ __all__ = [
     "Scope",
     "LifecycleHook",
     "ResolutionStatus",
+    # 상수
+    "DEFAULT_MAX_RESOLUTION_DEPTH",
+    "DEFAULT_SCOPE_NAME",
     # 예외 클래스
     "DIException",
     "ServiceNotFoundError",
@@ -305,7 +301,7 @@ class ResolutionError(DIException):
 # ============================================================
 # 데이터 클래스
 # ============================================================
-@dataclass
+@dataclass(slots=True)
 class ServiceDescriptor(Generic[T]):
     """
     서비스 설명자.
@@ -373,7 +369,7 @@ class ServiceDescriptor(Generic[T]):
         }
 
 
-@dataclass
+@dataclass(slots=True)
 class DependencyNode:
     """
     의존성 그래프 노드.
@@ -396,7 +392,7 @@ class DependencyNode:
         }
 
 
-@dataclass
+@dataclass(slots=True)
 class DependencyGraph:
     """
     의존성 그래프.
@@ -504,7 +500,7 @@ class DependencyGraph:
         }
 
 
-@dataclass
+@dataclass(slots=True)
 class ScopeContext:
     """
     스코프 컨텍스트.
@@ -1053,6 +1049,18 @@ class DIContainer:
             f"(default_scope={self._default_scope_name}, "
             f"auto_wiring={self._auto_wiring_enabled}, "
             f"circular_detect={self._circular_dependency_detect})"
+        )
+
+    def __repr__(self) -> str:
+        """DIContainer 인스턴스 표현."""
+        with self._lock:
+            registered = len(self._descriptors)
+            singletons = len(self._singletons)
+        return (
+            f"DIContainer(registered={registered}, "
+            f"singletons={singletons}, "
+            f"scope={self._default_scope_name!r}, "
+            f"auto_wiring={self._auto_wiring_enabled})"
         )
 
     def _load_di_config(self) -> dict[str, Any]:

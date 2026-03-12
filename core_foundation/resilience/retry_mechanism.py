@@ -4,10 +4,11 @@ COURTVIEW - AI 농구 분석 플랫폼
 
 모듈: core_foundation/resilience
 파일: retry_mechanism.py
+버전: 1.0.0
 설명: 재시도 메커니즘 - 지수 백오프, 지터, 조건부 재시도
 
 작성자: SPOIN_COURTVIEW
-최종 수정: 2026-02-16
+최종 수정: 2026-03-12
 
 주요 기능:
     - 다양한 백오프 전략 (고정, 선형, 지수)
@@ -34,14 +35,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum, auto
 from functools import wraps
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Awaitable,
-    Callable,
-    Generic,
-    TypeVar,
-)
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Generic, TypeVar
 
 # ============================================================
 # shared 임포트
@@ -134,7 +128,7 @@ class RetryOutcome(Enum):
 # ============================================================
 # 데이터 클래스
 # ============================================================
-@dataclass
+@dataclass(slots=True)
 class RetryConfig:
     """
     재시도 설정.
@@ -267,7 +261,7 @@ class RetryConfig:
             return cls()
 
 
-@dataclass
+@dataclass(slots=True)
 class RetryAttempt:
     """재시도 시도 정보."""
 
@@ -293,7 +287,7 @@ class RetryAttempt:
         }
 
 
-@dataclass
+@dataclass(slots=True)
 class RetryResult(Generic[T]):
     """
     재시도 결과.
@@ -498,6 +492,14 @@ class RetryMechanism:
             f"RetryMechanism '{self._name}' 생성: "
             f"max_attempts={self._config.max_attempts}, "
             f"strategy={self._config.backoff_strategy.name}"
+        )
+
+    def __repr__(self) -> str:
+        """RetryMechanism 인스턴스 표현."""
+        return (
+            f"RetryMechanism(name={self._name!r}, "
+            f"max_attempts={self._config.max_attempts}, "
+            f"strategy={self._config.backoff_strategy.name})"
         )
 
     @property

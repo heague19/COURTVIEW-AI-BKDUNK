@@ -4,10 +4,11 @@ COURTVIEW - AI 농구 분석 플랫폼
 
 모듈: core_foundation/registry
 파일: service_registry.py
+버전: 1.0.0
 설명: 서비스 등록, 검색, 라이프사이클 관리 - 엔터프라이즈급 서비스 레지스트리
 
 작성자: SPOIN_COURTVIEW
-최종 수정: 2026-02-16
+최종 수정: 2026-03-11
 
 주요 기능:
     - 서비스 등록 및 메타데이터 관리
@@ -29,30 +30,13 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Callable,
-    Generic,
-    Iterator,
-    Protocol,
-    TypeVar,
-    runtime_checkable,
-)
+from typing import TYPE_CHECKING, Any, Callable, Generic, Iterator, Protocol, TypeVar, runtime_checkable
 
 # ============================================================
 # shared 임포트
 # ============================================================
 from shared.constants.error_codes import ErrorCode
-from shared.constants.status_codes import ServiceStatus
 from shared.exceptions.infrastructure_exceptions import InfrastructureException
-from shared.interfaces.analyzer_interface import IAnalyzer
-from shared.interfaces.detector_interface import IDetector
-
-# ============================================================
-# utils 임포트
-# ============================================================
-from utils.time_utils import get_current_timestamp
 
 # ============================================================
 # core_foundation 내부 임포트 (Direct Import)
@@ -80,6 +64,11 @@ __all__ = [
     "ServiceType",              # Enum: 서비스 타입 (17개 유형, is_ai_service/is_infrastructure/priority 프로퍼티)
     "ServiceLifecycle",         # Enum: 서비스 라이프사이클 (9개 상태, is_active/can_start/can_stop 프로퍼티)
     "DependencyType",           # Enum: 의존성 유형 (REQUIRED, OPTIONAL, LAZY)
+
+    # 예외 클래스 (3개)
+    "ServiceRegistryException",      # Exception: 서비스 레지스트리 예외 기본 클래스 (InfrastructureException 상속)
+    "ServiceAlreadyExistsError",     # Exception: 서비스 중복 등록 시 발생
+    "ServiceCapacityExceededError",  # Exception: 최대 서비스 수 초과 시 발생
 
     # 상수 - YAML 설정 기본값 (4개)
     "DEFAULT_MAX_SERVICES",           # int: 최대 서비스 수 (기본 100)
@@ -437,6 +426,60 @@ class DependencyType(str, Enum):
 
 
 # ============================================================
+# 도메인 예외 클래스
+# ============================================================
+class ServiceRegistryException(InfrastructureException):
+    """서비스 레지스트리 관련 예외 기본 클래스."""
+
+    def __init__(
+        self,
+        message: str,
+        error_code: ErrorCode = ErrorCode.SERVICE_REGISTRY_ERROR,
+        service_id: str | None = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(message, error_code=error_code, **kwargs)
+        self.service_id = service_id
+
+
+class ServiceAlreadyExistsError(ServiceRegistryException):
+    """서비스 중복 등록 시 발생."""
+
+    def __init__(
+        self,
+        service_id: str,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(
+            f"서비스가 이미 등록되어 있습니다: {service_id}",
+            error_code=ErrorCode.SERVICE_ALREADY_EXISTS,
+            service_id=service_id,
+            **kwargs,
+        )
+
+
+class ServiceCapacityExceededError(ServiceRegistryException):
+    """최대 등록 가능 서비스 수 초과 시 발생."""
+
+    def __init__(
+        self,
+        max_services: int,
+        current_count: int | None = None,
+        **kwargs: Any,
+    ) -> None:
+        detail = f"최대 등록 가능 서비스 수 초과: {max_services}"
+        if current_count is not None:
+            detail += f" (현재: {current_count})"
+        super().__init__(
+            detail,
+            error_code=ErrorCode.SERVICE_REGISTRY_ERROR,
+            **kwargs,
+        )
+        self.max_services = max_services
+        self.current_count = current_count
+
+
+# ============================================================
 # 서비스 인터페이스 프로토콜
 # ============================================================
 @runtime_checkable
@@ -480,7 +523,7 @@ ServiceT = TypeVar("ServiceT", bound=IService)
 # ============================================================
 # 데이터 클래스
 # ============================================================
-@dataclass
+@dataclass(slots=True)
 class ServiceDependency:
     """
     서비스 의존성 정보.
@@ -503,7 +546,7 @@ class ServiceDependency:
         }
 
 
-@dataclass
+@dataclass(slots=True)
 class ServiceMetrics:
     """
     서비스 메트릭.
@@ -640,7 +683,7 @@ class ServiceMetrics:
         }
 
 
-@dataclass
+@dataclass(slots=True)
 class ServiceConfig:
     """
     서비스 설정.
@@ -684,7 +727,7 @@ class ServiceConfig:
         }
 
 
-@dataclass
+@dataclass(slots=True)
 class ServiceInfo:
     """
     서비스 정보.
@@ -803,7 +846,7 @@ class ServiceInfo:
         }
 
 
-@dataclass
+@dataclass(slots=True)
 class RegisteredService(Generic[ServiceT]):
     """
     등록된 서비스 래퍼.
@@ -932,6 +975,20 @@ class ServiceRegistry:
             f"graceful_shutdown={self._config_provider.graceful_shutdown}"
         )
 
+    def __repr__(self) -> str:
+        """ServiceRegistry 인스턴스 표현."""
+        with self._lock:
+            total = len(self._services)
+            running = sum(
+                1 for s in self._services.values()
+                if s.service_info.lifecycle == ServiceLifecycle.RUNNING
+            )
+        return (
+            f"ServiceRegistry(services={total}/{self._max_services}, "
+            f"running={running}, "
+            f"health_check={self._enable_health_check})"
+        )
+
     def reload_config(self) -> None:
         """설정 리로드."""
         self._config_provider.reload()
@@ -1014,10 +1071,15 @@ class ServiceRegistry:
             등록된 서비스 정보
 
         Raises:
-            ValueError: 중복 등록 또는 최대 개수 초과
+            ServiceRegistryException: instance/factory 미제공
+            ServiceAlreadyExistsError: 중복 등록
+            ServiceCapacityExceededError: 최대 개수 초과
         """
         if instance is None and factory is None:
-            raise ValueError("instance 또는 factory 중 하나는 필수입니다")
+            raise ServiceRegistryException(
+                "instance 또는 factory 중 하나는 필수입니다",
+                error_code=ErrorCode.SERVICE_REGISTRY_ERROR,
+            )
 
         with self._lock:
             # 서비스 ID 생성
@@ -1025,12 +1087,13 @@ class ServiceRegistry:
 
             # 중복 체크
             if service_id in self._services:
-                raise ValueError(f"서비스가 이미 등록되어 있습니다: {service_id}")
+                raise ServiceAlreadyExistsError(service_id)
 
             # 최대 개수 체크
             if len(self._services) >= self._max_services:
-                raise ValueError(
-                    f"최대 등록 가능 서비스 수 초과: {self._max_services}"
+                raise ServiceCapacityExceededError(
+                    max_services=self._max_services,
+                    current_count=len(self._services),
                 )
 
             # ServiceInfo 생성

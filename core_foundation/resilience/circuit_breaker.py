@@ -4,10 +4,11 @@ COURTVIEW - AI 농구 분석 플랫폼
 
 모듈: core_foundation/resilience
 파일: circuit_breaker.py
+버전: 1.0.0
 설명: 서킷 브레이커 패턴 구현 - 장애 전파 방지, 폴백 처리, 자동 복구
 
 작성자: SPOIN_COURTVIEW
-최종 수정: 2026-02-16
+최종 수정: 2026-03-12
 
 주요 기능:
     - 서킷 브레이커 상태 머신 (CLOSED, OPEN, HALF_OPEN)
@@ -57,14 +58,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from functools import wraps
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Callable,
-    Coroutine,
-    Generator,
-    TypeVar,
-)
+from typing import TYPE_CHECKING, Any, Callable, Coroutine, Generator, TypeVar
 
 # ============================================================
 # shared 임포트
@@ -178,7 +172,7 @@ class FailureType(str, Enum):
 # ============================================================
 # 데이터 클래스
 # ============================================================
-@dataclass
+@dataclass(slots=True)
 class CircuitBreakerConfig:
     """
     서킷 브레이커 설정.
@@ -236,7 +230,7 @@ class CircuitBreakerConfig:
         }
 
 
-@dataclass
+@dataclass(slots=True)
 class CircuitBreakerStats:
     """
     서킷 브레이커 통계.
@@ -332,7 +326,7 @@ class CircuitBreakerStats:
         }
 
 
-@dataclass
+@dataclass(slots=True)
 class RequestRecord:
     """
     요청 기록.
@@ -346,7 +340,7 @@ class RequestRecord:
     failure_type: FailureType | None = None
 
 
-@dataclass
+@dataclass(slots=True)
 class StateChangeEvent:
     """
     상태 변경 이벤트.
@@ -467,6 +461,17 @@ class CircuitBreaker:
             f"CircuitBreaker '{name}' 초기화: "
             f"failure_threshold={self._config.failure_threshold}, "
             f"open_timeout={self._config.open_timeout}s"
+        )
+
+    def __repr__(self) -> str:
+        """CircuitBreaker 인스턴스 표현."""
+        with self._lock:
+            state = self._state.value
+            fail_rate = self._stats.failure_rate
+        return (
+            f"CircuitBreaker(name={self._name!r}, "
+            f"state={state}, "
+            f"failure_rate={fail_rate:.1%})"
         )
 
     def _load_config_from_yaml(self) -> CircuitBreakerConfig:
@@ -1125,6 +1130,19 @@ class CircuitBreakerRegistry:
         self._error_tracker = error_tracker
         self._circuits: dict[str, CircuitBreaker] = {}
         self._lock = threading.RLock()
+
+    def __repr__(self) -> str:
+        """CircuitBreakerRegistry 인스턴스 표현."""
+        with self._lock:
+            count = len(self._circuits)
+            open_count = sum(
+                1 for cb in self._circuits.values()
+                if cb.state == CircuitState.OPEN
+            )
+        return (
+            f"CircuitBreakerRegistry(circuits={count}, "
+            f"open={open_count})"
+        )
 
     def get_or_create(
         self,

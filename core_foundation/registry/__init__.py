@@ -57,6 +57,10 @@ from core_foundation.registry.service_registry import (
     ServiceType,
     ServiceLifecycle,
     DependencyType,
+    # 예외 클래스
+    ServiceRegistryException,
+    ServiceAlreadyExistsError,
+    ServiceCapacityExceededError,
     # 상수
     DEFAULT_MAX_SERVICES,
     DEFAULT_SERVICE_TIMEOUT,
@@ -242,6 +246,10 @@ __all__ = [
     "ServiceType",
     "ServiceLifecycle",
     "DependencyType",
+    # service_registry - 예외 클래스
+    "ServiceRegistryException",
+    "ServiceAlreadyExistsError",
+    "ServiceCapacityExceededError",
     # service_registry - 상수
     "DEFAULT_MAX_SERVICES",
     "DEFAULT_SERVICE_TIMEOUT",
