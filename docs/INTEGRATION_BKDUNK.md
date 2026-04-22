@@ -1,560 +1,616 @@
-# COURTVIEW Desktop × bkdunk 백엔드 통합 스펙
+# COURTVIEW × SPOIN Ecosystem 통합 스펙
 
-> **버전**: v0.1 (초안)
+> **버전**: v0.2 (양방향 전면 개정)
 > **작성일**: 2026-04-23
-> **대상 독자**: bkdunk 백엔드 개발팀
-> **목적**: 현장 노트북에 설치된 COURTVIEW Desktop (Windows AI 농구 분석 앱) 이 경기 종료 시 자동으로 bkdunk 백엔드에 경기 데이터를 업로드하도록 양측 계약을 합의
+> **대상 독자**: bkdunk 백엔드 개발팀 (+ 참조: SPOIN-AUTH 팀)
+> **목적**: 현장 노트북 COURTVIEW Desktop 이 **SPOIN 통합 계정으로 로그인 → bkdunk 에서 대회·팀·선수 데이터 풀다운 → 로컬 분석 → 경기 결과 bkdunk 에 업로드** 하는 전체 사이클의 양측 계약 합의
 
 ---
 
 ## 0. 요약 (TL;DR)
 
-- **프로토콜**: HTTPS JSON POST
-- **주 엔드포인트**: `POST {COURTVIEW_CLOUD_URL}/api/v1/games` ← bkdunk 가 구현할 것
-- **인증**: `Authorization: Bearer {SPOIN_ID_TOKEN}`
-- **업로드 트리거**: 경기 종료 시 자동 (현장 노트북에서)
-- **오프라인 대응**: COURTVIEW 측 로컬 JSONL 큐 + 60초 주기 재시도 워커 (**이미 구현됨**)
-- **페이로드**: 경기 전체 스냅샷 JSON (박스스코어, 판정, 통계, 하이라이트, 피드백 등)
-- **현재 구현 상태**: COURTVIEW 쪽 80% (핵심 전송·큐·재시도 완성). bkdunk 쪽은 아직 수신기 미준비 → **이 문서의 결정 사항 확정 후 바로 구현 가능**
+COURTVIEW 는 **세 시스템에 걸쳐 동작**합니다:
+
+1. **SPOIN-AUTH (spoinlabs 통합 계정)** — 로그인·토큰·라이선스·프로필. **이미 구현돼있음** (UI 의 `auth-client.js`). bkdunk 팀이 새로 만들 건 없음. SPOIN-AUTH 토큰을 bkdunk 호출 시 Authorization 헤더에 그대로 통과시키는 게 전부.
+2. **bkdunk** — 경기·팀·선수 마스터 DB. **풀다운(GET)** + **업로드(POST)** 양방향 필요. 이 문서의 주 초점.
+3. **COURTVIEW Desktop** — 현장 노트북. offline-first. bkdunk 로부터 사전 정보 받아 분석, 종료 시 결과 업로드.
+
+**v0.1 MVP 에 반드시 포함돼야 할 bkdunk 엔드포인트 3개**:
+
+| # | 엔드포인트 | 방향 | 상태 |
+|---|---|---|---|
+| 1 | `GET  /cloud/api/tournaments?my=true` | bkdunk → COURTVIEW | UI 가 이미 호출 중 (best-guess). 스펙 확정 필요 |
+| 2 | `GET  /cloud/api/teams/{team_id}/roster` | bkdunk → COURTVIEW | 미구현. 로스터 상세 조회 |
+| 3 | `POST /api/v1/games` | COURTVIEW → bkdunk | COURTVIEW 전송·재시도 완성. bkdunk 수신기 미구현 |
+
+**이전 v0.1 스펙은 #3 만 다뤘는데, #1, #2 없이는 UI 가 비어있는 상태로 뜸** — 둘 다 v0.1 필수로 격상.
 
 ---
 
-## 1. 시스템 구조
+## 1. 3대 시스템 구조
 
 ```
-┌───────────────────────────────┐      HTTPS POST      ┌──────────────────────────┐
-│ COURTVIEW Desktop             │ ── game_result ────▶ │ bkdunk 백엔드             │
-│ (현장 Windows 노트북)          │   Authorization:     │ (SPOIN 본사)              │
-│                               │   Bearer {token}     │                          │
-│  ✓ 로컬 GPU AI 분석            │                      │  ✓ 통합 DB                │
-│  ✓ 오프라인 JSONL 큐           │  ◀── 200 OK ──       │  ✓ 관리자 대시보드        │
-│  ✓ 60s 주기 재시도 워커        │                      │  ✓ 리포트·통계 집계       │
-│                               │                      │                          │
-│  localhost:8000 (내부 API)    │                      │                          │
-│  localhost:3000 (UI)          │                      │                          │
-└───────────────────────────────┘                      └──────────────────────────┘
-
-[노트북 로컬 저장]                                      [본사 스토리지]
-  %APPDATA%\COURTVIEW\                                    bkdunk DB (RDBMS)
-    ├─ games\                                             + bkdunk 스토리지
-    │   └─ {session_id}\snapshot.json                       (영상 클립 추후)
-    ├─ cloud_sync_queue\
-    │   └─ {ts}_{kind}.json  (오프라인 시)
-    └─ logs\
-  D:\COURTVIEW_Recordings\
-    └─ {session_id}\clips\*.mp4
+┌─────────────────────────┐   ┌─────────────────────────┐   ┌─────────────────────────┐
+│   SPOIN-AUTH            │   │   bkdunk                │   │   COURTVIEW Desktop     │
+│   (spoinlabs 통합 계정)  │   │   (경기·선수 마스터 DB)  │   │   (현장 Windows 노트북)  │
+│                         │   │                         │   │                         │
+│  POST /spoin/api/v1/    │   │  GET  /cloud/api/       │   │  localhost:8000 (엔진)  │
+│       auth/login        │   │       tournaments       │   │  localhost:3000 (UI)    │
+│  POST /spoin/api/v1/    │   │  GET  /cloud/api/       │   │                         │
+│       auth/refresh      │   │       teams/{id}/       │   │  %APPDATA%\COURTVIEW\   │
+│  GET  /spoin/api/v1/    │   │       roster            │   │    ├─ cloud_sync_queue\ │
+│       users/me          │   │  POST /api/v1/games     │   │    ├─ games\            │
+│                         │   │  POST /api/v1/stats     │   │    └─ logs\             │
+│  [발급] Bearer Token    │   │                         │   │  D:\COURTVIEW_Recordings│
+│                         │   │                         │   │    └─ {sess}\clips\*.mp4│
+└────────────┬────────────┘   └────────────▲────────────┘   └────────────┬────────────┘
+             │                             │                             │
+             │ 1) 토큰 발급                 │ 2) 같은 토큰으로              │
+             └─────────────────────────────┼─── Authorization: Bearer ───┘
+                                           │
+                                           │ (양방향 호출)
 ```
 
-**노트북 1대 = 1 현장 = 1 경기 분석 인스턴스.** 현장 인터넷이 불안정할 수 있으므로 **offline-first** 설계: 로컬에서 모든 분석이 완결되고, 온라인 복귀 시 자동으로 bkdunk 로 업로드.
+### 1.1 역할 경계
 
----
-
-## 2. 연동 플로우
-
-### 2.1 경기 종료 → 자동 업로드
-
-```
-사용자                 COURTVIEW Desktop              bkdunk 백엔드
- │                         │                              │
- │ "경기 종료" 클릭        │                              │
- │────────────────────────▶│                              │
- │                         │ ExportService.collect_snapshot()
- │                         │ (박스스코어 + 판정 + 하이라이트 전부)
- │                         │                              │
- │                         │ CloudSyncService.sync_game_result(snapshot)
- │                         │                              │
- │                         │   POST /api/v1/games         │
- │                         │─────────────────────────────▶│
- │                         │                              │ DB 저장
- │                         │                              │ (upsert by game_id)
- │                         │   200 OK                     │
- │                         │◀─────────────────────────────│
- │                         │                              │
- │                         │ 전송 성공                     │
- │                         │                              │
- │ 최종 점수 표시          │                              │
- │◀────────────────────────│                              │
-```
-
-### 2.2 네트워크 실패 시 (offline-first)
-
-```
-경기 종료                                                 bkdunk 백엔드
-   │                                                         │
-   ▼                                                         │
-POST /api/v1/games ──── 네트워크 에러 ────X                    │
-   │                                                         │
-   ▼                                                         │
- 로컬 큐에 저장:                                              │
- %APPDATA%\COURTVIEW\cloud_sync_queue\                       │
-   1776767195749_game_result.json                            │
-   │                                                         │
-   │   (60초 간격 워커)                                        │
-   ▼                                                         │
- POST 재시도 ──── 네트워크 복구 ─────▶───────────────────▶│
-                                                              ▼
-                                              DB 저장 (같은 game_id 로 upsert)
-                                                              │
-                                              200 OK ────────▶ 큐에서 파일 삭제
-```
-
-재시도 정책 (COURTVIEW 측, 이미 구현):
-- HTTP POST 단일 시도 재시도 **3회** (지수백오프 1s, 2s, 4s)
-- 3회 모두 실패 시 → **로컬 JSONL 큐** 저장
-- 백그라운드 워커가 **60초마다** 큐 드레인 시도
-- 순서 보장: 한 항목 전송 실패 시 이후 큐 항목 전송 중단 (다음 주기까지 대기)
-
----
-
-## 3. API 계약
-
-### 3.1 필수 엔드포인트 (bkdunk 구현 필요)
-
-```
-POST {COURTVIEW_CLOUD_URL}/api/v1/games
-```
-
-**헤더**
-
-| 키 | 값 | 비고 |
+| 시스템 | 담당 | 이 문서 범위 |
 |---|---|---|
-| `Authorization` | `Bearer {SPOIN_ID_TOKEN}` | 노트북별 토큰, 환경변수 주입 |
-| `Content-Type` | `application/json; charset=utf-8` | |
-| `User-Agent` | `CourtViewDesk/1.0` | COURTVIEW 측 고정값 |
+| SPOIN-AUTH | 로그인, 세션, 리프레시, 사용자 프로필(`avatar`, `phone`, `roles`, `license`) | **참조만** (이미 구현·운영 중) |
+| **bkdunk** | **대회·팀·선수·경기 일정 마스터 DB + 경기 결과 수집** | **주 초점** |
+| COURTVIEW Desktop | 현장 로컬 AI 분석, offline 큐, UI | 이미 구현 (스펙 제공 측) |
 
-**본문** — 경기 전체 스냅샷 JSON (4절 스키마 참고)
+### 1.2 기존 COURTVIEW UI 가 호출하는 경로
 
-**응답**
+UI 코드(`templates/pages/database.html`, `static/js/auth-client.js`)에서 다음 엔드포인트를 **이미 호출 중**이나 bkdunk 측 스펙이 아직 없음 — 이 문서로 확정합니다:
 
-| HTTP | 의미 | COURTVIEW 동작 |
-|---|---|---|
-| `200 OK` / `201 Created` | 수신·저장 완료 | 성공 로그, 큐에서 제거 |
-| `401 Unauthorized` | 토큰 문제 | 재시도 (토큰 갱신 후) |
-| `4xx` (400/404 등) | payload/요청 문제 | 3회 재시도 후 큐 저장 — bkdunk 팀 로그 확인 필요 |
-| `5xx` | 서버 에러 | 3회 재시도 → 큐 → 60초 후 재드레인 |
-| Network timeout | 연결 실패 | 동일 (큐) |
+- `GET /cloud/api/tournaments?my=true` ← 대회 목록 동기화 버튼(`syncFromCloud()`)
+- 암묵적으로 `/cloud/api/...` prefix 를 모든 bkdunk 데이터 호출에 가정
 
-**응답 본문** (옵션, 권장):
-```json
+---
+
+## 2. 전체 데이터 흐름
+
+```
+[1] 앱 기동
+    │
+    ▼
+[2] SPOIN 로그인 화면 (auth-guard.js 가 토큰 없으면 /login 리다이렉트)
+    │
+    ▼  POST /spoin/api/v1/auth/login  {email, password}
+    ◀  200 {access_token, refresh_token, access_token_exp}
+    │
+    ▼  GET  /spoin/api/v1/users/me   (Authorization: Bearer ...)
+    ◀  200 {id, name, avatar, phone, roles, license, ...}
+    │  localStorage[user_profile] 저장
+    │
+    ▼
+[3] 홈 (home.html) 렌더 — localStorage[cv_db] 비어있으면 "동기화 필요" 안내
+    │
+    ▼  [DB 관리] 클릭 → database.html
+    │
+    ▼  [클라우드 동기화] 클릭
+    │
+    ▼  GET /cloud/api/tournaments?my=true  (Authorization: Bearer ...)  ←── bkdunk
+    ◀  200 {data: [{id, name, venue, startDate, endDate, teams: [...]}]}
+    │  localStorage[cv_db] 저장
+    │
+    ▼
+[4] 대회 선택 → 경기 선택 (또는 즉시 경기 생성) → 팀·선수 매칭
+    │  (game_analysis.html 이 cv_db 기반으로 로컬 UI 구성)
+    │
+    ▼
+[5] 경기 진행 (엔진이 영상 분석, 로컬 DB 에 기록)
+    │
+    ▼
+[6] 경기 종료 → ExportService.collect_snapshot()
+    │
+    ▼  POST /api/v1/games  {snapshot}  (Authorization: Bearer ...)  ───→ bkdunk
+    ◀  200 {ok, server_game_id}
+    │  (네트워크 실패 시 %APPDATA%\COURTVIEW\cloud_sync_queue\ 로 큐 저장,
+    │   60초 주기 워커가 재전송)
+    │
+    ▼
+[7] 최종 점수·리포트 UI 표시
+```
+
+### 2.1 토큰 공유 전제
+
+**SPOIN-AUTH 가 발급한 `access_token` 으로 bkdunk 를 호출** 합니다. 즉 bkdunk 는 자체 로그인 시스템이 없고, SPOIN-AUTH 의 JWT 를 검증하기만 하면 됩니다.
+
+- SPOIN-AUTH 가 JWT 서명에 사용하는 **공개키/시크릿** 를 bkdunk 가 공유
+- bkdunk 는 요청마다 JWT 서명 검증 + `exp` 확인 + `sub`(user_id) 추출
+- 필요 시 `roles`, `org_id` 클레임을 권한 판단에 사용
+
+(bkdunk 가 자체 토큰 체계를 쓰겠다면 별도 결정 — 현재는 SPOIN-AUTH 통합이 기본 가정)
+
+---
+
+## 3. SPOIN-AUTH 계약 (참조용, 이미 구현됨)
+
+bkdunk 팀은 **이 섹션을 구현할 필요 없습니다** — SPOIN-AUTH 팀이 이미 운영 중. 단지 **토큰 검증 로직** 만 공유하면 됩니다.
+
+### 3.1 로그인
+
+```
+POST {SPOIN_AUTH_URL}/spoin/api/v1/auth/login
+Body:
 {
-  "ok": true,
-  "server_game_id": "bkdunk-assigned-uuid",   // DB 저장 후 생성된 ID (옵션)
-  "received_at": "2026-04-22T21:30:02.123Z"
+  "email":    "user@example.com",
+  "password": "..."
+}
+
+→ 200 OK
+{
+  "access_token":     "eyJ...",
+  "refresh_token":    "eyJ...",
+  "access_token_exp": 1776767195
 }
 ```
 
-현재 COURTVIEW 는 **응답 본문을 파싱하지 않음** (2xx 만 확인). 추후 `server_game_id` 를 활용하려면 클라이언트 수정 필요 — 지금은 무시해도 무방.
-
-### 3.2 실시간 스탯 엔드포인트 (옵션, best-effort)
+### 3.2 사용자 프로필
 
 ```
-POST {COURTVIEW_CLOUD_URL}/api/v1/stats
+GET {SPOIN_AUTH_URL}/spoin/api/v1/users/me
+Headers: Authorization: Bearer {access_token}
+
+→ 200 OK
+{
+  "id":      "user_uuid",
+  "email":   "user@example.com",
+  "name":    "홍길동",
+  "avatar":  "https://.../avatar.png",
+  "phone":   "010-...",
+  "roles":   ["coach", "admin"],
+  "license": { "plan": "pro", "valid_until": "2027-01-01" },
+  "org_id":  "team-uuid-001"
+}
 ```
 
-경기 중 주기적으로 박스스코어·통계를 보낼 수 있음. **큐에 저장하지 않고** fire-and-forget. 현재 COURTVIEW 에서는 호출 안 함 (구현만 돼있고 연결 안 됨). bkdunk 에서 **지금 당장은 만들지 않아도 OK**, 향후 대시보드 실시간 기능 요구 시 추가.
+### 3.3 토큰 리프레시
+
+```
+POST {SPOIN_AUTH_URL}/spoin/api/v1/auth/refresh
+Body: { "refresh_token": "..." }
+
+→ 200 OK { "access_token", "access_token_exp" }
+```
+
+### 3.4 bkdunk 쪽 토큰 검증 (의사코드)
+
+```python
+# 매 요청마다
+token = request.headers["Authorization"].removeprefix("Bearer ")
+claims = jwt.decode(token, SPOIN_AUTH_PUBLIC_KEY, algorithms=["RS256"])
+user_id = claims["sub"]
+org_id  = claims.get("org_id")
+# exp 자동 검증
+# 403 권한 부족이면 roles 확인
+```
 
 ---
 
-## 4. Payload 스키마
+## 4. bkdunk 풀다운 API — v0.1 **필수**
 
-### 4.1 최상위 구조 (`game_result` 페이로드)
+COURTVIEW UI 가 실제로 호출하는 엔드포인트들. **이 세 가지가 없으면 UI 가 비어있는 상태**.
+
+### 4.1 대회 목록 + 팀/선수/일정 (1-shot)
+
+```
+GET {BKDUNK_URL}/cloud/api/tournaments?my=true
+Headers: Authorization: Bearer {access_token}
+```
+
+`?my=true` — 현재 사용자(로그인한 coach/admin)가 관리 권한을 가진 대회만.
+
+**응답**:
+```json
+{
+  "data": [
+    {
+      "id":         "tnmt-uuid-001",
+      "name":       "2026 SPOIN 리그 Spring",
+      "season":     "2026-Spring",
+      "venue":      "잠실 실내체육관",
+      "start_date": "2026-04-20",
+      "end_date":   "2026-06-30",
+      "teams": [
+        {
+          "id":        "team-uuid-101",
+          "name":      "SPOIN Lakers",
+          "abbr":      "SPL",
+          "jersey_color": "#552583",
+          "logo_url":  "https://.../lakers.png",
+          "players": [
+            {
+              "id":            "plr-uuid-1001",
+              "jersey_number": 23,
+              "name":          "김선수",
+              "position":      "SF",
+              "height_cm":     195,
+              "weight_kg":     88,
+              "birth_date":    "1998-03-12",
+              "photo_url":     "https://.../kim.jpg"
+            }
+          ]
+        }
+      ],
+      "matches": [
+        {
+          "id":          "match-uuid-501",
+          "scheduled_at":"2026-05-10T19:00:00+09:00",
+          "home_team_id":"team-uuid-101",
+          "away_team_id":"team-uuid-102",
+          "venue":       "잠실 실내체육관",
+          "status":      "scheduled"
+        }
+      ]
+    }
+  ],
+  "meta": { "count": 3, "generated_at": "2026-04-23T10:00:00Z" }
+}
+```
+
+- 대회 한 건당 팀·선수·일정까지 **nested 로 한 번에** 반환 (페이지 전환 없이 로컬 `cv_db` 로 저장)
+- 선수 사진/팀 로고는 **public URL** 권장 — COURTVIEW 가 클라이언트 캐시
+- 페이지네이션: 대회 수가 많으면 `?page=&size=` 추가 고려, 초기엔 미필요
+
+### 4.2 단일 팀 로스터 조회 (세부 정보용)
+
+```
+GET {BKDUNK_URL}/cloud/api/teams/{team_id}/roster
+Headers: Authorization: Bearer {access_token}
+```
+
+4.1 의 nested 로 충분하지만, 경기 직전 로스터만 **신선하게 갱신**하고 싶을 때 사용.
+
+**응답**:
+```json
+{
+  "data": {
+    "team": { "id": "team-uuid-101", "name": "SPOIN Lakers", ... },
+    "players": [ { "id": "...", "jersey_number": 23, ... }, ... ],
+    "updated_at": "2026-05-09T23:55:00Z"
+  }
+}
+```
+
+### 4.3 단일 경기 정보 (옵션)
+
+```
+GET {BKDUNK_URL}/cloud/api/matches/{match_id}
+```
+
+예약된 경기 한 건에 대해 **시작 전 최종 확인** 용도. 4.1 로 이미 가지고 있으면 생략 가능 — **v0.2 로 미룰 수 있음**.
+
+### 4.4 v0.2 이후 후보
+
+- `GET /cloud/api/players/{player_id}` — 선수 히스토리·통계 조회 (스카우팅 기능 추가 시)
+- `GET /cloud/api/games/{game_id}` — 내가 업로드했던 과거 경기 조회 (복기용)
+- `GET /cloud/api/licenses/me` — 세부 구독 정보 (현재는 `/spoin/api/v1/users/me` 응답에 포함됨)
+
+---
+
+## 5. bkdunk 업로드 API — v0.1 **필수**
+
+### 5.1 경기 결과 업로드
+
+```
+POST {BKDUNK_URL}/api/v1/games
+Headers:
+  Authorization: Bearer {access_token}
+  Content-Type:  application/json; charset=utf-8
+  User-Agent:    CourtViewDesk/1.0
+```
+
+**요청 본문** — 6.2 의 `game_result` 페이로드 (최상위 키 11 개).
+
+**응답**:
+```json
+{
+  "ok": true,
+  "server_game_id": "srv-uuid-999",
+  "received_at": "2026-05-10T21:30:02.123Z"
+}
+```
+
+**HTTP 코드 정책**:
+
+| HTTP | 의미 | COURTVIEW 동작 |
+|---|---|---|
+| 2xx | 수신 완료 | 큐에서 제거 |
+| 401 | 토큰 만료/무효 | `auth-client.js` 가 리프레시 → 재시도 |
+| 4xx | payload 오류 | 3회 재시도 후 큐 저장 → bkdunk 로그 확인 필요 |
+| 5xx | 서버 에러 | 3회 재시도 → 큐 → 60초 주기 재드레인 |
+| 타임아웃 | 네트워크 | 동일 (큐) |
+
+### 5.2 Idempotency
+
+네트워크 타임아웃 시 COURTVIEW 가 같은 payload 재전송. bkdunk 는 **`payload.box_score.game_id` 를 고유 키로 upsert**:
+
+```sql
+INSERT INTO games (game_id, ...) VALUES (...)
+ON CONFLICT (game_id) DO UPDATE SET ...
+```
+
+`game_id` 는 노트북에서 생성된 UUID 로 전역 unique.
+
+### 5.3 실시간 스탯 (옵션, v0.2)
+
+```
+POST {BKDUNK_URL}/api/v1/stats
+```
+
+경기 중 주기적 박스스코어 푸시. **v0.1 에서는 구현 불필요**. 현재 COURTVIEW 도 호출하지 않음.
+
+---
+
+## 6. 데이터 스키마
+
+### 6.1 풀다운 핵심 엔티티 (Tournament / Team / Player / Match)
+
+4.1 응답이 사실상 스키마. 간결 요약:
+
+| 엔티티 | 필수 필드 | 옵션 필드 |
+|---|---|---|
+| Tournament | `id`, `name`, `season`, `start_date`, `end_date` | `venue`, `description` |
+| Team | `id`, `name`, `abbr` | `jersey_color`, `logo_url`, `head_coach` |
+| Player | `id`, `jersey_number`, `name` | `position`, `height_cm`, `weight_kg`, `birth_date`, `photo_url` |
+| Match | `id`, `scheduled_at`, `home_team_id`, `away_team_id` | `venue`, `status` |
+
+COURTVIEW 측 대응 DTO: `shared/dto/game_dto.py` 의 `TeamInfo`, `PlayerInfo` (match/tournament 은 UI-only, 엔진 DTO 없음).
+
+### 6.2 업로드 페이로드 (`game_result`)
+
+경기 종료 시 `ExportService.collect_snapshot()` 이 만드는 최상위 11 키:
 
 ```json
 {
   "active": true,
   "timestamp": 1776767195.749,
 
-  "box_score": { ... },          // 4.2
-  "players":   [ ... ],          // 4.3 (선수 통계 배열)
-  "teams":     [ ... ],          // 4.4 (팀 통계 배열)
-  "referee":   { ... },          // 4.5
-  "tactical":  { ... },          // 4.6
-  "report":    { ... },          // 4.7 (매니저용 종합 리포트)
-  "scouting":  { ... },          // 4.8 (스카우팅 리포트)
-  "highlights":[ ... ],          // 4.9 (하이라이트 클립 메타)
-  "feedback":  { ... }           // 4.10 (코치·선수 피드백)
+  "box_score":  {...},   // GameStats: game_id, home_team, away_team, scores, events
+  "players":    [...],   // PlayerStats[]: 선수별 통계
+  "teams":      [...],   // TeamStats[]:   팀별 통계
+  "referee":    {...},   // GameRefereeReport: violations, fouls, corrections
+  "tactical":   {...},   // TacticalReport: formations, plays, defense_style
+  "report":     {...},   // 매니저용 종합 리포트
+  "scouting":   {...},   // 상대팀 스카우팅 관점
+  "highlights": [...],   // HighlightReel[]: 클립 메타 (clip_url은 로컬 경로 — 7절 참조)
+  "feedback":   { "items": [...], "total": N }
 }
 ```
 
-각 sub-object 는 **pydantic BaseModel 의 `.model_dump()`** 결과 (순수 JSON-serializable dict). `None` 필드는 기본값 그대로 포함될 수 있음 — bkdunk DB 스키마 설계 시 **nullable** 로 안전하게.
+각 sub-object 는 pydantic `.model_dump()` — **null 필드도 기본값 그대로 포함** 될 수 있어 bkdunk DB 는 nullable 로 설계.
 
-### 4.2 `box_score`
+**핵심 식별자**: `box_score.game_id` = 노트북에서 생성한 UUID. Idempotency key.
 
-경기 최종 점수·시간·쿼터 등.
+**예상 크기**: 0.5 – 3 MB / 경기.
 
-주요 필드 (발견 즉시 세부 스키마 pin 가능):
-- `game_id`: UUID 문자열
-- `home_team`: `TeamInfo`
-- `away_team`: `TeamInfo`
-- `home_score`, `away_score`: int
-- `current_quarter`: int
-- `game_clock`: "MM:SS"
-- `events`: `GameEvent[]` — 경기 중 발생한 모든 이벤트 (슛·파울·타임아웃 등)
+각 DTO 의 전체 필드는 참조 파일 (11 장) 을 보면 됨.
 
-전체 정의: `shared/dto/game_dto.py` → `GameStats`, `GameEvent`, `TeamInfo`, `ShotAttempt`.
-
-### 4.3 `players` (배열)
-
-각 선수별 통계 (`PlayerStats`):
-- `player_tracking_id` (int, 영상 내 tracking id)
-- `jersey_number` (0~99)
-- `team_id`
-- `minutes_played` (float)
-- `points`, `rebounds`, `assists`, `steals`, `blocks`, `turnovers`
-- `field_goals_made`/`attempted`, `three_pointers_*`, `free_throws_*`
-- `efficiency` (계산 필드)
-
-선수 식별: `player_id` (외부 연동 시) 또는 `tracking_id` (영상 내).
-
-### 4.4 `teams` (배열)
-
-팀별 통계 (`TeamStats`). 필드는 `PlayerStats` 와 유사하나 팀 단위 집계.
-
-### 4.5 `referee`
-
-AI 심판 판정 기록 (`GameRefereeReport`):
-- `violations`: `ViolationDecision[]` (트래블·더블드리블·바이올레이션)
-- `fouls`: `FoulDecision[]` (개인 파울·테크니컬·플레이그런트)
-- `corrections`: 심판이 수동 보정한 판정 기록
-- `confidence_stats`: AI 평균 신뢰도·합의율
-
-전체 정의: `shared/dto/referee_dto.py`.
-
-### 4.6 `tactical`
-
-전술 분석 (`TacticalReport`):
-- `formations`: 자주 관찰된 포메이션
-- `plays`: 픽앤롤·ISO·패스 패턴
-- `defense_style`: "zone" | "man-to-man" | ...
-
-전체 정의: `shared/dto/tactical_dto.py`.
-
-### 4.7 `report`
-
-매니저용 종합 리포트 (지표 요약 + 주요 순간 주석).
-
-### 4.8 `scouting`
-
-상대 팀 스카우팅 관점 리포트.
-
-### 4.9 `highlights` (배열)
-
-하이라이트 클립 메타 (MP4 자체는 미포함 — 7절 참고):
-- `clip_id`: UUID
-- `title`: str (자동 생성)
-- `start_frame`, `end_frame`: int
-- `duration_sec`: float
-- `highlight_type`: enum (DUNK / THREE_POINTER / BLOCK / ASSIST / ...)
-- `excitement_score`, `importance_score`: 0~100
-- `clip_url`: **현재 로컬 경로** (예: `D:\COURTVIEW_Recordings\...\clip_42.mp4`) — bkdunk 스토리지 미확정이라 null 이거나 로컬 경로 (7절 참조)
-- `thumbnail_url`: 상동
-
-전체 정의: `shared/dto/game_dto.py` → `HighlightReel`, `media_dto.py` → `VideoClip`.
-
-### 4.10 `feedback`
-
-```json
-{
-  "items": [
-    { "target": "player|team|coach", "type": "shooting|defense|...", "message": "...", "priority": 1 }
-  ],
-  "total": 12
-}
-```
-
-전체 정의: `shared/dto/feedback_dto.py`.
-
-### 4.11 예시 페이로드 (최소 버전)
+### 6.3 최소 예시
 
 ```json
 {
   "active": true,
   "timestamp": 1776767195.749,
   "box_score": {
-    "game_id": "a1b2c3d4-...",
-    "home_team": { "team_id": "HOME", "team_name": "SPOIN", "is_home": true },
-    "away_team": { "team_id": "AWAY", "team_name": "Visitors", "is_home": false },
+    "game_id":    "a1b2c3d4-e5f6-...",
+    "home_team":  { "team_id": "team-uuid-101", "team_name": "Lakers", "is_home": true },
+    "away_team":  { "team_id": "team-uuid-102", "team_name": "Bulls",  "is_home": false },
     "home_score": 78,
     "away_score": 82,
     "current_quarter": 4,
     "events": []
   },
-  "players": [],
-  "teams": [],
-  "referee": { "violations": [], "fouls": [] },
-  "tactical": {},
-  "report": {},
-  "scouting": {},
+  "players": [], "teams": [],
+  "referee": {"violations":[], "fouls":[]},
+  "tactical": {}, "report": {}, "scouting": {},
   "highlights": [],
   "feedback": { "items": [], "total": 0 }
 }
 ```
 
-**실제 경기 데이터는 각 배열에 수십~수백 개** 들어감. 한 경기 스냅샷 JSON 크기는 대략 **0.5–3 MB** 로 추정.
-
----
-
-## 5. 인증
-
-### 5.1 현재 설계
-
-COURTVIEW 런타임이 다음 환경변수를 읽어 요청 헤더 구성:
-
-| 환경변수 | 용도 |
-|---|---|
-| `COURTVIEW_CLOUD_URL` | bkdunk 백엔드 base URL (예: `https://api.bkdunk.spoin.co.kr`) |
-| `COURTVIEW_CLOUD_TOKEN` | `Authorization: Bearer` 로 보낼 토큰 |
-| `COURTVIEW_CLOUD_ENABLED` | `"1"` 일 때만 활성화 (개발 중 꺼둘 수 있게) |
-
-**런타임 갱신 지원**: `CloudSyncService.set_token(token)` — UI 로그인 후 토큰 새로 받을 때 호출.
-
-### 5.2 bkdunk 결정 사항 (5절의 핵심 질문)
-
-토큰 발급·관리 전략은 **bkdunk 에서 결정**:
-
-- [ ] **노트북 단위 토큰**: 노트북 1대 = 토큰 1개 (설치 시 SPOIN IT 가 발급·주입)
-  - 장점: 구현 단순, 노트북별 audit log 쉬움
-  - 단점: 유출 시 갱신 번거로움, 사용자 개념 없음
-- [ ] **조직/팀 단위 토큰**: B2B 납품 시 고객사별 1 토큰, 여러 노트북 공유
-  - 장점: 관리 단순
-  - 단점: 노트북 식별 불가 (payload 에 `device_id` 추가 필요)
-- [ ] **사용자 로그인 + JWT**: 코치·심판이 UI 로그인 → JWT 발급
-  - 장점: 사용자별 권한, 갱신 용이
-  - 단점: UI 로그인 화면 필요 (현재 `templates/pages/login.html` 존재 확인 요)
-
-**추천**: **노트북 단위 + JWT 갱신 가능** 조합. 설치 시 bkdunk 에 노트북 등록 API (`POST /api/v1/devices/register`) 를 호출해 JWT 수령 → `COURTVIEW_CLOUD_TOKEN` 저장. 만료 전 갱신.
-
-### 5.3 토큰 유출 시
-
-- bkdunk 측에서 해당 토큰 revoke
-- 해당 노트북은 다음 업로드 시 401 → 큐에 누적 → 수동 재발급 후 큐 자동 플러시
-
----
-
-## 6. Idempotency (중복 방지)
-
-현장 → bkdunk 네트워크 타임아웃 시 COURTVIEW 는 **같은 payload 를 재전송**합니다. bkdunk 측에서 반드시 중복 방지 로직 구현 필요.
-
-**권장 방식**: `game_id` (또는 `(session_id, game_id)` 조합) 기준 **upsert**
-- 첫 수신: INSERT
-- 재수신: UPDATE (같은 경기의 최종 상태는 항상 동일)
-
-payload 의 `box_score.game_id` 는 **노트북에서 생성한 UUID** 이므로 전역적으로 unique. bkdunk DB PK 로 사용 가능.
-
-대안 (RFC 7240 준수): COURTVIEW 측에서 `Idempotency-Key` 헤더 전송 — **현재 미구현**. bkdunk 가 요구하면 추가 가능 (15분 작업).
-
 ---
 
 ## 7. 미디어 (영상 클립) 업로드
 
-### 7.1 현재 상태
+**v0.1 에서는 JSON 스냅샷만 전송**. MP4 는 노트북 로컬(`D:\COURTVIEW_Recordings\{session}\clips\*.mp4`).
 
-- **JSON 스냅샷만 전송**. MP4 파일은 로컬(`D:\COURTVIEW_Recordings\{session_id}\clips\*.mp4`)에만 존재
-- `HighlightReel` DTO 의 `clip_url` 필드는 로컬 경로 (bkdunk 에서는 접근 불가능)
+`HighlightReel.clip_url` 는 로컬 파일 경로로 채워 보냄 → bkdunk 는 "파일은 아직 없음" 으로 인지.
 
-### 7.2 안 제시 (bkdunk 결정 필요)
-
-| 안 | 플로우 | 장점 | 단점 |
-|---|---|---|---|
-| **A. Presigned URL** ✓ 권장 | COURTVIEW 가 `POST /api/v1/games` 로 스냅샷 → bkdunk 응답에 클립별 upload URL 포함 → COURTVIEW 가 S3 등에 직접 PUT | bkdunk 서버 대역폭·처리 부담 0 | 양측 3개월 정도 구현 시간 필요 |
-| B. 직접 multipart POST | `POST /api/v1/games/{game_id}/clips` 로 multipart/form-data | 단순 | bkdunk 가 대용량(GB) 업로드 수신 — 대역폭·디스크 부담 |
-| C. 링크만 저장 (SMB/NFS) | `clip_url` 에 사내망 UNC 경로 | 구현 없음 | 사내망 밖 접근 불가 |
-
-**권장: A (Presigned URL + S3)**. 참고:
-- COURTVIEW 측은 이미 `courtview-releases` S3 버킷 사용 중 (auto-update)
-- bkdunk 가 별도 버킷(`courtview-clips` 등) 만들고 presigned PUT URL 발급
-
-### 7.3 A 안의 확장 계약 (향후)
+### 7.1 v0.2 안 (권장: Presigned URL)
 
 ```
-// 1. 스냅샷 업로드 (기존)
-POST /api/v1/games
-Body: { ...snapshot..., "pending_clips": [{clip_id, local_path, size_bytes}...] }
+[업로드 단계]
+POST /api/v1/games  {snapshot + pending_clips: [{clip_id, size_bytes}...]}
+  → 200 { ok, server_game_id,
+          upload_urls: [{clip_id, put_url, expires_at}, ...] }
 
-Response:
-{
-  "ok": true,
-  "server_game_id": "...",
-  "upload_urls": [
-    { "clip_id": "...", "put_url": "https://s3...", "expires_at": "..." }
-  ]
-}
+[클립 단계 — COURTVIEW → S3 직접]
+PUT {put_url}   <mp4 binary>
 
-// 2. 각 클립 업로드 (COURTVIEW → S3 직접)
-PUT {put_url}
-Body: <mp4 binary>
-
-// 3. 업로드 완료 통보 (옵션)
+[완료 통지 — 옵션]
 POST /api/v1/games/{game_id}/clips/{clip_id}/complete
 ```
 
-이 단계는 **v0.2 이후** 로 미룸. v0.1 (MVP) 는 JSON 스냅샷만.
+bkdunk 자체 S3 버킷(예: `s3://spoin-courtview-clips/`) 에 발급. COURTVIEW 는 이미 `courtview-releases` S3 쓰는 경험 있어 구현 빠름.
 
 ---
 
-## 8. 운영 고려
+## 8. 오프라인·캐시 정책
 
-### 8.1 크기·빈도
+### 8.1 풀다운 캐시 (로컬 `cv_db`)
 
-- 한 경기 스냅샷: **~0.5–3 MB**
-- 한 경기 지속 시간: 2–3 시간
-- 업로드 빈도: 경기 종료 시 1회 + 큐 재시도 (offline 복구 시 몰려서 N회)
-- 초기 배포 규모: **노트북 1–10 대** (SPOIN 자사 + B2B 파일럿)
+UI 측 `database.html` 의 `syncFromCloud()` 가 `/cloud/api/tournaments?my=true` 호출 후 결과를 **localStorage `cv_db`** 에 저장. 이후 현장에서 인터넷 없어도 이 캐시로 경기 진행 가능.
 
-### 8.2 관측·디버깅
+**갱신 정책 (양측 합의 필요)**:
+- [ ] **수동 (현재 설계)** — 사용자가 [클라우드 동기화] 클릭 시에만 풀다운. 단순·안전.
+- [ ] **자동 + TTL** — 마지막 동기화 후 N 시간 지나면 자동 갱신. 신선도 ↑, 오프라인 중엔 실패 무시.
+- [ ] **변경 알림** — bkdunk 가 WebSocket/SSE 로 변경 이벤트 푸시. 복잡.
 
-COURTVIEW 측 로그 (`%APPDATA%\COURTVIEW\logs\`):
-- `Cloud 전송 성공: /api/v1/games (attempt 1/3, NNN bytes)` — 정상
-- `Cloud 전송 실패: ... (attempt X/3): <error>` — 재시도 중
-- `큐 저장: 1776767195749_game_result.json` — 큐 진입
-- `큐 flush: N 전송 성공, M 실패` — 60초 워커 결과
+**추천: 수동 + 앱 시작 시 자동 1회** (백그라운드, 실패해도 캐시로 fallback).
 
-bkdunk 측에서 제공하면 좋은 것:
-- 요청별 응답 body 에 **server_game_id** 포함
-- 실패 시 구체적 에러 코드 (예: `E_INVALID_GAME_ID`, `E_TOKEN_EXPIRED`)
+### 8.2 업로드 큐 (오프라인 → 온라인)
 
-### 8.3 스테이징 환경
+COURTVIEW 측 이미 구현:
+- HTTP POST 3회 재시도 (지수백오프 1s, 2s, 4s)
+- 실패 → `%APPDATA%\COURTVIEW\cloud_sync_queue\{ts}_{kind}.json`
+- 60초 주기 워커가 큐 드레인
+- 순서 보장 (한 항목 실패 시 이후 중단)
 
-개발·테스트 용도로 **별도 URL/토큰**을 환경변수로 주입 가능.
-
-```
-# 스테이징 테스트 시
-set COURTVIEW_CLOUD_URL=https://staging-api.bkdunk.spoin.co.kr
-set COURTVIEW_CLOUD_TOKEN=test-token-xyz
-set COURTVIEW_CLOUD_ENABLED=1
-```
-
-bkdunk 에서 **스테이징 URL + 테스트 토큰**을 제공해주면 COURTVIEW 팀이 end-to-end 검증 가능.
+bkdunk 입장에서는 같은 `game_id` 로 여러 번 수신 가능성 → **Idempotency (5.2)** 필수.
 
 ---
 
-## 9. bkdunk 가 결정·준비해야 할 것 (체크리스트)
+## 9. bkdunk 결정 체크리스트 (v0.1 MVP)
 
-### 9.1 즉시 결정 (v0.1 MVP 위해 필수)
+### 9.1 즉시 결정
 
 - [ ] **프로덕션 base URL** 확정 (예: `https://api.bkdunk.spoin.co.kr`)
-- [ ] **스테이징 base URL** 및 **테스트 토큰** 발급
-- [ ] **토큰 발급 정책** (노트북 단위 / 조직 단위 / 사용자 JWT 중 1)
-- [ ] **토큰 프로비저닝 절차** (설치 스크립트에 주입? 관리자 대시보드에서 복사?)
-- [ ] DB 스키마 설계 (upsert key = `game_id`, 스냅샷 JSON 저장 방식: JSONB / 정규화 분해)
-- [ ] 응답 포맷 (`{ok, server_game_id}` 수준으로 합의)
-- [ ] 4xx / 5xx 에러 정책 + 재전송 정책 명세
+- [ ] **스테이징 base URL** + **테스트 토큰** 발급 절차
+- [ ] **SPOIN-AUTH JWT 검증 방식** 확정 (공개키 공유 vs bkdunk 자체 토큰 — 기본 가정: 공개키 공유)
+- [ ] **권한 모델** — `roles`/`org_id` 기반 대회 접근 제어 (coach/admin/viewer 등)
+- [ ] **nullable 필드 정책** — payload 내 `null` 허용 vs 필수 필드 엄격 검증
+- [ ] **응답 포맷** — `{data: [...], meta: {...}}` 래핑 방식 합의 (4.1 예시 따를지)
+- [ ] **풀다운 캐시 갱신** 정책 (8.1 3안 중 선택)
 
-### 9.2 v0.1 구현 범위
+### 9.2 v0.1 구현 범위 (bkdunk 쪽)
 
-- [ ] `POST /api/v1/games` 엔드포인트 (인증 + upsert + 응답)
-- [ ] 토큰 검증 미들웨어
-- [ ] 최소 관리자 대시보드 (수신된 경기 목록 조회)
-- [ ] 모니터링: 수신량·에러율 로깅
+- [ ] `GET /cloud/api/tournaments?my=true` — 4.1 스키마
+- [ ] `GET /cloud/api/teams/{team_id}/roster` — 4.2 스키마
+- [ ] `POST /api/v1/games` — 5.1 스키마 (Idempotency upsert)
+- [ ] JWT 검증 미들웨어 (SPOIN-AUTH 토큰)
+- [ ] 관리자 대시보드 최소 (수신 경기 목록)
+- [ ] 수신량·에러율 모니터링
 
-### 9.3 v0.2 이후 (후속)
+### 9.3 v0.2 이후
 
-- [ ] `POST /api/v1/stats` (실시간 경기 중 스탯)
-- [ ] `POST /api/v1/games/{id}/clips` (presigned URL 발급)
-- [ ] `GET /api/v1/teams/{id}/roster` (bkdunk → COURTVIEW 풀다운, 선수 명단 사전 설정)
-- [ ] `GET /api/v1/games/{id}` (대시보드용 조회)
+- [ ] `GET /cloud/api/matches/{match_id}`
+- [ ] `GET /cloud/api/players/{player_id}` (스카우팅)
+- [ ] `GET /cloud/api/games/{game_id}` (COURTVIEW 에서 과거 경기 조회)
+- [ ] `POST /api/v1/stats` (실시간 박스스코어)
+- [ ] 클립 MP4 업로드 (Presigned URL — 7.1)
 
 ### 9.4 인프라
 
-- [ ] AWS 계정·리전 (COURTVIEW 는 `us-east-1` 기존 사용. bkdunk 가 다른 리전이면 latency 감안)
-- [ ] TLS 인증서 (유효한 CA 서명 필요 — self-signed 면 COURTVIEW 클라이언트가 거부)
-- [ ] CORS: **불필요** (COURTVIEW 는 서버 투 서버, 브라우저 아님)
+- [ ] AWS 리전 (COURTVIEW 는 `us-east-1`)
+- [ ] 유효한 TLS 인증서 (self-signed 금지)
+- [ ] CORS: **불필요** (COURTVIEW 는 서버 투 서버; UI 호출은 localhost: 3000 → localhost:8000 proxy 경유)
 
-### 9.5 bkdunk → COURTVIEW 가 실제로 "받아야" 할 산출물
+### 9.5 bkdunk → COURTVIEW 가 받아야 할 산출물
 
-위 결정·구현이 끝나면 **아래를 bkdunk 에서 COURTVIEW 팀에 전달**해야 연동 완료:
+#### 9.5.1 값 (환경변수 · 검증 자료)
 
-#### 9.5.1 값 (환경변수 · 토큰)
+- [ ] **프로덕션 base URL** (`BKDUNK_URL`)
+- [ ] **스테이징 base URL** + 테스트용 **스테이징 SPOIN-AUTH** 사용자 계정
+- [ ] **JWT 검증 공개키** (SPOIN-AUTH 에서 받아서 bkdunk 가 공유)
 
-- [ ] **프로덕션 base URL** — 예: `https://api.bkdunk.spoin.co.kr`
-- [ ] **스테이징 base URL** — 예: `https://staging-api.bkdunk.spoin.co.kr`
-- [ ] **스테이징 테스트 토큰** (COURTVIEW end-to-end 검증용, 수명 제한 OK)
-- [ ] **프로덕션 토큰 발급 방법**
-  - 노트북 단위라면: 신규 노트북 추가 시 누구에게 어떤 채널로 요청? (이메일/slack/JIRA 티켓)
-  - 조직 단위라면: 조직별 토큰 1장
-  - 사용자 JWT 라면: 로그인 엔드포인트 URL + 예시 응답
+COURTVIEW 환경변수 (둘 중 하나 방식):
+```
+# 방식 A: 런타임에 SPOIN-AUTH 토큰을 bkdunk 에도 그대로 사용
+COURTVIEW_CLOUD_URL=https://api.bkdunk.spoin.co.kr
+COURTVIEW_CLOUD_ENABLED=1
+# COURTVIEW_CLOUD_TOKEN 은 auth-client 가 SPOIN 로그인 후 set_token() 으로 주입
+
+# 방식 B: bkdunk 전용 토큰을 프로비저닝
+COURTVIEW_CLOUD_URL=...
+COURTVIEW_CLOUD_TOKEN=...
+```
 
 #### 9.5.2 API 명세
 
-- [ ] **성공 응답 샘플** (200/201 의 실제 body 예시)
-- [ ] **실패 응답 샘플** (401/4xx/5xx 각각, 에러 코드 표 포함)
-- [ ] **예상 에러 코드 리스트** (예: `E_INVALID_GAME_ID`, `E_TOKEN_EXPIRED`, `E_PAYLOAD_TOO_LARGE`)
-- [ ] **최대 payload 크기 제한** (있다면 — 한 경기 스냅샷 최대 ~3 MB 예상)
-- [ ] **평균·최대 응답 시간 기대치** (SLO) — COURTVIEW 타임아웃은 현재 30초
-- [ ] (선택) **OpenAPI/Swagger 스펙 URL** — 있으면 장기적으로 클라이언트 동기화에 유리
+- [ ] 4.1, 4.2, 5.1 **성공 응답 샘플** (실제 body)
+- [ ] 401/4xx/5xx **실패 응답 샘플 + 에러 코드 리스트** (`E_UNAUTHORIZED`, `E_INVALID_GAME_ID`, `E_TOKEN_EXPIRED`, `E_PAYLOAD_TOO_LARGE` 등)
+- [ ] 최대 payload 크기 한도 (예상 ~3 MB)
+- [ ] 응답 SLO (p95 응답시간 기대치)
+- [ ] (선택) OpenAPI/Swagger 스펙 URL
 
 #### 9.5.3 저장 확인·디버깅 수단
 
-- [ ] **수신 경기 조회 방법** 중 하나 이상:
-  - 관리자 대시보드 URL + 계정 (COURTVIEW 팀이 직접 확인 가능)
-  - `GET /api/v1/games/{id}` 조회 엔드포인트
-  - DB 직접 쿼리 (내부망 경로)
-- [ ] **E2E 디버깅 시 로그 접근 방법** (실패 원인 역추적용)
-  - CloudWatch/Datadog URL + 공유 권한, 또는 담당자가 로그 검색해주는 프로세스
-- [ ] **토큰 revoke 절차** (유출·퇴사 시 즉시 무효화 방법)
+- [ ] 관리자 대시보드 URL + 계정 또는 `GET /cloud/api/games/{id}` 조회 엔드포인트
+- [ ] 로그 접근 방법 (CloudWatch/Datadog URL + 공유 권한, 또는 담당자 경유)
+- [ ] 토큰 revoke 절차 (유출·퇴사 시) — SPOIN-AUTH 에서 revoke 하면 bkdunk 도 즉시 검증 실패해야
 
 #### 9.5.4 장애·운영
 
-- [ ] **운영 담당자 연락처** (slack 채널 또는 on-call 연락망)
-- [ ] **유지보수·배포 공지 채널** (bkdunk 측 배포로 인한 일시 장애 사전 공지)
-- [ ] (선택) **SLA 문서** — 업타임/응답시간 약속치. v0.1 MVP 에서는 best-effort 로 시작 OK
+- [ ] 운영 담당자 연락처 / on-call
+- [ ] 배포 공지 채널 (bkdunk 배포로 인한 일시 장애 사전 공지)
+- [ ] (선택) SLA 문서
 
-#### 9.5.5 종료 조건
+#### 9.5.5 E2E 테스트 전환 종료 조건
 
-아래가 다 충족되면 **스테이징 E2E 테스트 단계로 전환**:
+1. 스테이징 URL + SPOIN 테스트 계정 + JWT 검증 공개키 공유 완료
+2. `curl` (부록 A) 로 스테이징 `/cloud/api/tournaments` 200 응답 + 4.1 스키마 일치
+3. `curl` 로 스테이징 `/api/v1/games` 테스트 payload 200 + 저장 확인
+4. 응답 샘플 (9.5.2) 실제 바디가 문서와 일치
 
-1. 스테이징 URL + 토큰 COURTVIEW 에 전달 완료
-2. `curl` (부록 A) 로 스테이징 엔드포인트 200 응답 확인
-3. 응답 샘플 (9.5.2) 실제 바디가 문서와 일치
-4. 수신 후 관리자 대시보드/조회 API 로 저장 확인
-
-이후 COURTVIEW 실 노트북에서 실제 경기 snapshot 업로드 → 검증 → 프로덕션 토큰 배포.
+충족되면 COURTVIEW 실제 노트북 → 스테이징 전체 사이클 테스트 → 프로덕션 배포.
 
 ---
 
 ## 10. 타임라인 제안
 
-| 단계 | 내용 | 예상 소요 |
+| 단계 | 내용 | 예상 |
 |---|---|---|
-| **W1** | 이 문서 리뷰 + 9.1 결정 사항 확정 | 3–5일 |
-| **W2** | bkdunk: v0.1 엔드포인트 + 토큰 + 스테이징 구축 | 1–2주 |
-| **W3** | COURTVIEW: 스테이징 URL/토큰으로 end-to-end 테스트 | 2–3일 |
-| **W4** | 프로덕션 토큰 배포 + 자사 노트북 1–2 대 파일럿 | 1주 |
-| **M2+** | v0.2 (클립 업로드, stats 실시간, 조회 API) | 점진적 |
+| **W1** | 이 문서 리뷰 + 9.1 결정 사항 확정 (특히 JWT 검증 방식) | 3–5일 |
+| **W2** | bkdunk: 풀다운 2개 + 업로드 1개 엔드포인트 + 토큰 검증 + 스테이징 배포 | 1–2주 |
+| **W3** | COURTVIEW: 스테이징 URL/토큰으로 end-to-end (로그인 → 풀다운 → 경기 → 업로드) | 3–5일 |
+| **W4** | 프로덕션 배포 + 자사 노트북 1–2대 파일럿 | 1주 |
+| **M2+** | v0.2 (클립 업로드, 실시간 stats, 과거 조회 등) | 점진적 |
 
 ---
 
 ## 11. COURTVIEW 측 참조 파일
 
-bkdunk 팀이 직접 확인 가능한 소스 (저장소: `https://github.com/SPOIN-Inc/COURTVIEW_DESK`):
+저장소: `https://github.com/SPOIN-Inc/COURTVIEW_DESK`, `https://github.com/SPOIN-Inc/courtview_ui`
 
 | 관심사 | 파일 |
 |---|---|
-| 전송 로직 (HTTP POST, 재시도, 타임아웃) | `api_server/services/cloud_sync_service.py` |
-| 페이로드 구성 (snapshot 빌드) | `api_server/services/export_service.py` — `collect_snapshot()` |
-| 경기 DTO (box_score, stats, events) | `shared/dto/game_dto.py` |
-| 심판 DTO | `shared/dto/referee_dto.py` |
-| 전술 DTO | `shared/dto/tactical_dto.py` |
-| 피드백 DTO | `shared/dto/feedback_dto.py` |
-| 미디어 DTO (클립·하이라이트) | `shared/dto/media_dto.py` |
-| 저장 경로 (AppData, 큐) | `infrastructure/storage/paths.py` |
+| 업로드·큐·재시도 | `api_server/services/cloud_sync_service.py` |
+| 스냅샷 빌드 (payload 생성) | `api_server/services/export_service.py` — `collect_snapshot()` |
+| UI 인증 클라이언트 | `courtview_ui / static/js/auth-client.js`, `auth-guard.js` |
+| UI 풀다운 호출 | `courtview_ui / templates/pages/database.html` — `syncFromCloud()` |
+| UI 홈·경기 분석 | `courtview_ui / templates/pages/{home,database,game_analysis,scoreboard,referee}.html` |
+| 경기·팀·선수 DTO | `shared/dto/game_dto.py`, `media_dto.py`, `referee_dto.py`, `tactical_dto.py`, `feedback_dto.py` |
+| 로컬 스토리지 경로 | `infrastructure/storage/paths.py` |
+| 라이선스(하드웨어 기반) | `core_foundation/security/license_validator.py` — SPOIN-AUTH 와는 분리 |
 
 ---
 
 ## 12. 연락
 
-- COURTVIEW Desktop 측: (SPOIN Desk 팀 / Claude + 담당자)
-- 이 문서 업데이트·질문: GitHub `COURTVIEW_DESK` 레포 이슈 또는 slack `#courtview-integration`
+- COURTVIEW Desktop 팀: (SPOIN Desk 팀 / 담당 @)
+- SPOIN-AUTH 팀: (참조 연락처 필요 시)
+- 이 문서: GitHub `COURTVIEW_DESK/docs/INTEGRATION_BKDUNK.md` PR/이슈
 
 ---
 
-## 부록 A. 빠른 테스트 (bkdunk 엔드포인트 검증용)
+## 부록 A. 빠른 검증 (curl)
 
-bkdunk 팀이 엔드포인트 프로토타입 작성 후, 다음 `curl` 으로 COURTVIEW 없이 수신 테스트 가능:
+### A.1 풀다운 (스테이징)
+
+```bash
+# 1. SPOIN 로그인 (테스트 계정)
+TOKEN=$(curl -s -X POST 'https://staging-auth.spoinlabs.com/spoin/api/v1/auth/login' \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"test@spoin.co","password":"..."}' \
+  | jq -r '.access_token')
+
+# 2. 내 대회 목록
+curl -s -H "Authorization: Bearer $TOKEN" \
+  'https://staging-api.bkdunk.spoin.co.kr/cloud/api/tournaments?my=true' | jq .
+
+# 3. 팀 로스터
+curl -s -H "Authorization: Bearer $TOKEN" \
+  'https://staging-api.bkdunk.spoin.co.kr/cloud/api/teams/team-uuid-101/roster' | jq .
+```
+
+### A.2 업로드 (스테이징)
 
 ```bash
 curl -X POST 'https://staging-api.bkdunk.spoin.co.kr/api/v1/games' \
-  -H 'Authorization: Bearer test-token-xyz' \
+  -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json; charset=utf-8' \
   -H 'User-Agent: CourtViewDesk/1.0' \
   -d '{
@@ -562,15 +618,10 @@ curl -X POST 'https://staging-api.bkdunk.spoin.co.kr/api/v1/games' \
     "timestamp": 1776767195.749,
     "box_score": {
       "game_id": "test-game-001",
-      "home_score": 78,
-      "away_score": 82
+      "home_score": 78, "away_score": 82
     },
-    "players": [],
-    "teams": [],
-    "referee": {},
-    "tactical": {},
-    "report": {},
-    "scouting": {},
+    "players": [], "teams": [],
+    "referee": {}, "tactical": {}, "report": {}, "scouting": {},
     "highlights": [],
     "feedback": {"items": [], "total": 0}
   }'
@@ -578,4 +629,4 @@ curl -X POST 'https://staging-api.bkdunk.spoin.co.kr/api/v1/games' \
 
 기대 응답: `200 OK` + `{"ok": true, "server_game_id": "..."}`.
 
-이 응답이 정상적으로 돌아오면 COURTVIEW 실제 노트북과 end-to-end 테스트로 넘어갈 수 있습니다.
+두 curl 모두 통과하면 bkdunk end-to-end 준비 완료 → COURTVIEW 노트북 테스트 단계로.
