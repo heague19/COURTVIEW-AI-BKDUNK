@@ -8,7 +8,7 @@ COURTVIEW - AI 농구 분석 플랫폼
 
 작성자: SPOIN_COURTVIEW
 최종 수정: 2026-02-16
-버전: 1.20.0
+버전: 1.0.0
 
 v1.20.0 변경사항:
     - IPlayerDetector 인터페이스 개정: assign_teams(), identify_ball_handler() 기본 구현 제공
@@ -18,11 +18,13 @@ v1.20.0 변경사항:
     - 레거시 typing 제거, datetime.utcnow() deprecated 해소
 """
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum, unique
-from typing import Any, Generic, Protocol, TypeVar
+from typing import Any, Final, Generic, Protocol, TypeVar
 
 import numpy as np
 
@@ -71,7 +73,7 @@ class DetectionTarget(str, Enum):
 
 
 # -- DetectionTarget 다국어 이름 캐시 (모듈 레벨, 1회 생성) --
-_DETECTION_TARGET_NAME_MAP: dict[DetectionTarget, dict[SupportedLanguage, str]] = {
+_DETECTION_TARGET_NAME_MAP: Final[dict[DetectionTarget, dict[SupportedLanguage, str]]] = {
     DetectionTarget.BALL: {
         SupportedLanguage.KO: "농구공",
         SupportedLanguage.EN: "Basketball",
@@ -178,7 +180,7 @@ class DetectionState(str, Enum):
 
 
 # -- DetectionState 다국어 이름 캐시 (모듈 레벨, 1회 생성) --
-_DETECTION_STATE_NAME_MAP: dict[DetectionState, dict[SupportedLanguage, str]] = {
+_DETECTION_STATE_NAME_MAP: Final[dict[DetectionState, dict[SupportedLanguage, str]]] = {
     DetectionState.UNINITIALIZED: {
         SupportedLanguage.KO: "초기화 전",
         SupportedLanguage.EN: "Uninitialized",
@@ -285,7 +287,7 @@ class PlayerRole(str, Enum):
 
 
 # -- PlayerRole 다국어 이름 캐시 + YOLO 매핑 (모듈 레벨, 1회 생성) --
-_PLAYER_ROLE_NAME_MAP: dict[PlayerRole, dict[SupportedLanguage, str]] = {
+_PLAYER_ROLE_NAME_MAP: Final[dict[PlayerRole, dict[SupportedLanguage, str]]] = {
     PlayerRole.PLAYER: {
         SupportedLanguage.KO: "선수",
         SupportedLanguage.EN: "Player",
@@ -343,7 +345,7 @@ _PLAYER_ROLE_TO_CLASS_ID: dict[PlayerRole, int] = {
 # =============================================================================
 # 바운딩 박스 및 탐지 결과
 # =============================================================================
-@dataclass
+@dataclass(slots=True)
 class BoundingBox:
     """
     바운딩 박스.
@@ -454,7 +456,7 @@ class BoundingBox:
         )
 
 
-@dataclass
+@dataclass(slots=True)
 class DetectedObject:
     """
     탐지된 객체.
@@ -474,7 +476,7 @@ class DetectedObject:
         return self.bounding_box.confidence
 
 
-@dataclass
+@dataclass(slots=True)
 class DetectionResult:
     """
     탐지 결과.
@@ -586,7 +588,7 @@ class ColorFormat(str, Enum):
 
 
 # -- ColorFormat 다국어 이름 캐시 + 채널 수 매핑 (모듈 레벨, 1회 생성) --
-_COLOR_FORMAT_NAME_MAP: dict[ColorFormat, dict[SupportedLanguage, str]] = {
+_COLOR_FORMAT_NAME_MAP: Final[dict[ColorFormat, dict[SupportedLanguage, str]]] = {
     ColorFormat.RGB: {
         SupportedLanguage.KO: "RGB (표준)",
         SupportedLanguage.EN: "RGB (Standard)",
@@ -633,7 +635,7 @@ _COLOR_FORMAT_CHANNEL_MAP: dict[ColorFormat, int] = {
 }
 
 
-@dataclass
+@dataclass(slots=True)
 class FrameData:
     """
     비디오 프레임 데이터.
@@ -772,146 +774,8 @@ class FrameData:
             return False
         return True
 
-    def to_rgb(self) -> "FrameData":
-        """
-        RGB 포맷으로 변환.
-
-        현재 BGR 포맷인 경우 RGB로 변환한 새 FrameData 반환.
-        이미 RGB이거나 그레이스케일인 경우 자신 반환.
-        """
-        import cv2
-
-        if self.color_format == ColorFormat.RGB:
-            return self
-        if self.color_format == ColorFormat.GRAY:
-            return self
-        if self.color_format == ColorFormat.BGR:
-            rgb_frame = cv2.cvtColor(self.frame, cv2.COLOR_BGR2RGB)
-            return FrameData(
-                frame=rgb_frame,
-                frame_index=self.frame_index,
-                timestamp_ms=self.timestamp_ms,
-                width=self.width,
-                height=self.height,
-                channels=self.channels,
-                color_format=ColorFormat.RGB,
-                fps=self.fps,
-                source_path=self.source_path,
-                metadata=self.metadata.copy(),
-            )
-        if self.color_format == ColorFormat.BGRA:
-            rgb_frame = cv2.cvtColor(self.frame, cv2.COLOR_BGRA2RGB)
-            return FrameData(
-                frame=rgb_frame,
-                frame_index=self.frame_index,
-                timestamp_ms=self.timestamp_ms,
-                width=self.width,
-                height=self.height,
-                channels=3,
-                color_format=ColorFormat.RGB,
-                fps=self.fps,
-                source_path=self.source_path,
-                metadata=self.metadata.copy(),
-            )
-        if self.color_format == ColorFormat.RGBA:
-            rgb_frame = cv2.cvtColor(self.frame, cv2.COLOR_RGBA2RGB)
-            return FrameData(
-                frame=rgb_frame,
-                frame_index=self.frame_index,
-                timestamp_ms=self.timestamp_ms,
-                width=self.width,
-                height=self.height,
-                channels=3,
-                color_format=ColorFormat.RGB,
-                fps=self.fps,
-                source_path=self.source_path,
-                metadata=self.metadata.copy(),
-            )
-        return self
-
-    def to_bgr(self) -> "FrameData":
-        """
-        BGR 포맷으로 변환.
-
-        현재 RGB 포맷인 경우 BGR로 변환한 새 FrameData 반환.
-        이미 BGR이거나 그레이스케일인 경우 자신 반환.
-        """
-        import cv2
-
-        if self.color_format == ColorFormat.BGR:
-            return self
-        if self.color_format == ColorFormat.GRAY:
-            return self
-        if self.color_format == ColorFormat.RGB:
-            bgr_frame = cv2.cvtColor(self.frame, cv2.COLOR_RGB2BGR)
-            return FrameData(
-                frame=bgr_frame,
-                frame_index=self.frame_index,
-                timestamp_ms=self.timestamp_ms,
-                width=self.width,
-                height=self.height,
-                channels=self.channels,
-                color_format=ColorFormat.BGR,
-                fps=self.fps,
-                source_path=self.source_path,
-                metadata=self.metadata.copy(),
-            )
-        if self.color_format == ColorFormat.RGBA:
-            bgr_frame = cv2.cvtColor(self.frame, cv2.COLOR_RGBA2BGR)
-            return FrameData(
-                frame=bgr_frame,
-                frame_index=self.frame_index,
-                timestamp_ms=self.timestamp_ms,
-                width=self.width,
-                height=self.height,
-                channels=3,
-                color_format=ColorFormat.BGR,
-                fps=self.fps,
-                source_path=self.source_path,
-                metadata=self.metadata.copy(),
-            )
-        if self.color_format == ColorFormat.BGRA:
-            bgr_frame = cv2.cvtColor(self.frame, cv2.COLOR_BGRA2BGR)
-            return FrameData(
-                frame=bgr_frame,
-                frame_index=self.frame_index,
-                timestamp_ms=self.timestamp_ms,
-                width=self.width,
-                height=self.height,
-                channels=3,
-                color_format=ColorFormat.BGR,
-                fps=self.fps,
-                source_path=self.source_path,
-                metadata=self.metadata.copy(),
-            )
-        return self
-
-    def resize(self, width: int, height: int) -> "FrameData":
-        """
-        프레임 리사이즈.
-
-        Args:
-            width: 새 너비
-            height: 새 높이
-
-        Returns:
-            리사이즈된 FrameData
-        """
-        import cv2
-
-        resized_frame = cv2.resize(self.frame, (width, height))
-        return FrameData(
-            frame=resized_frame,
-            frame_index=self.frame_index,
-            timestamp_ms=self.timestamp_ms,
-            width=width,
-            height=height,
-            channels=self.channels,
-            color_format=self.color_format,
-            fps=self.fps,
-            source_path=self.source_path,
-            metadata=self.metadata.copy(),
-        )
+    # cv2 변환 로직 이관 완료: to_rgb, to_bgr, resize
+    # → utils/ 또는 infrastructure/preprocessing/ 서비스 레이어
 
     def crop(self, x: int, y: int, width: int, height: int) -> "FrameData":
         """
@@ -1002,7 +866,7 @@ class DetectionCallback(Protocol):
 # =============================================================================
 # 탐지기 메트릭
 # =============================================================================
-@dataclass
+@dataclass(slots=True)
 class DetectorMetrics:
     """탐지기 성능 메트릭."""
 
@@ -1165,7 +1029,7 @@ class IDetector(ABC, Generic[ConfigT]):
 # =============================================================================
 # 공 탐지기 인터페이스
 # =============================================================================
-@dataclass
+@dataclass(slots=True)
 class BallState:
     """공 상태 정보."""
 
@@ -1177,7 +1041,7 @@ class BallState:
     trajectory_points: list[tuple[float, float]] = field(default_factory=list)  # 궤적
 
 
-@dataclass
+@dataclass(slots=True)
 class BallDetectionResult(DetectionResult):
     """공 탐지 결과."""
 
@@ -1260,7 +1124,7 @@ class IBallDetector(IDetector[ConfigT], Generic[ConfigT]):
 # =============================================================================
 # 코트 탐지기 인터페이스
 # =============================================================================
-@dataclass
+@dataclass(slots=True)
 class CourtKeypoints:
     """코트 키포인트."""
 
@@ -1278,7 +1142,7 @@ class CourtKeypoints:
     paint_area: list[tuple[float, float]] = field(default_factory=list)
 
 
-@dataclass
+@dataclass(slots=True)
 class CourtDetectionResult(DetectionResult):
     """코트 탐지 결과."""
 
@@ -1376,7 +1240,7 @@ class ICourtDetector(IDetector[ConfigT], Generic[ConfigT]):
 # =============================================================================
 # 선수 탐지기 인터페이스
 # =============================================================================
-@dataclass
+@dataclass(slots=True)
 class PlayerDetection:
     """선수 탐지 정보."""
 
@@ -1397,7 +1261,7 @@ class PlayerDetection:
         return self.bounding_box.confidence
 
 
-@dataclass
+@dataclass(slots=True)
 class PlayerDetectionResult(DetectionResult):
     """선수 탐지 결과."""
 
@@ -1566,7 +1430,7 @@ class PoseKeypoint(str, Enum):
 
 
 # -- PoseKeypoint 다국어 이름 캐시 (모듈 레벨, 1회 생성) --
-_POSE_KEYPOINT_NAME_MAP: dict[PoseKeypoint, dict[SupportedLanguage, str]] = {
+_POSE_KEYPOINT_NAME_MAP: Final[dict[PoseKeypoint, dict[SupportedLanguage, str]]] = {
     # COCO 17 기본 키포인트
     PoseKeypoint.NOSE: {
         SupportedLanguage.KO: "코",
@@ -1834,7 +1698,7 @@ class BodySegment(str, Enum):
 
 
 # -- BodySegment 다국어 이름 캐시 + 분류 (모듈 레벨, 1회 생성) --
-_BODY_SEGMENT_NAME_MAP: dict[BodySegment, dict[SupportedLanguage, str]] = {
+_BODY_SEGMENT_NAME_MAP: Final[dict[BodySegment, dict[SupportedLanguage, str]]] = {
     BodySegment.HEAD: {
         SupportedLanguage.KO: "머리",
         SupportedLanguage.EN: "Head",
@@ -1937,7 +1801,7 @@ _BODY_SEGMENT_LEG: frozenset[BodySegment] = frozenset({
 })
 
 
-@dataclass
+@dataclass(slots=True)
 class KeypointData:
     """
     개별 키포인트 데이터.
@@ -1966,7 +1830,7 @@ class KeypointData:
         return None
 
 
-@dataclass
+@dataclass(slots=True)
 class JointAngle:
     """
     관절 각도 정보.
@@ -1984,11 +1848,10 @@ class JointAngle:
     @property
     def angle_radians(self) -> float:
         """각도 (라디안 단위)."""
-        import math
-        return math.radians(self.angle_degrees)
+        return float(np.radians(self.angle_degrees))
 
 
-@dataclass
+@dataclass(slots=True)
 class SegmentData:
     """
     신체 세그먼트 데이터.
@@ -2014,7 +1877,7 @@ class SegmentData:
         )
 
 
-@dataclass
+@dataclass(slots=True)
 class PoseEstimation:
     """
     단일 인물 포즈 추정 결과.
@@ -2082,7 +1945,7 @@ class PoseEstimation:
         return result
 
 
-@dataclass
+@dataclass(slots=True)
 class PoseEstimationResult(DetectionResult):
     """
     포즈 추정 결과.
@@ -2328,7 +2191,7 @@ class IPoseEstimator(IDetector[ConfigT], Generic[ConfigT]):
 # =============================================================================
 # 골대 탐지기 인터페이스
 # =============================================================================
-@dataclass
+@dataclass(slots=True)
 class HoopDetection:
     """골대 탐지 정보."""
 
@@ -2340,7 +2203,7 @@ class HoopDetection:
     hoop_side: str | None = None  # 코트 사이드 ("left" 또는 "right")
 
 
-@dataclass
+@dataclass(slots=True)
 class HoopDetectionResult(DetectionResult):
     """골대 탐지 결과."""
 
@@ -2403,7 +2266,7 @@ class IHoopDetector(IDetector[ConfigT], Generic[ConfigT]):
 # =============================================================================
 # 추적 결과 데이터 클래스
 # =============================================================================
-@dataclass
+@dataclass(slots=True)
 class TrackingResult:
     """
     추적 결과.
@@ -2463,7 +2326,7 @@ class TrackingResult:
         )
 
 
-@dataclass
+@dataclass(slots=True)
 class TrackState:
     """
     개별 트랙 상태.
@@ -2682,7 +2545,7 @@ class ITracker(ABC, Generic[ConfigT]):
 # =============================================================================
 # 트래커 메트릭
 # =============================================================================
-@dataclass
+@dataclass(slots=True)
 class TrackerMetrics:
     """트래커 성능 메트릭."""
 
@@ -2868,4 +2731,4 @@ __all__ = [
     "DetectionCallback",
 ]
 
-__version__ = "1.20.0"
+__version__ = "1.0.0"

@@ -31,6 +31,8 @@ COURTVIEW - AI 농구 분석 플랫폼
     - shared/dto/detection_dto.py: 감지 결과 DTO
 """
 
+from __future__ import annotations
+
 # =============================================================================
 # 표준 라이브러리 (Standard Library)
 # =============================================================================
@@ -38,7 +40,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum, unique
-from typing import TYPE_CHECKING, Any, Generic, TypeVar
+from typing import TYPE_CHECKING, Any, Final, Generic, TypeVar
 
 # =============================================================================
 # 서드파티 라이브러리 (Third-party)
@@ -57,8 +59,6 @@ if TYPE_CHECKING:
         ViolationType,
     )
     from shared.constants.referee_rule_constants import RuleSet  # noqa: F401
-
-__version__: str = "1.0.0"
 
 
 # =============================================================================
@@ -140,7 +140,7 @@ class GameModuleState(str, Enum):
 
 # -- GameModuleState 다국어 이름 캐시 (모듈 레벨, 1회 생성) --
 
-_GAME_MODULE_STATE_NAME_MAP: dict[GameModuleState, dict[SupportedLanguage, str]] = {
+_GAME_MODULE_STATE_NAME_MAP: Final[dict[GameModuleState, dict[SupportedLanguage, str]]] = {
     GameModuleState.UNINITIALIZED: {
         SupportedLanguage.KO: "초기화 전",
         SupportedLanguage.EN: "Uninitialized",
@@ -208,7 +208,7 @@ _GAME_MODULE_STATE_CAN_PROCESS: frozenset[GameModuleState] = frozenset({
 # =============================================================================
 # 이벤트 감지 결과
 # =============================================================================
-@dataclass
+@dataclass(slots=True)
 class GameEventResult(Generic[OutputT]):
     """
     이벤트 감지 결과 래퍼.
@@ -267,7 +267,7 @@ class GameEventResult(Generic[OutputT]):
 # =============================================================================
 # 심판 검증 결과
 # =============================================================================
-@dataclass
+@dataclass(slots=True)
 class ValidationResult:
     """
     심판 검증 결과.
@@ -331,7 +331,7 @@ class ValidationResult:
 # =============================================================================
 # 멀티뷰 융합 결과
 # =============================================================================
-@dataclass
+@dataclass(slots=True)
 class FusionResult(Generic[OutputT]):
     """
     멀티뷰 융합 결과 래퍼.
@@ -390,7 +390,7 @@ class FusionResult(Generic[OutputT]):
 # =============================================================================
 # 경기 모듈 메트릭
 # =============================================================================
-@dataclass
+@dataclass(slots=True)
 class GameModuleMetrics:
     """
     경기 모듈 성능 메트릭.
@@ -996,3 +996,5 @@ __all__ = [
     "IRefereeValidator",
     "IMultiViewFusion",
 ]
+
+__version__ = "1.0.0"

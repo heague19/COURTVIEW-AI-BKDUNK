@@ -15,7 +15,22 @@ COURTVIEW - AI 농구 분석 플랫폼
 참조:
 - 농구 경기에서 선수 간 밀집 상황이 빈번하여 오클루전 처리가 중요
 - 멀티뷰 시스템에서 크로스뷰 복구 전략 활용
+
+사용 예시::
+
+    >>> from shared.constants.occlusion_constants import (
+    ...     OcclusionType, OcclusionSeverity, ResolutionStrategy
+    ... )
+    >>> OcclusionType.INTER_PLAYER.is_recoverable
+    True
+    >>> OcclusionSeverity.from_overlap(0.7)
+    <OcclusionSeverity.SEVERE: ('severe', 0.5, 0.8)>
+    >>> ResolutionStrategy.CROSS_VIEW.requires_multiview
+    True
 """
+
+from __future__ import annotations
+
 
 from enum import Enum, unique
 from typing import Final
@@ -230,7 +245,7 @@ class OcclusionType(Enum):
 
 # -- OcclusionType 캐시 (직접 할당, ResolutionStrategy 무관 항목) --
 
-_OCCLUSION_TYPE_IS_RECOVERABLE: frozenset = frozenset({
+_OCCLUSION_TYPE_IS_RECOVERABLE: frozenset[OcclusionType] = frozenset({
     OcclusionType.SELF,
     OcclusionType.INTER_PLAYER,
     OcclusionType.COURT_OBJECT,
@@ -352,13 +367,13 @@ class OcclusionSeverity(Enum):
 
 # -- OcclusionSeverity 캐시 (직접 할당) --
 
-_OCCLUSION_SEVERITY_IS_TRACKABLE: frozenset = frozenset({
+_OCCLUSION_SEVERITY_IS_TRACKABLE: frozenset[OcclusionSeverity] = frozenset({
     OcclusionSeverity.NONE,
     OcclusionSeverity.MINOR,
     OcclusionSeverity.PARTIAL,
 })
 
-_OCCLUSION_SEVERITY_NEEDS_RECOVERY: frozenset = frozenset({
+_OCCLUSION_SEVERITY_NEEDS_RECOVERY: frozenset[OcclusionSeverity] = frozenset({
     OcclusionSeverity.PARTIAL,
     OcclusionSeverity.SEVERE,
     OcclusionSeverity.TOTAL,
@@ -433,17 +448,17 @@ class ResolutionStrategy(Enum):
 
 # -- ResolutionStrategy 캐시 (직접 할당) --
 
-_RESOLUTION_STRATEGY_REQUIRES_MULTIVIEW: frozenset = frozenset({
+_RESOLUTION_STRATEGY_REQUIRES_MULTIVIEW: frozenset[ResolutionStrategy] = frozenset({
     ResolutionStrategy.CROSS_VIEW,
 })
 
-_RESOLUTION_STRATEGY_REQUIRES_HISTORY: frozenset = frozenset({
+_RESOLUTION_STRATEGY_REQUIRES_HISTORY: frozenset[ResolutionStrategy] = frozenset({
     ResolutionStrategy.INTERPOLATION,
     ResolutionStrategy.PREDICTION,
     ResolutionStrategy.KALMAN,
 })
 
-_RESOLUTION_STRATEGY_REQUIRES_APPEARANCE: frozenset = frozenset({
+_RESOLUTION_STRATEGY_REQUIRES_APPEARANCE: frozenset[ResolutionStrategy] = frozenset({
     ResolutionStrategy.APPEARANCE_MATCHING,
     ResolutionStrategy.HYBRID,
 })

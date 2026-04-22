@@ -9,8 +9,30 @@ COURTVIEW - AI 농구 분석 플랫폼
 작성자: SPOIN_COURTVIEW
 최종 수정: 2026-02-14
 버전: 1.0.0
+
+참조:
+    - shared/exceptions/: CourtViewException 계열이 ErrorCode 참조
+    - core_foundation/resilience/: 서킷 브레이커, 재시도 로직에서 RETRYABLE_ERRORS 활용
+    - infrastructure/: 스토리지/캐시/카메라 모듈에서 5xxx 에러 발생
+    - configs/base/: 에러 코드 매핑 설정
+
+사용 예시:
+    >>> from shared.constants.error_codes import ErrorCategory, ErrorCode
+    >>> cat = ErrorCategory.from_code(5001)
+    >>> cat.description
+    '인프라 에러'
+    >>> err = ErrorCode.from_code(5001)
+    >>> err.message
+    '데이터베이스 연결에 실패했습니다'
+    >>> err.is_retryable()
+    True
+    >>> err.http_status
+    503
 """
 
+from __future__ import annotations
+
+# === 표준 라이브러리 ===
 from enum import Enum, unique
 from typing import Final
 
@@ -665,6 +687,20 @@ RETRYABLE_ERRORS: Final[frozenset[ErrorCode]] = frozenset({
 
 
 # =============================================================================
+# CriticalException 심각도 범위 (base_exception.py 참조)
+# =============================================================================
+
+# 심각도 최소값 (낮을수록 덜 심각)
+CRITICAL_SEVERITY_MIN: Final[int] = 1
+
+# 심각도 최대값 (높을수록 더 심각 — 시스템 중단/알림 필수)
+CRITICAL_SEVERITY_MAX: Final[int] = 5
+
+# 심각도 기본값 (알림 발송 필수 수준)
+CRITICAL_SEVERITY_DEFAULT: Final[int] = 5
+
+
+# =============================================================================
 # 에러 코드 카테고리별 그룹 (하위 호환성 및 편의성)
 # =============================================================================
 
@@ -1043,6 +1079,10 @@ __all__ = [
     # 캐시 (O(1) 조회)
     "ERROR_CODE_LOOKUP",
     "RETRYABLE_ERRORS",
+    # CriticalException 심각도 범위
+    "CRITICAL_SEVERITY_MIN",
+    "CRITICAL_SEVERITY_MAX",
+    "CRITICAL_SEVERITY_DEFAULT",
     # 카테고리별 그룹 (하위 호환성)
     "GENERAL_ERRORS",
     "AUTH_ERRORS",

@@ -8,10 +8,25 @@ COURTVIEW - AI 농구 분석 플랫폼
       - 키포인트 인덱스, 관절 연결, 신뢰도 임계값
       - MediaPipe, COCO, OpenPose 등 다양한 모델 지원
 
+사용 예시::
+
+    >>> from shared.constants.pose_constants import (
+    ...     PoseQuality, SkeletonType, JointType
+    ... )
+    >>> PoseQuality.from_completeness(0.85)
+    <PoseQuality.HIGH: ('high', 0.8, 1.0)>
+    >>> SkeletonType.COCO.num_keypoints
+    17
+    >>> JointType.LEFT_SHOULDER.to_korean
+    '왼쪽 어깨'
+
 작성자: SPOIN_COURTVIEW
 최종 수정: 2026-02-14
 버전: 1.0.0
 """
+
+from __future__ import annotations
+
 
 from enum import Enum, IntEnum, unique
 from typing import TYPE_CHECKING, Final
@@ -57,6 +72,9 @@ NUM_KEYPOINTS_MEDIAPIPE: Final[int] = 33
 
 # COCO 키포인트 수 (17개)
 NUM_KEYPOINTS_COCO: Final[int] = 17
+
+# COCO-WholeBody 키포인트 수 (Body17 + Foot6 + Face68 + Hand42 = 133)
+NUM_KEYPOINTS_WHOLEBODY: Final[int] = 133
 
 # OpenPose BODY_25 키포인트 수
 NUM_KEYPOINTS_OPENPOSE: Final[int] = 25
@@ -113,11 +131,100 @@ KEYPOINT_RIGHT_ANKLE: Final[int] = 16
 
 
 # =============================================================================
+# COURTVIEW Unified 25kp 키포인트 인덱스 (SSOT)
+#
+# 이 프로젝트의 내부 표준 25점 스켈레톤 규격.
+# body_segment / proportion_calculator / kinematics 등 모든 biomechanics
+# 모듈이 이 상수를 단일 진실공급원(Single Source of Truth)으로 참조합니다.
+#
+# 인덱스 배치 규칙:
+#   0~1     : 체간 기준점 (코, 목)
+#   2~7     : 상지 (R어깨→팔꿈치→손목, L어깨→팔꿈치→손목)
+#   8~13    : 하지 (R골반→무릎→발목, L골반→무릎→발목)
+#   14~17   : 얼굴 보조 (R눈, L눈, R귀, L귀)
+#   18~21   : 발 세부 (L발끝, L발뒤꿈치, R발끝, R발뒤꿈치)
+#   22~24   : 말단 확장 (머리꼭대기, R손끝, L손끝)
+# =============================================================================
+
+NUM_KEYPOINTS_UNIFIED_25: Final[int] = 25
+
+# --- 체간 기준 ---
+UK25_NOSE: Final[int] = 0
+UK25_NECK: Final[int] = 1
+
+# --- 우측 상지 ---
+UK25_R_SHOULDER: Final[int] = 2
+UK25_R_ELBOW: Final[int] = 3
+UK25_R_WRIST: Final[int] = 4
+
+# --- 좌측 상지 ---
+UK25_L_SHOULDER: Final[int] = 5
+UK25_L_ELBOW: Final[int] = 6
+UK25_L_WRIST: Final[int] = 7
+
+# --- 우측 하지 ---
+UK25_R_HIP: Final[int] = 8
+UK25_R_KNEE: Final[int] = 9
+UK25_R_ANKLE: Final[int] = 10
+
+# --- 좌측 하지 ---
+UK25_L_HIP: Final[int] = 11
+UK25_L_KNEE: Final[int] = 12
+UK25_L_ANKLE: Final[int] = 13
+
+# --- 얼굴 보조 ---
+UK25_R_EYE: Final[int] = 14
+UK25_L_EYE: Final[int] = 15
+UK25_R_EAR: Final[int] = 16
+UK25_L_EAR: Final[int] = 17
+
+# --- 발 세부 ---
+UK25_L_BIG_TOE: Final[int] = 18
+UK25_L_HEEL: Final[int] = 19
+UK25_R_BIG_TOE: Final[int] = 20
+UK25_R_HEEL: Final[int] = 21
+
+# --- 말단 확장 ---
+UK25_HEAD_TOP: Final[int] = 22
+UK25_R_FINGERTIP: Final[int] = 23
+UK25_L_FINGERTIP: Final[int] = 24
+
+# Unified 25kp 이름 → 인덱스 맵 (검증/디버깅용)
+UNIFIED_25_NAME_TO_INDEX: Final[dict[str, int]] = {
+    "nose": UK25_NOSE,
+    "neck": UK25_NECK,
+    "r_shoulder": UK25_R_SHOULDER,
+    "r_elbow": UK25_R_ELBOW,
+    "r_wrist": UK25_R_WRIST,
+    "l_shoulder": UK25_L_SHOULDER,
+    "l_elbow": UK25_L_ELBOW,
+    "l_wrist": UK25_L_WRIST,
+    "r_hip": UK25_R_HIP,
+    "r_knee": UK25_R_KNEE,
+    "r_ankle": UK25_R_ANKLE,
+    "l_hip": UK25_L_HIP,
+    "l_knee": UK25_L_KNEE,
+    "l_ankle": UK25_L_ANKLE,
+    "r_eye": UK25_R_EYE,
+    "l_eye": UK25_L_EYE,
+    "r_ear": UK25_R_EAR,
+    "l_ear": UK25_L_EAR,
+    "l_big_toe": UK25_L_BIG_TOE,
+    "l_heel": UK25_L_HEEL,
+    "r_big_toe": UK25_R_BIG_TOE,
+    "r_heel": UK25_R_HEEL,
+    "head_top": UK25_HEAD_TOP,
+    "r_fingertip": UK25_R_FINGERTIP,
+    "l_fingertip": UK25_L_FINGERTIP,
+}
+
+
+# =============================================================================
 # COCO 키포인트 연결 (스켈레톤 라인)
 # =============================================================================
 
 # COCO 스켈레톤 연결 정의 (시작, 끝 키포인트 인덱스)
-COCO_SKELETON_CONNECTIONS: Final[list[tuple[int, int]]] = [
+COCO_SKELETON_CONNECTIONS: Final[tuple[tuple[int, int], ...]] = (
     # 머리
     (0, 1), (0, 2),      # 코 - 눈
     (1, 3), (2, 4),      # 눈 - 귀
@@ -131,7 +238,7 @@ COCO_SKELETON_CONNECTIONS: Final[list[tuple[int, int]]] = [
     # 하체
     (11, 13), (13, 15),  # 왼다리
     (12, 14), (14, 16),  # 오른다리
-]
+)
 
 # COCO 스켈레톤 연결 수
 NUM_COCO_CONNECTIONS: Final[int] = len(COCO_SKELETON_CONNECTIONS)
@@ -399,7 +506,7 @@ class PoseQuality(Enum):
 
 # -- PoseQuality 캐시 (직접 할당) --
 
-_POSE_QUALITY_IS_RELIABLE: frozenset = frozenset({
+_POSE_QUALITY_IS_RELIABLE: frozenset[PoseQuality] = frozenset({
     PoseQuality.HIGH,
     PoseQuality.MEDIUM,
 })
@@ -522,11 +629,11 @@ _SKELETON_TYPE_KOREAN_MAP: dict[SkeletonType, str] = {
     SkeletonType.CUSTOM: "커스텀",
 }
 
-_SKELETON_TYPE_HAS_HAND: frozenset = frozenset({
+_SKELETON_TYPE_HAS_HAND: frozenset[SkeletonType] = frozenset({
     SkeletonType.MEDIAPIPE,
 })
 
-_SKELETON_TYPE_HAS_FACE: frozenset = frozenset({
+_SKELETON_TYPE_HAS_FACE: frozenset[SkeletonType] = frozenset({
     SkeletonType.MEDIAPIPE,
 })
 
@@ -644,7 +751,7 @@ class JointType(IntEnum):
 
 # -- JointType 캐시 (직접 할당) --
 
-_JOINT_TYPE_IS_LEFT: frozenset = frozenset({
+_JOINT_TYPE_IS_LEFT: frozenset[JointType] = frozenset({
     JointType.LEFT_EYE,
     JointType.LEFT_EAR,
     JointType.LEFT_SHOULDER,
@@ -655,7 +762,7 @@ _JOINT_TYPE_IS_LEFT: frozenset = frozenset({
     JointType.LEFT_ANKLE,
 })
 
-_JOINT_TYPE_IS_RIGHT: frozenset = frozenset({
+_JOINT_TYPE_IS_RIGHT: frozenset[JointType] = frozenset({
     JointType.RIGHT_EYE,
     JointType.RIGHT_EAR,
     JointType.RIGHT_SHOULDER,
@@ -822,8 +929,10 @@ __all__ = [
     # 키포인트 수
     "NUM_KEYPOINTS_MEDIAPIPE",
     "NUM_KEYPOINTS_COCO",
+    "NUM_KEYPOINTS_WHOLEBODY",
     "NUM_KEYPOINTS_OPENPOSE",
     "NUM_KEYPOINTS_OPENPOSE_18",
+    "NUM_KEYPOINTS_UNIFIED_25",
     "NUM_KEYPOINTS_HAND",
     "NUM_KEYPOINTS_FACE",
 
@@ -845,6 +954,34 @@ __all__ = [
     "KEYPOINT_RIGHT_KNEE",
     "KEYPOINT_LEFT_ANKLE",
     "KEYPOINT_RIGHT_ANKLE",
+
+    # COURTVIEW Unified 25kp 키포인트 인덱스 (SSOT)
+    "UK25_NOSE",
+    "UK25_NECK",
+    "UK25_R_SHOULDER",
+    "UK25_R_ELBOW",
+    "UK25_R_WRIST",
+    "UK25_L_SHOULDER",
+    "UK25_L_ELBOW",
+    "UK25_L_WRIST",
+    "UK25_R_HIP",
+    "UK25_R_KNEE",
+    "UK25_R_ANKLE",
+    "UK25_L_HIP",
+    "UK25_L_KNEE",
+    "UK25_L_ANKLE",
+    "UK25_R_EYE",
+    "UK25_L_EYE",
+    "UK25_R_EAR",
+    "UK25_L_EAR",
+    "UK25_L_BIG_TOE",
+    "UK25_L_HEEL",
+    "UK25_R_BIG_TOE",
+    "UK25_R_HEEL",
+    "UK25_HEAD_TOP",
+    "UK25_R_FINGERTIP",
+    "UK25_L_FINGERTIP",
+    "UNIFIED_25_NAME_TO_INDEX",
 
     # 스켈레톤 연결
     "COCO_SKELETON_CONNECTIONS",

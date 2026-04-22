@@ -14,6 +14,8 @@ COURTVIEW - AI 농구 분석 플랫폼
 버전: 1.0.0
 """
 
+from __future__ import annotations
+
 # =============================================================================
 # 표준 라이브러리
 # =============================================================================
@@ -30,7 +32,7 @@ from numpy.typing import NDArray
 # 2D 기본형
 # =============================================================================
 
-@dataclass
+@dataclass(slots=True)
 class Point2D:
     """
     2D 좌표점.
@@ -40,6 +42,10 @@ class Point2D:
     Attributes:
         x: X 좌표 (픽셀 또는 미터)
         y: Y 좌표 (픽셀 또는 미터)
+
+    >>> pt = Point2D(1.0, 2.0)
+    >>> pt.to_tuple()
+    (1.0, 2.0)
     """
 
     x: float
@@ -70,7 +76,7 @@ class Point2D:
         return Point2D(self.x * scalar, self.y * scalar)
 
 
-@dataclass
+@dataclass(slots=True)
 class Line2D:
     """
     2D 라인 (선분).
@@ -110,7 +116,7 @@ class Line2D:
         )
 
 
-@dataclass
+@dataclass(slots=True)
 class BoundingBox:
     """
     2D 바운딩 박스.
@@ -227,7 +233,7 @@ class BoundingBox:
         return cls(cx - width / 2, cy - height / 2, width, height)
 
 
-@dataclass
+@dataclass(slots=True)
 class Polygon2D:
     """
     2D 폴리곤.
@@ -282,7 +288,7 @@ class Polygon2D:
 # 3D 기본형
 # =============================================================================
 
-@dataclass
+@dataclass(slots=True)
 class Point3D:
     """
     3D 좌표점.
@@ -334,7 +340,7 @@ class Point3D:
         return Point3D(self.x * scalar, self.y * scalar, self.z * scalar)
 
 
-@dataclass
+@dataclass(slots=True)
 class Vector3D:
     """
     3D 벡터.
@@ -402,7 +408,7 @@ class Vector3D:
         return Vector3D(self.x * scalar, self.y * scalar, self.z * scalar)
 
 
-@dataclass
+@dataclass(slots=True)
 class Ray3D:
     """
     3D 레이 (광선).
@@ -441,7 +447,7 @@ class Ray3D:
         return cls(p1, direction.normalized)
 
 
-@dataclass
+@dataclass(slots=True)
 class BoundingBox3D:
     """
     3D 바운딩 박스.
@@ -490,7 +496,7 @@ class BoundingBox3D:
         )
 
 
-@dataclass
+@dataclass(slots=True)
 class Plane3D:
     """
     3D 평면.
@@ -545,7 +551,7 @@ class Plane3D:
 # 변환
 # =============================================================================
 
-@dataclass
+@dataclass(slots=True)
 class Pose2D:
     """
     2D 포즈 (위치 + 회전).
@@ -582,7 +588,7 @@ class Pose2D:
         )
 
 
-@dataclass
+@dataclass(slots=True)
 class Pose3D:
     """
     3D 포즈 (위치 + 회전).
@@ -623,7 +629,7 @@ class Pose3D:
         )
 
 
-@dataclass
+@dataclass(slots=True)
 class Trajectory3D:
     """
     3D 궤적.
@@ -686,7 +692,7 @@ class Trajectory3D:
 # 코트 좌표
 # =============================================================================
 
-@dataclass
+@dataclass(slots=True)
 class CourtCoordinate:
     """
     코트 좌표.

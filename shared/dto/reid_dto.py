@@ -14,12 +14,14 @@ COURTVIEW - AI 농구 분석 플랫폼
 버전: 1.0.0
 """
 
+from __future__ import annotations
+
 # =============================================================================
 # 표준 라이브러리
 # =============================================================================
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Final
 from uuid import UUID, uuid4
 
 # =============================================================================
@@ -34,6 +36,7 @@ from numpy.typing import NDArray
 from shared.constants.localization import SupportedLanguage
 from shared.constants.reid_constants import (
     EMA_MOMENTUM,
+    GALLERY_FEATURE_MAX_AGE,
     GALLERY_MAX_SIZE,
     SIMILARITY_THRESHOLD,
     MatchStatus,
@@ -43,15 +46,58 @@ from shared.dto.geometry_dto import BoundingBox
 
 
 # =============================================================================
+# i18n 모듈 레벨 캐시
+# =============================================================================
+
+_REID_MATCH_I18N: Final[dict[str, dict[str, str]]] = {
+    "ko": {
+        "matched": "매칭됨: ID {id} (유사도: {sim})",
+        "new": "새로운 인물",
+        "ambiguous": "모호함: 후보 {count}명 (차이: {gap})",
+        "status": "상태: {status}",
+    },
+    "en": {
+        "matched": "Matched: ID {id} (similarity: {sim})",
+        "new": "New person",
+        "ambiguous": "Ambiguous: {count} candidates (gap: {gap})",
+        "status": "Status: {status}",
+    },
+    "ja": {
+        "matched": "マッチング: ID {id} (類似度: {sim})",
+        "new": "新しい人物",
+        "ambiguous": "曖昧: 候補 {count}名 (差: {gap})",
+        "status": "状態: {status}",
+    },
+    "zh": {
+        "matched": "匹配: ID {id} (相似度: {sim})",
+        "new": "新人物",
+        "ambiguous": "模糊: 候选 {count}人 (差距: {gap})",
+        "status": "状态: {status}",
+    },
+    "es": {
+        "matched": "Coincidencia: ID {id} (similitud: {sim})",
+        "new": "Nueva persona",
+        "ambiguous": "Ambiguo: {count} candidatos (diferencia: {gap})",
+        "status": "Estado: {status}",
+    },
+}
+
+
+# =============================================================================
 # 데이터 클래스
 # =============================================================================
 
-@dataclass
+@dataclass(slots=True)
 class ReIDFeature:
     """
     Re-ID 특징 벡터.
 
     단일 외관 특징 벡터와 관련 메타데이터입니다.
+
+    >>> import numpy as np
+    >>> feat = ReIDFeature(feature=np.random.randn(512).astype(np.float32))
+    >>> feat.dimension
+    512
 
     Attributes:
         feature: 특징 벡터 (정규화된 float32)
@@ -73,7 +119,7 @@ class ReIDFeature:
     quality_score: float = 1.0
     model_name: str = "osnet"
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """초기화 후 처리."""
         # 특징 벡터 타입 확인 및 변환
         if not isinstance(self.feature, np.ndarray):
@@ -137,7 +183,7 @@ class ReIDFeature:
         return float(np.linalg.norm(self.feature - other.feature))
 
 
-@dataclass
+@dataclass(slots=True)
 class GalleryEntry:
     """
     갤러리 엔트리.
@@ -192,88 +238,11 @@ class GalleryEntry:
             return 0.0
         return sum(f.quality_score for f in self.features) / len(self.features)
 
-    def add_feature(
-        self,
-        feature: ReIDFeature,
-        max_size: int = GALLERY_MAX_SIZE,
-        ema_momentum: float = EMA_MOMENTUM,
-    ) -> None:
-        """
-        특징 추가.
-
-        Args:
-            feature: 추가할 특징
-            max_size: 최대 저장 크기
-            ema_momentum: EMA 모멘텀 값
-        """
-        # 특징 추가
-        self.features.append(feature)
-        self.total_observations += 1
-        self.last_update_frame = feature.frame_index
-        self.last_update_time = feature.timestamp or datetime.now(timezone.utc)
-
-        # 크기 제한 (오래된 것부터 제거)
-        if len(self.features) > max_size:
-            # 품질이 낮은 것부터 제거
-            self.features.sort(
-                key=lambda f: (f.quality_score, f.confidence),
-                reverse=True
-            )
-            self.features = self.features[:max_size]
-
-        # EMA로 평균 특징 업데이트
-        self._update_mean_feature(feature, ema_momentum)
-
-    def _update_mean_feature(
-        self,
-        new_feature: ReIDFeature,
-        momentum: float = EMA_MOMENTUM,
-    ) -> None:
-        """EMA로 평균 특징 업데이트."""
-        if self.mean_feature is None:
-            self.mean_feature = new_feature.feature.copy()
-        else:
-            self.mean_feature = (
-                momentum * self.mean_feature +
-                (1 - momentum) * new_feature.feature
-            )
-            # 정규화
-            norm = np.linalg.norm(self.mean_feature)
-            if norm > 1e-12:
-                self.mean_feature = self.mean_feature / norm
-
-    def similarity_to(self, feature: ReIDFeature) -> float:
-        """특징과의 유사도 (평균 특징 사용)."""
-        if self.mean_feature is None:
-            if not self.features:
-                return 0.0
-            # 평균 특징이 없으면 가장 최근 특징 사용
-            return self.features[-1].cosine_similarity(feature)
-
-        # 평균 특징으로 유사도 계산
-        norm1 = np.linalg.norm(self.mean_feature)
-        norm2 = np.linalg.norm(feature.feature)
-        if norm1 < 1e-12 or norm2 < 1e-12:
-            return 0.0
-        return float(
-            np.dot(self.mean_feature, feature.feature) / (norm1 * norm2)
-        )
-
-    def prune_old_features(
-        self,
-        current_frame: int,
-        max_age: int = 300,
-    ) -> int:
-        """오래된 특징 제거. 제거된 수 반환."""
-        original_count = len(self.features)
-        self.features = [
-            f for f in self.features
-            if current_frame - f.frame_index <= max_age
-        ]
-        return original_count - len(self.features)
+    # 비즈니스 로직 이관 완료: add_feature, _update_mean_feature,
+    # similarity_to, prune_old_features → detection/reid/ 서비스 레이어
 
 
-@dataclass
+@dataclass(slots=True)
 class ReIDGallery:
     """
     Re-ID 갤러리.
@@ -313,93 +282,12 @@ class ReIDGallery:
         """비어있는지 여부."""
         return len(self.entries) == 0
 
-    def add_entry(self, entry: GalleryEntry) -> bool:
-        """엔트리 추가. 성공 여부 반환."""
-        if len(self.entries) >= self.max_entries:
-            return False
-        self.entries[entry.person_id] = entry
-        self.last_update = datetime.now(timezone.utc)
-        return True
-
-    def get_entry(self, person_id: int) -> GalleryEntry | None:
-        """인물 ID로 엔트리 조회."""
-        return self.entries.get(person_id)
-
-    def remove_entry(self, person_id: int) -> bool:
-        """엔트리 제거. 성공 여부 반환."""
-        if person_id in self.entries:
-            del self.entries[person_id]
-            self.last_update = datetime.now(timezone.utc)
-            return True
-        return False
-
-    def update_feature(
-        self,
-        person_id: int,
-        feature: ReIDFeature,
-        ema_momentum: float = EMA_MOMENTUM,
-    ) -> bool:
-        """특정 인물의 특징 업데이트. 성공 여부 반환."""
-        entry = self.entries.get(person_id)
-        if entry is None:
-            return False
-        entry.add_feature(
-            feature,
-            max_size=self.max_features_per_entry,
-            ema_momentum=ema_momentum,
-        )
-        self.last_update = datetime.now(timezone.utc)
-        return True
-
-    def query(
-        self,
-        feature: ReIDFeature,
-        top_k: int = 5,
-        threshold: float = SIMILARITY_THRESHOLD,
-    ) -> list[tuple[int, float]]:
-        """
-        특징으로 갤러리 조회.
-
-        Args:
-            feature: 쿼리 특징
-            top_k: 반환할 상위 결과 수
-            threshold: 최소 유사도 임계값
-
-        Returns:
-            (person_id, similarity) 튜플 목록 (유사도 내림차순)
-        """
-        results = []
-        for person_id, entry in self.entries.items():
-            sim = entry.similarity_to(feature)
-            if sim >= threshold:
-                results.append((person_id, sim))
-
-        # 유사도 내림차순 정렬
-        results.sort(key=lambda x: x[1], reverse=True)
-        return results[:top_k]
-
-    def find_best_match(
-        self,
-        feature: ReIDFeature,
-        threshold: float = SIMILARITY_THRESHOLD,
-    ) -> tuple[int, float] | None:
-        """가장 유사한 인물 찾기. (person_id, similarity) 또는 None."""
-        results = self.query(feature, top_k=1, threshold=threshold)
-        return results[0] if results else None
-
-    def prune_all(
-        self,
-        current_frame: int,
-        max_feature_age: int = 300,
-    ) -> int:
-        """모든 엔트리의 오래된 특징 제거. 제거된 총 수 반환."""
-        total_pruned = 0
-        for entry in self.entries.values():
-            total_pruned += entry.prune_old_features(current_frame, max_feature_age)
-        return total_pruned
+    # 비즈니스 로직 이관 완료: add_entry, remove_entry, update_feature,
+    # query, find_best_match, prune_all → detection/reid/ 서비스 레이어
+    # get_entry는 단순 조회로 유지
 
 
-@dataclass
+@dataclass(slots=True)
 class ReIDMatch:
     """
     Re-ID 매칭 결과.
@@ -478,40 +366,7 @@ class ReIDMatch:
         Returns:
             해당 언어의 매칭 결과 요약
         """
-        translations: dict[SupportedLanguage, dict[str, str]] = {
-            SupportedLanguage.KO: {
-                "matched": "매칭됨: ID {id} (유사도: {sim})",
-                "new": "새로운 인물",
-                "ambiguous": "모호함: 후보 {count}명 (차이: {gap})",
-                "status": "상태: {status}",
-            },
-            SupportedLanguage.EN: {
-                "matched": "Matched: ID {id} (similarity: {sim})",
-                "new": "New person",
-                "ambiguous": "Ambiguous: {count} candidates (gap: {gap})",
-                "status": "Status: {status}",
-            },
-            SupportedLanguage.JA: {
-                "matched": "マッチング: ID {id} (類似度: {sim})",
-                "new": "新しい人物",
-                "ambiguous": "曖昧: 候補 {count}名 (差: {gap})",
-                "status": "状態: {status}",
-            },
-            SupportedLanguage.ZH: {
-                "matched": "匹配: ID {id} (相似度: {sim})",
-                "new": "新人物",
-                "ambiguous": "模糊: 候选 {count}人 (差距: {gap})",
-                "status": "状态: {status}",
-            },
-            SupportedLanguage.ES: {
-                "matched": "Coincidencia: ID {id} (similitud: {sim})",
-                "new": "Nueva persona",
-                "ambiguous": "Ambiguo: {count} candidatos (diferencia: {gap})",
-                "status": "Estado: {status}",
-            },
-        }
-
-        msgs = translations.get(lang, translations[SupportedLanguage.KO])
+        msgs = _REID_MATCH_I18N.get(lang.value, _REID_MATCH_I18N["ko"])
 
         if self.is_matched:
             return msgs["matched"].format(
@@ -533,7 +388,7 @@ class ReIDMatch:
         return self.get_summary(SupportedLanguage.KO)
 
 
-@dataclass
+@dataclass(slots=True)
 class ReIDResult:
     """
     Re-ID 전체 결과.
@@ -591,13 +446,6 @@ class ReIDResult:
 # =============================================================================
 
 __all__ = [
-    # Re-export (다국어 지원)
-    "SupportedLanguage",
-
-    # Enum (reid_constants에서 re-export)
-    "ReIDModel",
-    "MatchStatus",
-
     # 데이터 클래스
     "ReIDFeature",
     "GalleryEntry",

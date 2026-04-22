@@ -10,14 +10,34 @@ COURTVIEW - AI 농구 분석 플랫폼
       - 바이올레이션 12종, 파울 11종 (FIBA/NBA/KBL/NBL)
       - 5개 언어 다국어 지원 (i18n)
 
+사용 예시::
+
+    >>> from shared.constants.game_rule_constants import (
+    ...     ShotType, ViolationType, FoulType
+    ... )
+    >>> ShotType.LAYUP.to_korean
+    '레이업'
+    >>> ViolationType.TRAVELING.to_korean
+    '트래블링'
+    >>> FoulType.PERSONAL.to_korean
+    '개인 파울'
+
 작성자: SPOIN_COURTVIEW
 최종 수정: 2026-02-14
 버전: 1.0.0
+
+참조:
+    - localization.py: SupportedLanguage (5개 언어 다국어 지원)
+    - configs/game_analysis/event_detection.yaml: 이벤트 감지 설정
 """
 
+from __future__ import annotations
+
+# === 표준 라이브러리 ===
 from enum import Enum, unique
 from typing import Final
 
+# === 프로젝트 모듈 ===
 from shared.constants.localization import SupportedLanguage
 
 
@@ -35,6 +55,9 @@ class ShotType(str, Enum):
     주의: ball_constants.ShotType(9종)은 공 물리 궤적용.
     이 ShotType(13종)은 경기 분석/통계용 (상위 집합).
     """
+
+    def __str__(self) -> str:
+        return self.value
 
     LAYUP = "layup"
     DUNK = "dunk"
@@ -171,6 +194,9 @@ _SHOT_TYPE_I18N_MAP: Final[dict[ShotType, dict[SupportedLanguage, str]]] = {
 class ShotResult(str, Enum):
     """슛 결과 열거형 (5종)."""
 
+    def __str__(self) -> str:
+        return self.value
+
     MADE = "made"
     MISSED = "missed"
     BLOCKED = "blocked"
@@ -249,6 +275,9 @@ class CourtZone(str, Enum):
     이 CourtZone(20종)은 슛 차트/통계 분석용.
     """
 
+    def __str__(self) -> str:
+        return self.value
+
     # 페인트 구역 (3)
     PAINT_LEFT = "paint_left"
     PAINT_CENTER = "paint_center"
@@ -306,9 +335,7 @@ class CourtZone(str, Enum):
     @property
     def expected_points(self) -> int:
         """예상 득점 (성공 시)."""
-        if self.is_three_point or self.is_deep_three:
-            return 3
-        return 2
+        return _COURT_ZONE_EXPECTED_POINTS_MAP[self]
 
 
 # -- CourtZone 캐시 (직접 할당) --
@@ -331,6 +358,17 @@ _COURT_ZONE_IS_THREE_POINT: Final[frozenset[CourtZone]] = frozenset({
 _COURT_ZONE_IS_DEEP_THREE: Final[frozenset[CourtZone]] = frozenset({
     CourtZone.DEEP_THREE_LEFT, CourtZone.DEEP_THREE_CENTER, CourtZone.DEEP_THREE_RIGHT,
 })
+
+_COURT_ZONE_EXPECTED_POINTS_MAP: Final[dict[CourtZone, int]] = {
+    CourtZone.PAINT_LEFT: 2, CourtZone.PAINT_CENTER: 2, CourtZone.PAINT_RIGHT: 2,
+    CourtZone.MID_LEFT_CORNER: 2, CourtZone.MID_LEFT_WING: 2, CourtZone.MID_LEFT_ELBOW: 2,
+    CourtZone.MID_CENTER: 2, CourtZone.MID_RIGHT_ELBOW: 2, CourtZone.MID_RIGHT_WING: 2,
+    CourtZone.MID_RIGHT_CORNER: 2,
+    CourtZone.THREE_LEFT_CORNER: 3, CourtZone.THREE_LEFT_WING: 3, CourtZone.THREE_LEFT_TOP: 3,
+    CourtZone.THREE_CENTER: 3, CourtZone.THREE_RIGHT_TOP: 3, CourtZone.THREE_RIGHT_WING: 3,
+    CourtZone.THREE_RIGHT_CORNER: 3,
+    CourtZone.DEEP_THREE_LEFT: 3, CourtZone.DEEP_THREE_CENTER: 3, CourtZone.DEEP_THREE_RIGHT: 3,
+}
 
 _COURT_ZONE_I18N_MAP: Final[dict[CourtZone, dict[SupportedLanguage, str]]] = {
     CourtZone.PAINT_LEFT: {
@@ -442,6 +480,9 @@ _COURT_ZONE_I18N_MAP: Final[dict[CourtZone, dict[SupportedLanguage, str]]] = {
 @unique
 class PlayType(str, Enum):
     """플레이 유형 열거형 (13종). 공격(9) + 수비(4)."""
+
+    def __str__(self) -> str:
+        return self.value
 
     # 공격 플레이 (9)
     TRANSITION = "transition"
@@ -571,6 +612,9 @@ class GameEventType(str, Enum):
     주의: event_types.EventType(93종)은 시스템 이벤트 (task, infra, model).
     이 GameEventType(18종)은 농구 경기 도메인 이벤트.
     """
+
+    def __str__(self) -> str:
+        return self.value
 
     # 슈팅 관련 (6)
     SHOT_ATTEMPT = "shot_attempt"
@@ -737,6 +781,9 @@ _GAME_EVENT_TYPE_I18N_MAP: Final[dict[GameEventType, dict[SupportedLanguage, str
 class HighlightType(str, Enum):
     """하이라이트 유형 열거형 (12종)."""
 
+    def __str__(self) -> str:
+        return self.value
+
     SPECTACULAR_DUNK = "spectacular_dunk"
     THREE_POINTER = "three_pointer"
     BUZZER_BEATER = "buzzer_beater"
@@ -851,6 +898,9 @@ _HIGHLIGHT_TYPE_I18N_MAP: Final[dict[HighlightType, dict[SupportedLanguage, str]
 @unique
 class ViolationType(str, Enum):
     """바이올레이션 유형 열거형 (12종). FIBA/NBA/KBL 규정 기반."""
+
+    def __str__(self) -> str:
+        return self.value
 
     TRAVELING = "traveling"
     DOUBLE_DRIBBLE = "double_dribble"
@@ -976,6 +1026,9 @@ _VIOLATION_TYPE_I18N_MAP: Final[dict[ViolationType, dict[SupportedLanguage, str]
 @unique
 class FoulType(str, Enum):
     """파울 유형 열거형 (11종). FIBA/NBA/KBL 규정 기반."""
+
+    def __str__(self) -> str:
+        return self.value
 
     PERSONAL = "personal"
     OFFENSIVE = "offensive"
@@ -1154,35 +1207,6 @@ __all__ = [
     "TEAM_FOUL_BONUS_FIBA",
     "TEAM_FOUL_BONUS_NBA",
     "TECHNICAL_FOUL_EJECTION",
-    # 캐시 (내부용이나 테스트 접근 허용)
-    "_SHOT_TYPE_IS_CLOSE_RANGE",
-    "_SHOT_TYPE_IS_MID_RANGE",
-    "_SHOT_TYPE_EXPECTED_POINTS_MAP",
-    "_SHOT_TYPE_I18N_MAP",
-    "_SHOT_RESULT_IS_SUCCESSFUL",
-    "_SHOT_RESULT_GRANTS_FREE_THROWS",
-    "_SHOT_RESULT_I18N_MAP",
-    "_COURT_ZONE_IS_PAINT",
-    "_COURT_ZONE_IS_MID_RANGE",
-    "_COURT_ZONE_IS_THREE_POINT",
-    "_COURT_ZONE_IS_DEEP_THREE",
-    "_COURT_ZONE_I18N_MAP",
-    "_PLAY_TYPE_IS_OFFENSIVE",
-    "_PLAY_TYPE_IS_DEFENSIVE",
-    "_PLAY_TYPE_I18N_MAP",
-    "_GAME_EVENT_TYPE_IS_SHOOTING",
-    "_GAME_EVENT_TYPE_IS_SCORING",
-    "_GAME_EVENT_TYPE_IS_FOUL",
-    "_GAME_EVENT_TYPE_I18N_MAP",
-    "_HIGHLIGHT_TYPE_EXCITEMENT_MAP",
-    "_HIGHLIGHT_TYPE_I18N_MAP",
-    "_VIOLATION_TYPE_IS_TIME",
-    "_VIOLATION_TYPE_RULE_REF_MAP",
-    "_VIOLATION_TYPE_I18N_MAP",
-    "_FOUL_TYPE_IS_EJECTABLE",
-    "_FOUL_TYPE_IS_OFFENSIVE",
-    "_FOUL_TYPE_FREE_THROWS_MAP",
-    "_FOUL_TYPE_I18N_MAP",
 ]
 
 __version__ = "1.0.0"

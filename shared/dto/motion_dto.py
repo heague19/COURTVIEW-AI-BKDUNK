@@ -22,19 +22,22 @@ COURTVIEW - AI 농구 분석 플랫폼
     - motion_analysis/movement/: 이동 동작 감지
 
 의존성:
+    - shared/constants/court_constants.py: THREE_POINT_LINE_DISTANCE_M (3점 라인 거리)
     - shared/constants/game_rule_constants.py: ShotType (슛 유형 열거형)
-    - shared/constants/pose_constants.py: JointType (관절 열거형)
 
 소비자:
     - game_analysis/event_detection/: 이벤트 감지 시 동작 분류 결과 활용
     - game_analysis/statistics/: 통계 집계 시 동작별 분류 참조
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from enum import Enum, unique
 
 from uuid import UUID, uuid4
 
+from shared.constants.court_constants import THREE_POINT_LINE_DISTANCE_M
 from shared.constants.game_rule_constants import ShotType
 
 
@@ -49,6 +52,10 @@ class ActionType(str, Enum):
 
     motion_analysis/classification/action_classifier.py에서 분류하는 11가지 동작.
     경기 분석 전용 (Desktop): 훈련 폼 평가 제외.
+
+    >>> action = ActionType.SHOOTING
+    >>> action.value
+    'shooting'
     """
 
     SHOOTING = "shooting"          # 슈팅 (슛 동작 전체)
@@ -184,7 +191,7 @@ class DeceptionType(str, Enum):
 # 특징 벡터
 # =============================================================================
 
-@dataclass
+@dataclass(slots=True)
 class MotionFeatureVector:
     """
     동작 특징 벡터.
@@ -210,7 +217,7 @@ class MotionFeatureVector:
 # 동작 분류 결과
 # =============================================================================
 
-@dataclass
+@dataclass(slots=True)
 class ActionClassification:
     """
     동작 분류 결과.
@@ -256,7 +263,7 @@ class ActionClassification:
 # 세부 동작 DTO
 # =============================================================================
 
-@dataclass
+@dataclass(slots=True)
 class ShootingMotion:
     """
     슈팅 동작 상세 결과.
@@ -288,10 +295,10 @@ class ShootingMotion:
     @property
     def is_three_pointer(self) -> bool:
         """3점슛 여부."""
-        return self.distance_meters >= 6.75  # FIBA 3점 라인
+        return self.distance_meters >= THREE_POINT_LINE_DISTANCE_M
 
 
-@dataclass
+@dataclass(slots=True)
 class DribblingMotion:
     """
     드리블 동작 상세 결과.
@@ -313,7 +320,7 @@ class DribblingMotion:
     end_frame: int = 0
 
 
-@dataclass
+@dataclass(slots=True)
 class PassingMotion:
     """
     패스 동작 상세 결과.
@@ -335,7 +342,7 @@ class PassingMotion:
     end_frame: int = 0
 
 
-@dataclass
+@dataclass(slots=True)
 class DefensiveMotion:
     """
     수비 동작 상세 결과.
@@ -356,7 +363,7 @@ class DefensiveMotion:
     end_frame: int = 0
 
 
-@dataclass
+@dataclass(slots=True)
 class MovementMotion:
     """
     이동 동작 상세 결과.
@@ -376,7 +383,7 @@ class MovementMotion:
     end_frame: int = 0
 
 
-@dataclass
+@dataclass(slots=True)
 class FloppingDetection:
     """
     플로핑/기만 행위 감지 결과.
@@ -405,7 +412,7 @@ class FloppingDetection:
 # 종합 결과
 # =============================================================================
 
-@dataclass
+@dataclass(slots=True)
 class MotionDetectionResult:
     """
     프레임/구간 단위 동작 감지 종합 결과.

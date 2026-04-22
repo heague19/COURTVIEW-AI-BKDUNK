@@ -13,10 +13,12 @@ COURTVIEW - AI 농구 분석 플랫폼
 버전: 1.0.0
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum, unique
-from typing import Any, Final, Optional
+from typing import Any, Final
 from uuid import UUID, uuid4
 
 import numpy as np
@@ -40,6 +42,10 @@ class CameraType(str, Enum):
     카메라 타입 열거형.
 
     지원되는 카메라 유형입니다.
+
+    >>> cam_type = CameraType.USB
+    >>> cam_type.value
+    'usb'
     """
 
     USB = "usb"        # USB 웹캠
@@ -369,7 +375,7 @@ _FOCUS_MODE_I18N: Final[dict[FocusMode, dict[SupportedLanguage, str]]] = {
 # 데이터 클래스
 # =============================================================================
 
-@dataclass
+@dataclass(slots=True)
 class CameraInfo:
     """
     카메라 기본 정보.
@@ -395,12 +401,12 @@ class CameraInfo:
         default_factory=lambda: VideoResolution(1920, 1080)
     )
     fps: float = DEFAULT_FRAME_RATE
-    device_index: Optional[int] = None
-    url: Optional[str] = None
-    manufacturer: Optional[str] = None
-    model: Optional[str] = None
+    device_index: int | None = None
+    url: str | None = None
+    manufacturer: str | None = None
+    model: str | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """초기화 후 처리."""
         if not self.name:
             self.name = f"Camera_{str(self.camera_id)[:8]}"
@@ -418,7 +424,7 @@ class CameraInfo:
         return self.name
 
 
-@dataclass
+@dataclass(slots=True)
 class CameraStatus:
     """
     카메라 상태 정보.
@@ -436,11 +442,11 @@ class CameraStatus:
     """
 
     state: CameraState = CameraState.DISCONNECTED
-    last_frame_time: Optional[datetime] = None
+    last_frame_time: datetime | None = None
     frames_captured: int = 0
     frames_dropped: int = 0
     current_fps: float = 0.0
-    error_message: Optional[str] = None
+    error_message: str | None = None
     uptime_seconds: float = 0.0
 
     @property
@@ -461,7 +467,7 @@ class CameraStatus:
         )
 
     @property
-    def time_since_last_frame(self) -> Optional[float]:
+    def time_since_last_frame(self) -> float | None:
         """마지막 프레임 이후 경과 시간 (초)."""
         if self.last_frame_time is None:
             return None
@@ -469,7 +475,7 @@ class CameraStatus:
         return delta.total_seconds()
 
 
-@dataclass
+@dataclass(slots=True)
 class CameraConfig:
     """
     카메라 설정.
@@ -492,12 +498,12 @@ class CameraConfig:
     """
 
     exposure_mode: ExposureMode = ExposureMode.AUTO
-    exposure_time: Optional[int] = None
+    exposure_time: int | None = None
     gain: float = 0.5
     white_balance_mode: WhiteBalanceMode = WhiteBalanceMode.AUTO
-    white_balance_temp: Optional[int] = None
+    white_balance_temp: int | None = None
     focus_mode: FocusMode = FocusMode.AUTO
-    focus_distance: Optional[float] = None
+    focus_distance: float | None = None
     brightness: float = 0.0
     contrast: float = 1.0
     saturation: float = 1.0
@@ -522,7 +528,7 @@ class CameraConfig:
         }
 
 
-@dataclass
+@dataclass(slots=True)
 class CameraFrame:
     """
     카메라 프레임.
@@ -539,7 +545,7 @@ class CameraFrame:
 
     image: NDArray[np.uint8]
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    camera_id: Optional[UUID] = None
+    camera_id: UUID | None = None
     frame_index: int = 0
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -570,15 +576,10 @@ class CameraFrame:
         """Unix 타임스탬프."""
         return self.timestamp.timestamp()
 
-    def to_grayscale(self) -> NDArray[np.uint8]:
-        """그레이스케일로 변환."""
-        if self.image is None or self.channels == 1:
-            return self.image
-        import cv2
-        return cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY)
+    # cv2 변환 로직 이관 완료: to_grayscale → utils/ 또는 infrastructure/preprocessing/
 
 
-@dataclass
+@dataclass(slots=True)
 class CameraPosition:
     """
     카메라 물리적 위치.
@@ -629,7 +630,7 @@ class CameraPosition:
         )
 
 
-@dataclass
+@dataclass(slots=True)
 class CameraSetup:
     """
     카메라 설정 통합.
@@ -668,7 +669,7 @@ class CameraSetup:
 # 멀티카메라 관련
 # =============================================================================
 
-@dataclass
+@dataclass(slots=True)
 class MultiCameraSetup:
     """
     멀티카메라 설정.
@@ -684,7 +685,7 @@ class MultiCameraSetup:
 
     setup_id: UUID = field(default_factory=uuid4)
     cameras: list[CameraSetup] = field(default_factory=list)
-    reference_camera_id: Optional[UUID] = None
+    reference_camera_id: UUID | None = None
     sync_mode: str = "software"  # software, hardware, external
 
     @property
@@ -697,24 +698,15 @@ class MultiCameraSetup:
         """활성 카메라 목록."""
         return [c for c in self.cameras if c.is_ready]
 
-    def get_camera(self, camera_id: UUID) -> Optional[CameraSetup]:
+    def get_camera(self, camera_id: UUID) -> CameraSetup | None:
         """카메라 ID로 조회."""
         for camera in self.cameras:
             if camera.camera_id == camera_id:
                 return camera
         return None
 
-    def add_camera(self, camera: CameraSetup) -> None:
-        """카메라 추가."""
-        self.cameras.append(camera)
-
-    def remove_camera(self, camera_id: UUID) -> bool:
-        """카메라 제거."""
-        for i, camera in enumerate(self.cameras):
-            if camera.camera_id == camera_id:
-                self.cameras.pop(i)
-                return True
-        return False
+    # 비즈니스 로직 이관 완료: add_camera, remove_camera
+    # → infrastructure/multi_camera/ 서비스 레이어
 
 
 # =============================================================================

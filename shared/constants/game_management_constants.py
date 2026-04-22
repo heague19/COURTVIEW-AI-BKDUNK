@@ -34,16 +34,23 @@ COURTVIEW - AI 농구 분석 플랫폼
 주의:
     RuleSet(리그 규정)은 referee_rule_constants.py에서 정의합니다.
     이 파일은 경기 '운영/관리'에 특화된 상수만 정의합니다.
+
+사용 예시:
+    >>> from shared.constants.game_management_constants import GameState, BonusStatus
+    >>> GameState.LIVE.is_clock_running
+    True
+    >>> BonusStatus.BONUS.grants_free_throws
+    True
 """
+
+from __future__ import annotations
+
 
 from enum import Enum, unique
 from typing import Final
 
 from shared.constants.localization import SupportedLanguage
 from shared.constants.referee_rule_constants import RuleSet
-
-
-__version__: str = "1.0.0"
 
 
 # =============================================================================
@@ -314,6 +321,62 @@ class RecordFormat(str, Enum):
     def __str__(self) -> str:
         return self.value
 
+    def get_name(self, lang: SupportedLanguage = SupportedLanguage.KO) -> str:
+        """다국어 기록 형식명 반환."""
+        return _RECORD_FORMAT_I18N[self].get(
+            lang, _RECORD_FORMAT_I18N[self][SupportedLanguage.KO]
+        )
+
+    def to_korean(self) -> str:
+        """한글 기록 형식명 (하위 호환성)."""
+        return self.get_name(SupportedLanguage.KO)
+
+
+_RECORD_FORMAT_I18N: dict[RecordFormat, dict[SupportedLanguage, str]] = {
+    RecordFormat.FIBA_BOXSCORE: {
+        SupportedLanguage.KO: "FIBA 박스스코어",
+        SupportedLanguage.EN: "FIBA Box Score",
+        SupportedLanguage.JA: "FIBAボックススコア",
+        SupportedLanguage.ZH: "FIBA技术统计",
+        SupportedLanguage.ES: "Estadísticas FIBA",
+    },
+    RecordFormat.NBA_BOXSCORE: {
+        SupportedLanguage.KO: "NBA 박스스코어",
+        SupportedLanguage.EN: "NBA Box Score",
+        SupportedLanguage.JA: "NBAボックススコア",
+        SupportedLanguage.ZH: "NBA技术统计",
+        SupportedLanguage.ES: "Estadísticas NBA",
+    },
+    RecordFormat.KBL_BOXSCORE: {
+        SupportedLanguage.KO: "KBL 기록지",
+        SupportedLanguage.EN: "KBL Box Score",
+        SupportedLanguage.JA: "KBLボックススコア",
+        SupportedLanguage.ZH: "KBL技术统计",
+        SupportedLanguage.ES: "Estadísticas KBL",
+    },
+    RecordFormat.NBL_BOXSCORE: {
+        SupportedLanguage.KO: "NBL 기록지",
+        SupportedLanguage.EN: "NBL Box Score",
+        SupportedLanguage.JA: "NBLボックススコア",
+        SupportedLanguage.ZH: "NBL技术统计",
+        SupportedLanguage.ES: "Estadísticas NBL",
+    },
+    RecordFormat.JSON_FEED: {
+        SupportedLanguage.KO: "JSON 데이터 피드",
+        SupportedLanguage.EN: "JSON Data Feed",
+        SupportedLanguage.JA: "JSONデータフィード",
+        SupportedLanguage.ZH: "JSON数据源",
+        SupportedLanguage.ES: "Fuente de Datos JSON",
+    },
+    RecordFormat.XML_FEED: {
+        SupportedLanguage.KO: "XML 데이터 피드",
+        SupportedLanguage.EN: "XML Data Feed",
+        SupportedLanguage.JA: "XMLデータフィード",
+        SupportedLanguage.ZH: "XML数据源",
+        SupportedLanguage.ES: "Fuente de Datos XML",
+    },
+}
+
 
 # =============================================================================
 # 리그별 타임아웃 규칙
@@ -466,82 +529,9 @@ PLAYING_TIME_TOLERANCE_SEC: Final[float] = 5.0
 
 
 # =============================================================================
-# 유틸리티 함수
-# =============================================================================
-
-def is_valid_game_transition(
-    current: GameState, target: GameState
-) -> bool:
-    """
-    경기 상태 전이 유효성 검사.
-
-    Args:
-        current: 현재 상태
-        target: 전이 대상 상태
-
-    Returns:
-        유효한 전이 여부
-    """
-    return target in VALID_GAME_STATE_TRANSITIONS.get(current, frozenset())
-
-
-def get_bonus_status(
-    team_fouls_in_period: int, rule_set: RuleSet
-) -> BonusStatus:
-    """
-    팀 파울 수로 보너스 상태 판정.
-
-    Args:
-        team_fouls_in_period: 해당 쿼터 팀 파울 수
-        rule_set: 적용 규정
-
-    Returns:
-        BonusStatus 상태
-    """
-    threshold = TEAM_FOUL_BONUS_THRESHOLD[rule_set]
-    if team_fouls_in_period > threshold:
-        if rule_set == RuleSet.NBA and team_fouls_in_period >= NBA_DOUBLE_BONUS_THRESHOLD:
-            return BonusStatus.DOUBLE_BONUS
-        return BonusStatus.BONUS
-    return BonusStatus.NONE
-
-
-def is_foul_trouble(
-    personal_fouls: int, rule_set: RuleSet
-) -> bool:
-    """
-    파울 트러블 여부 판정.
-
-    Args:
-        personal_fouls: 현재 개인 파울 수
-        rule_set: 적용 규정
-
-    Returns:
-        파울 트러블 여부
-    """
-    max_fouls = rule_set.max_personal_fouls
-    return personal_fouls >= (max_fouls - FOUL_TROUBLE_WARNING_OFFSET)
-
-
-def get_total_game_time_sec(rule_set: RuleSet) -> int:
-    """
-    정규 경기 전체 시간 (초).
-
-    Args:
-        rule_set: 적용 규정
-
-    Returns:
-        전체 경기 시간 (초)
-    """
-    return QUARTER_DURATION_SEC[rule_set] * REGULAR_PERIODS
-
-
-# =============================================================================
 # 모듈 Export 정의
 # =============================================================================
-__all__: list[str] = [
-    # 버전
-    "__version__",
+__all__ = [
     # 열거형
     "GameState",
     "BonusStatus",
@@ -582,5 +572,74 @@ __all__: list[str] = [
     "is_valid_game_transition",
     "get_bonus_status",
     "is_foul_trouble",
-    "get_total_game_time_sec",
 ]
+
+
+# =============================================================================
+# 유틸리티 함수
+# =============================================================================
+
+
+def is_valid_game_transition(current: GameState, target: GameState) -> bool:
+    """게임 상태 전이 유효성 검증.
+
+    VALID_GAME_STATE_TRANSITIONS 딕셔너리 기반으로
+    현재 상태에서 목표 상태로 전환 가능한지 확인한다.
+
+    Args:
+        current: 현재 게임 상태.
+        target: 목표 게임 상태.
+
+    Returns:
+        전환 가능하면 True, 불가능하면 False.
+    """
+    allowed = VALID_GAME_STATE_TRANSITIONS.get(current, frozenset())
+    return target in allowed
+
+
+def get_bonus_status(
+    team_fouls: int,
+    rule_set: RuleSet = RuleSet.FIBA,
+) -> BonusStatus:
+    """팀 파울 수로 보너스 상태를 판정한다.
+
+    Args:
+        team_fouls: 해당 쿼터의 팀 파울 수.
+        rule_set: 적용 규칙셋.
+
+    Returns:
+        BonusStatus (NONE / BONUS / DOUBLE_BONUS).
+    """
+    threshold = TEAM_FOUL_BONUS_THRESHOLD.get(rule_set, 4)
+
+    # NBA 더블 보너스 체크
+    if rule_set == RuleSet.NBA and team_fouls >= NBA_DOUBLE_BONUS_THRESHOLD:
+        return BonusStatus.DOUBLE_BONUS
+
+    if team_fouls > threshold:
+        return BonusStatus.BONUS
+
+    return BonusStatus.NONE
+
+
+def is_foul_trouble(
+    personal_fouls: int,
+    rule_set: RuleSet = RuleSet.FIBA,
+) -> bool:
+    """선수가 파울 트러블 상태인지 판별한다.
+
+    퇴장 기준에서 FOUL_TROUBLE_WARNING_OFFSET 이내이면 트러블.
+
+    Args:
+        personal_fouls: 해당 선수의 개인 파울 수.
+        rule_set: 적용 규칙셋.
+
+    Returns:
+        파울 트러블이면 True.
+    """
+    foul_out_limit = rule_set.max_personal_fouls
+    return personal_fouls >= (foul_out_limit - FOUL_TROUBLE_WARNING_OFFSET)
+
+
+# 모듈 버전 정보
+__version__ = "1.0.0"

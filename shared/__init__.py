@@ -39,7 +39,6 @@ from shared.constants import (
     QueuePriority,
     Environment,
     VALID_TASK_TRANSITIONS,
-    is_valid_transition,
     # 이벤트 타입
     EventCategory,
     EventType,
@@ -48,7 +47,6 @@ from shared.constants import (
     AUDIT_EVENTS,
     METRIC_EVENTS,
     EVENT_PRIORITY,
-    get_event_priority,
 )
 
 # =============================================================================
@@ -143,13 +141,6 @@ from shared.dto import (
     ProgressMetric,
     ProgressReport,
     # 경기 분석
-    ShotType,
-    ShotResult,
-    CourtZone,
-    PlayType,
-    HighlightType,
-    ViolationType,
-    FoulType,
     PlayerInfo,
     TeamInfo,
     ShotAttempt,
@@ -305,7 +296,6 @@ __all__ = [
     "QueuePriority",
     "Environment",
     "VALID_TASK_TRANSITIONS",
-    "is_valid_transition",
     "EventCategory",
     "EventType",
     "WEBHOOK_EVENTS",
@@ -313,7 +303,6 @@ __all__ = [
     "AUDIT_EVENTS",
     "METRIC_EVENTS",
     "EVENT_PRIORITY",
-    "get_event_priority",
     # =========================================================================
     # 예외
     # =========================================================================
@@ -402,7 +391,6 @@ __all__ = [
     "ProgressMetric",
     "ProgressReport",
     # 경기 분석
-    "ShotType",
     "ShotResult",
     "CourtZone",
     "PlayType",

@@ -31,9 +31,10 @@ COURTVIEW - AI 농구 분석 플랫폼
     - feedback_system/: 동작 피드백 시 관절 각도/속도 기반 조언
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Optional
 from uuid import UUID, uuid4
 
 from shared.constants.biomechanics_constants import (
@@ -49,13 +50,22 @@ from shared.constants.pose_constants import JointType
 # 운동학 (Kinematics) 데이터 클래스
 # =============================================================================
 
-@dataclass
+@dataclass(slots=True)
 class JointKinematics:
     """
     관절별 운동학 데이터.
 
     특정 프레임에서 한 관절의 속도, 가속도, 각속도를 담는다.
     biomechanics/kinematics/ 모듈에서 생성하여 motion_analysis에 전달한다.
+
+    사용 예시::
+
+        >>> from shared.constants.pose_constants import JointType
+        >>> jk = JointKinematics(joint_type=JointType.RIGHT_WRIST, speed=150.0)
+        >>> jk.is_fast_motion
+        True
+        >>> jk.acceleration_magnitude
+        0.0
 
     단위:
         - velocity: cm/s (3축)
@@ -89,7 +99,7 @@ class JointKinematics:
         return (ax ** 2 + ay ** 2 + az ** 2) ** 0.5
 
 
-@dataclass
+@dataclass(slots=True)
 class BodySegmentData:
     """
     신체 분절 데이터.
@@ -107,7 +117,7 @@ class BodySegmentData:
     inertia_estimate: float = 0.0  # 관성 모멘트 추정 (kg⋅m²)
 
 
-@dataclass
+@dataclass(slots=True)
 class BalanceMetrics:
     """
     균형/안정성 지표.
@@ -143,7 +153,7 @@ class BalanceMetrics:
             self.weight_distribution = (left / total, right / total)
 
 
-@dataclass
+@dataclass(slots=True)
 class EnergyMetrics:
     """
     에너지 분석 지표.
@@ -172,7 +182,7 @@ class EnergyMetrics:
         return min(1.0, self.kinetic_energy / self.total_energy)
 
 
-@dataclass
+@dataclass(slots=True)
 class ForceEstimate:
     """
     힘 추정값.
@@ -193,7 +203,7 @@ class ForceEstimate:
     # 토크 - N⋅m
     torque: float = 0.0
     # 지면반력 (지면 접촉 관절만, x, y, z) - N
-    ground_reaction_force: Optional[tuple[float, float, float]] = None
+    ground_reaction_force: tuple[float, float, float] | None = None
 
     def __post_init__(self) -> None:
         if self.magnitude == 0.0:
@@ -201,7 +211,7 @@ class ForceEstimate:
             self.magnitude = (fx ** 2 + fy ** 2 + fz ** 2) ** 0.5
 
 
-@dataclass
+@dataclass(slots=True)
 class MotionPatternData:
     """
     동작 패턴 분류 데이터.
@@ -215,7 +225,7 @@ class MotionPatternData:
     # 패턴 유형 (shooting_preparation, jumping, landing, pivoting 등)
     pattern_type: str = ""
     # 동작 단계 (PREPARATION, EXECUTION, FOLLOW_THROUGH, RECOVERY)
-    phase: Optional[MotionPhase] = None
+    phase: MotionPhase | None = None
     # 분류 신뢰도 (0~1)
     confidence: float = 0.0
     # 지속 프레임 수
@@ -229,7 +239,7 @@ class MotionPatternData:
 # 인체측정학 (Anthropometry) 데이터 클래스
 # =============================================================================
 
-@dataclass
+@dataclass(slots=True)
 class AnthropometryData:
     """
     인체측정 데이터 및 보정 계수.
@@ -275,10 +285,227 @@ class AnthropometryData:
 
 
 # =============================================================================
+# 이벤트 데이터 (비주기적 이벤트 감지 시 생성)
+# =============================================================================
+
+@dataclass(slots=True)
+class LandingImpactData:
+    """
+    착지 충격 이벤트 데이터.
+
+    biomechanics/dynamics/impact_analyzer.py의 LandingImpact를 DTO로 변환.
+    ai_referee 접촉/위험 동작 판정 및 feedback_system 착지 피드백에 사용.
+
+    단위: N (뉴턴), BW (체중 배수), J (줄), s (초)
+    """
+
+    frame_index: int = 0
+    person_id: int = 0
+    # 피크 지면반력 (체중 배수)
+    peak_grf_bw: float = 0.0
+    # 피크 지면반력 (N)
+    peak_grf_n: float = 0.0
+    # 충격 흡수 시간 (초)
+    absorption_time_s: float = 0.0
+    # 흡수 품질 (good / acceptable / poor)
+    absorption_quality: str = ""
+    # 충격 에너지 (J)
+    impact_energy_j: float = 0.0
+    # 부상 위험 등급 (low / moderate / high)
+    injury_risk: str = "low"
+
+
+@dataclass(slots=True)
+class ContactEventData:
+    """
+    선수 간 접촉 이벤트 데이터.
+
+    biomechanics/dynamics/impact_analyzer.py의 ContactEvent를 DTO로 변환.
+    ai_referee 파울 판정 시 접촉 강도 증거자료로 사용.
+
+    단위: N (뉴턴), BW (체중 배수)
+    """
+
+    frame_index: int = 0
+    person_id: int = 0
+    target_person_id: int = 0
+    # 접촉력 크기 (N)
+    contact_force_n: float = 0.0
+    # 접촉력 (체중 배수)
+    contact_force_bw: float = 0.0
+    # 접촉 분류 (negligible / light / moderate / heavy / excessive)
+    contact_category: str = "negligible"
+    # 파울 의심 여부
+    is_foul_candidate: bool = False
+
+
+@dataclass(slots=True)
+class ExplosiveEventData:
+    """
+    폭발적 가속/급제동 이벤트 데이터.
+
+    biomechanics/kinematics/acceleration_analyzer.py의
+    detect_explosive_acceleration / detect_hard_stop 결과를 DTO로 변환.
+    motion_analysis 방향전환/풀업점퍼 감지 시 보조 증거로 사용.
+
+    단위: m/s² (가속도), deg (각도)
+    """
+
+    frame_index: int = 0
+    person_id: int = 0
+    # 가속도 크기 (m/s²)
+    acceleration_m_s2: float = 0.0
+    # 이벤트 유형 (explosive_acceleration / hard_stop)
+    event_type: str = ""
+    # 가속도 분류 (normal / quick / explosive)
+    acceleration_category: str = ""
+    # 양의 가속 여부
+    is_accelerating: bool = True
+
+
+@dataclass(slots=True)
+class DirectionChangeData:
+    """
+    방향 전환 이벤트 데이터.
+
+    biomechanics/kinematics/acceleration_analyzer.py의
+    detect_direction_change 결과를 DTO로 변환.
+    motion_analysis 크로스오버/방향전환 감지 시 사용.
+
+    단위: m/s² (가속도), deg (각도)
+    """
+
+    frame_index: int = 0
+    person_id: int = 0
+    # 방향 변화각 (도)
+    direction_change_deg: float = 0.0
+    # 가속도 크기 (m/s²)
+    acceleration_m_s2: float = 0.0
+    # 가속도 분류
+    acceleration_category: str = ""
+
+
+# =============================================================================
+# 시퀀스 요약 데이터 (시간 시퀀스 분석 결과)
+# =============================================================================
+
+@dataclass(slots=True)
+class TrajectoryProfileData:
+    """
+    관절 궤적 분석 요약 데이터.
+
+    biomechanics/kinematics/trajectory_analyzer.py의 TrajectoryMetrics를 DTO로 변환.
+    motion_analysis 슈팅 아크/드리블 리듬 평가, feedback_system 궤적 피드백에 사용.
+
+    단위: cm (길이), 1/cm (곡률)
+    """
+
+    person_id: int = 0
+    joint_type: JointType = JointType.NOSE
+    # 총 이동 거리 (cm)
+    total_distance_cm: float = 0.0
+    # 시작→끝 직선 변위 (cm)
+    displacement_cm: float = 0.0
+    # 궤적 효율성 (displacement / distance, 0~1)
+    path_efficiency: float = 0.0
+    # 궤적 매끄러움 (0~1)
+    smoothness: float = 0.0
+    # 평균 곡률 (1/cm)
+    mean_curvature: float = 0.0
+    # ROM 사용률 (0~1)
+    rom_utilization: float = 0.0
+    # 분석 프레임 수
+    frame_count: int = 0
+
+
+@dataclass(slots=True)
+class MomentumProfileData:
+    """
+    운동량 프로파일 요약 데이터.
+
+    biomechanics/dynamics/momentum_calculator.py의 FrameMomentum 시퀀스를
+    요약 DTO로 변환. ai_referee 접촉 시 운동량 교환 증거, motion_analysis
+    kinetic chain 분석에 사용.
+
+    단위: kg·m/s (선형 운동량), kg·m²/s (각운동량)
+    """
+
+    person_id: int = 0
+    # 피크 선형 운동량 (kg·m/s)
+    peak_linear_momentum: float = 0.0
+    # 평균 선형 운동량 (kg·m/s)
+    mean_linear_momentum: float = 0.0
+    # 피크 각운동량 (kg·m²/s)
+    peak_angular_momentum: float = 0.0
+    # 평균 각운동량 (kg·m²/s)
+    mean_angular_momentum: float = 0.0
+    # 전신 COM 기반 피크 운동량 (kg·m/s)
+    peak_body_momentum: float = 0.0
+    # 분석 프레임 수
+    frame_count: int = 0
+
+
+@dataclass(slots=True)
+class EnergyProfileData:
+    """
+    에너지 프로파일 요약 데이터.
+
+    biomechanics/dynamics/energy_analyzer.py의 FrameEnergy 시퀀스를
+    요약 DTO로 변환. motion_analysis 에너지 효율 평가, feedback_system
+    에너지 사용 패턴 피드백에 사용.
+
+    단위: J (에너지), W (파워)
+    """
+
+    person_id: int = 0
+    # 피크 운동 에너지 (J)
+    peak_kinetic_energy_j: float = 0.0
+    # 평균 운동 에너지 (J)
+    mean_kinetic_energy_j: float = 0.0
+    # 피크 위치 에너지 (J)
+    peak_potential_energy_j: float = 0.0
+    # 평균 총 에너지 (J)
+    mean_total_energy_j: float = 0.0
+    # 피크 탄성 에너지 (J)
+    peak_elastic_energy_j: float = 0.0
+    # 분석 프레임 수
+    frame_count: int = 0
+
+
+@dataclass(slots=True)
+class BalanceHistoryData:
+    """
+    균형 이력 요약 데이터.
+
+    biomechanics/dynamics/balance_analyzer.py의 BalanceState 시퀀스를
+    요약 DTO로 변환. motion_analysis 안정성 추세, feedback_system
+    균형 유지 피드백에 사용.
+
+    단위: cm (거리), cm/s (속도), cm² (면적)
+    """
+
+    person_id: int = 0
+    # 평균 안정성 지수 (0~100)
+    mean_stability_index: float = 0.0
+    # 최소 안정성 지수 (가장 불안정했던 순간)
+    min_stability_index: float = 0.0
+    # 안정 프레임 비율 (0~1)
+    stable_frame_ratio: float = 0.0
+    # 평균 동요 속도 (cm/s)
+    mean_sway_velocity: float = 0.0
+    # 피크 동요 속도 (cm/s)
+    peak_sway_velocity: float = 0.0
+    # 평균 지지기저면 면적 (cm²)
+    mean_bos_area_cm2: float = 0.0
+    # 분석 프레임 수
+    frame_count: int = 0
+
+
+# =============================================================================
 # 종합 결과 데이터 클래스
 # =============================================================================
 
-@dataclass
+@dataclass(slots=True)
 class BiomechanicalFrame:
     """
     프레임 단위 생체역학 분석 결과.
@@ -295,13 +522,13 @@ class BiomechanicalFrame:
     # 관절별 각도 (도)
     joint_angles: dict[JointType, float] = field(default_factory=dict)
     # 균형 지표
-    balance: Optional[BalanceMetrics] = None
+    balance: BalanceMetrics | None = None
     # 에너지 지표
-    energy: Optional[EnergyMetrics] = None
+    energy: EnergyMetrics | None = None
     # 관절별 힘 추정
     forces: list[ForceEstimate] = field(default_factory=list)
     # 동작 패턴 (감지된 경우)
-    motion_pattern: Optional[MotionPatternData] = None
+    motion_pattern: MotionPatternData | None = None
     # 몸체 방위 (roll, pitch, yaw) - 도
     body_orientation: tuple[float, float, float] = (0.0, 0.0, 0.0)
 
@@ -320,7 +547,7 @@ class BiomechanicalFrame:
         return self.energy.kinetic_energy > HIGH_ENERGY_KINETIC_THRESHOLD_J
 
 
-@dataclass
+@dataclass(slots=True)
 class BiomechanicalResult:
     """
     시퀀스 단위 생체역학 분석 종합 결과.
@@ -336,7 +563,7 @@ class BiomechanicalResult:
     result_id: UUID = field(default_factory=uuid4)
     person_id: int = 0
     # 인체측정 데이터
-    anthropometry: Optional[AnthropometryData] = None
+    anthropometry: AnthropometryData | None = None
     # 프레임별 분석 결과
     frames: list[BiomechanicalFrame] = field(default_factory=list)
     # 처리 시간 (ms)
@@ -393,6 +620,16 @@ __all__ = [
     "MotionPatternData",
     # 인체측정
     "AnthropometryData",
+    # 이벤트 데이터
+    "LandingImpactData",
+    "ContactEventData",
+    "ExplosiveEventData",
+    "DirectionChangeData",
+    # 시퀀스 요약 데이터
+    "TrajectoryProfileData",
+    "MomentumProfileData",
+    "EnergyProfileData",
+    "BalanceHistoryData",
     # 종합 결과
     "BiomechanicalFrame",
     "BiomechanicalResult",

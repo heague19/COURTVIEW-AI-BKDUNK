@@ -3,153 +3,114 @@
 COURTVIEW - AI 농구 분석 플랫폼
 
 모듈: core_foundation/security
-파일: __init__.py
-설명: 보안 모듈 초기화 - 시크릿 관리, 감사 로깅
+설명: 보안 서브모듈 (라이선스 검증, 시크릿 관리, 감사 로깅)
+      - license_validator: 하드웨어 ID 기반 라이선스 검증 (HMAC-SHA256)
+      - secret_manager: 환경변수/파일/런타임 시크릿 관리
+      - audit_logger: 감사 이벤트 기록 (SHA-256 체인 해싱)
 
 작성자: SPOIN_COURTVIEW
-최종 수정: 2026-02-16
-
-모듈 구성:
-    - secret_manager: 시크릿 관리 (AWS Secrets Manager, 환경변수, Vault)
-    - audit_logger: 감사 로그 기록 (보안 이벤트, 접근 기록, 무결성 보장)
+최종 수정: 2026-03-20
+버전: 1.0.0
 """
+from __future__ import annotations
 
-__version__: str = "1.0.0"
+# =============================================================================
+# license_validator
+# =============================================================================
+from core_foundation.security.license_validator import (
+    DEFAULT_TRIAL_DAYS,
+    HW_HASH_ALGORITHM,
+    LICENSE_CACHE_TTL_SEC,
+    MIN_LICENSE_KEY_LENGTH,
+    LicenseInfo,
+    LicenseStatus,
+    LicenseValidator,
+    generate_hardware_id,
+    generate_license_signature,
+    verify_license_signature,
+)
 
-# ============================================================
-# secret_manager 임포트
-# ============================================================
+# =============================================================================
+# secret_manager
+# =============================================================================
 from core_foundation.security.secret_manager import (
-    # Enum
-    SecretProvider,
-    SecretStatus,
-    CacheStatus,
-    # 예외
-    SecretException,
-    SecretNotFoundException,
-    SecretAccessDeniedException,
-    SecretValidationException,
-    SecretProviderException,
-    # 데이터 클래스
-    SecretInfo,
-    SecretVersion,
-    SecretValidationRule,
-    RotationSchedule,
-    # 메인 클래스
+    MASK_CHAR,
+    MASK_VISIBLE_CHARS,
+    MAX_SECRETS,
+    NO_EXPIRY,
+    SecretEntry,
     SecretManager,
-    # 제공자 클래스
-    BaseSecretProvider,
-    AWSSecretsProvider,
-    VaultProvider,
-    EnvProvider,
-    FileProvider,
-    EncryptedFileProvider,
-    # 엔터프라이즈 기능 클래스
-    SecretEncryption,
-    SecretRotator,
-    VaultTokenManager,
-    # 함수
-    get_secret,
-    get_secret_manager,
-    set_secret_manager,
+    SecretSource,
+    mask_secret,
 )
 
-# ============================================================
-# audit_logger 임포트
-# ============================================================
+# =============================================================================
+# audit_logger
+# =============================================================================
 from core_foundation.security.audit_logger import (
-    # Enum
-    AuditEventType,
-    AuditSeverity,
-    # 데이터 클래스
+    GENESIS_HASH,
+    HASH_ALGORITHM,
+    MAX_AUDIT_ENTRIES,
+    MAX_CALLBACKS,
+    AuditCategory,
     AuditEvent,
-    AuditLogEntry,
-    # 저장소 클래스
-    BaseAuditStorage,
-    FileAuditStorage,
-    MemoryAuditStorage,
-    CloudWatchAuditStorage,
-    ElasticsearchAuditStorage,
-    # 알림 핸들러 클래스
-    BaseAlertHandler,
-    LogAlertHandler,
-    SlackAlertHandler,
-    EmailAlertHandler,
-    WebhookAlertHandler,
-    # 추적기 클래스
-    LoginFailureTracker,
-    # 메인 클래스
+    AuditEventCallback,
     AuditLogger,
-    # 함수
-    get_audit_logger,
-    set_audit_logger,
-    log_audit_event,
-    # 상수
-    EVENT_DEFAULT_SEVERITY,
+    AuditSeverity,
+    compute_event_hash,
 )
 
-# ============================================================
-# 모듈 내보내기
-# ============================================================
+# =============================================================================
+# 모듈 Export 정의
+# =============================================================================
 __all__ = [
-    # secret_manager - Enum
-    "SecretProvider",
-    "SecretStatus",
-    "CacheStatus",
-    # secret_manager - 예외
-    "SecretException",
-    "SecretNotFoundException",
-    "SecretAccessDeniedException",
-    "SecretValidationException",
-    "SecretProviderException",
-    # secret_manager - 데이터 클래스
-    "SecretInfo",
-    "SecretVersion",
-    "SecretValidationRule",
-    "RotationSchedule",
-    # secret_manager - 메인 클래스
+    # --- license_validator ---
+    # Enum
+    "LicenseStatus",
+    # 데이터 클래스
+    "LicenseInfo",
+    # 유틸리티
+    "generate_hardware_id",
+    "generate_license_signature",
+    "verify_license_signature",
+    # 핵심 클래스
+    "LicenseValidator",
+    # 상수
+    "MIN_LICENSE_KEY_LENGTH",
+    "HW_HASH_ALGORITHM",
+    "LICENSE_CACHE_TTL_SEC",
+    "DEFAULT_TRIAL_DAYS",
+    # --- secret_manager ---
+    # Enum
+    "SecretSource",
+    # 데이터 클래스
+    "SecretEntry",
+    # 유틸리티
+    "mask_secret",
+    # 핵심 클래스
     "SecretManager",
-    # secret_manager - 제공자 클래스
-    "BaseSecretProvider",
-    "AWSSecretsProvider",
-    "VaultProvider",
-    "EnvProvider",
-    "FileProvider",
-    "EncryptedFileProvider",
-    # secret_manager - 엔터프라이즈 기능 클래스
-    "SecretEncryption",
-    "SecretRotator",
-    "VaultTokenManager",
-    # secret_manager - 함수
-    "get_secret",
-    "get_secret_manager",
-    "set_secret_manager",
-    # audit_logger - Enum
-    "AuditEventType",
+    # 상수
+    "MAX_SECRETS",
+    "MASK_CHAR",
+    "MASK_VISIBLE_CHARS",
+    "NO_EXPIRY",
+    # --- audit_logger ---
+    # Enum
+    "AuditCategory",
     "AuditSeverity",
-    # audit_logger - 데이터 클래스
+    # 데이터 클래스
     "AuditEvent",
-    "AuditLogEntry",
-    # audit_logger - 저장소 클래스
-    "BaseAuditStorage",
-    "FileAuditStorage",
-    "MemoryAuditStorage",
-    "CloudWatchAuditStorage",
-    "ElasticsearchAuditStorage",
-    # audit_logger - 알림 핸들러 클래스
-    "BaseAlertHandler",
-    "LogAlertHandler",
-    "SlackAlertHandler",
-    "EmailAlertHandler",
-    "WebhookAlertHandler",
-    # audit_logger - 추적기 클래스
-    "LoginFailureTracker",
-    # audit_logger - 메인 클래스
+    # 타입
+    "AuditEventCallback",
+    # 유틸리티
+    "compute_event_hash",
+    # 핵심 클래스
     "AuditLogger",
-    # audit_logger - 함수
-    "get_audit_logger",
-    "set_audit_logger",
-    "log_audit_event",
-    # audit_logger - 상수
-    "EVENT_DEFAULT_SEVERITY",
+    # 상수
+    "MAX_AUDIT_ENTRIES",
+    "MAX_CALLBACKS",
+    "GENESIS_HASH",
+    "HASH_ALGORITHM",
 ]
+
+__version__ = "1.0.0"

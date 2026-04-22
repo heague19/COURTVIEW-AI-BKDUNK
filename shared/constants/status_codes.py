@@ -9,8 +9,18 @@ COURTVIEW - AI 농구 분석 플랫폼
 작성자: SPOIN_COURTVIEW
 최종 수정: 2026-02-14
 버전: 1.0.0
+
+참조:
+    - pipeline/: 분석 파이프라인에서 TaskStatus, AnalysisPhase 활용
+    - api_server/: REST 응답에서 TaskStatus, ServiceStatus 반환
+    - workers/: 백그라운드 워커에서 TaskType, LearningStatus 활용
+    - infrastructure/validation/: 데이터 품질 검사에서 QualityLevel 사용
+    - configs/environments/: Environment 열거형 참조
 """
 
+from __future__ import annotations
+
+# === 표준 라이브러리 ===
 from enum import Enum, unique
 from functools import lru_cache
 from typing import Final
@@ -26,6 +36,18 @@ class TaskStatus(Enum):
     작업(Task) 상태 열거형.
 
     비동기 작업의 생명주기를 나타냅니다.
+
+    사용 예시::
+
+        >>> status = TaskStatus.RUNNING
+        >>> status.is_running
+        True
+        >>> status.is_terminal
+        False
+        >>> status.to_korean()
+        '실행 중'
+        >>> QualityLevel.from_score(92.5)
+        <QualityLevel.EXCELLENT: 'excellent'>
     """
 
     # 대기 상태
@@ -84,9 +106,13 @@ class TaskStatus(Enum):
         """한글 상태명 반환."""
         return _TASK_STATUS_KOREAN_MAP[self]
 
+    def __str__(self) -> str:
+        """문자열 표현."""
+        return self.value
+
 
 # TaskStatus 분류 캐시 (클래스 정의 후 초기화)
-_TASK_STATUS_TERMINAL: frozenset = frozenset({
+_TASK_STATUS_TERMINAL: Final[frozenset[TaskStatus]] = frozenset({
     TaskStatus.COMPLETED,
     TaskStatus.SUCCESS,
     TaskStatus.FAILED,
@@ -96,32 +122,32 @@ _TASK_STATUS_TERMINAL: frozenset = frozenset({
     TaskStatus.REVOKED,
 })
 
-_TASK_STATUS_SUCCESS: frozenset = frozenset({
+_TASK_STATUS_SUCCESS: Final[frozenset[TaskStatus]] = frozenset({
     TaskStatus.COMPLETED,
     TaskStatus.SUCCESS,
 })
 
-_TASK_STATUS_FAILURE: frozenset = frozenset({
+_TASK_STATUS_FAILURE: Final[frozenset[TaskStatus]] = frozenset({
     TaskStatus.FAILED,
     TaskStatus.ERROR,
     TaskStatus.TIMEOUT,
 })
 
-_TASK_STATUS_RUNNING: frozenset = frozenset({
+_TASK_STATUS_RUNNING: Final[frozenset[TaskStatus]] = frozenset({
     TaskStatus.STARTED,
     TaskStatus.RUNNING,
     TaskStatus.PROCESSING,
     TaskStatus.RETRYING,
 })
 
-_TASK_STATUS_PENDING: frozenset = frozenset({
+_TASK_STATUS_PENDING: Final[frozenset[TaskStatus]] = frozenset({
     TaskStatus.PENDING,
     TaskStatus.QUEUED,
     TaskStatus.SCHEDULED,
     TaskStatus.RETRY,
 })
 
-_TASK_STATUS_KOREAN_MAP: dict[TaskStatus, str] = {
+_TASK_STATUS_KOREAN_MAP: Final[dict[TaskStatus, str]] = {
     TaskStatus.PENDING: "대기 중",
     TaskStatus.QUEUED: "큐 등록됨",
     TaskStatus.SCHEDULED: "예약됨",
@@ -216,9 +242,13 @@ class AnalysisType(Enum):
         """한글 분석 유형명 반환."""
         return _ANALYSIS_TYPE_KOREAN_MAP[self]
 
+    def __str__(self) -> str:
+        """문자열 표현."""
+        return self.value
+
 
 # AnalysisType 한글 맵 (클래스 정의 후 초기화)
-_ANALYSIS_TYPE_KOREAN_MAP: dict[AnalysisType, str] = {
+_ANALYSIS_TYPE_KOREAN_MAP: Final[dict[AnalysisType, str]] = {
     AnalysisType.TRAINING_SHOOTING: "슈팅 훈련 분석",
     AnalysisType.TRAINING_DRIBBLING: "드리블 훈련 분석",
     AnalysisType.TRAINING_PASSING: "패스 훈련 분석",
@@ -270,9 +300,13 @@ class AnalysisPhase(Enum):
         """단계별 대략적인 진행률 반환."""
         return _ANALYSIS_PHASE_PROGRESS_MAP[self]
 
+    def __str__(self) -> str:
+        """문자열 표현."""
+        return self.value
+
 
 # AnalysisPhase 캐시 (클래스 정의 후 초기화)
-_ANALYSIS_PHASE_KOREAN_MAP: dict[AnalysisPhase, str] = {
+_ANALYSIS_PHASE_KOREAN_MAP: Final[dict[AnalysisPhase, str]] = {
     AnalysisPhase.INITIALIZED: "초기화",
     AnalysisPhase.DOWNLOADING: "영상 다운로드",
     AnalysisPhase.PREPROCESSING: "전처리",
@@ -286,7 +320,7 @@ _ANALYSIS_PHASE_KOREAN_MAP: dict[AnalysisPhase, str] = {
     AnalysisPhase.DONE: "완료",
 }
 
-_ANALYSIS_PHASE_PROGRESS_MAP: dict[AnalysisPhase, int] = {
+_ANALYSIS_PHASE_PROGRESS_MAP: Final[dict[AnalysisPhase, int]] = {
     AnalysisPhase.INITIALIZED: 0,
     AnalysisPhase.DOWNLOADING: 5,
     AnalysisPhase.PREPROCESSING: 15,
@@ -336,14 +370,18 @@ class ServiceStatus(Enum):
         """한글 상태명 반환."""
         return _SERVICE_STATUS_KOREAN_MAP[self]
 
+    def __str__(self) -> str:
+        """문자열 표현."""
+        return self.value
+
 
 # ServiceStatus 캐시 (클래스 정의 후 초기화)
-_SERVICE_STATUS_AVAILABLE: frozenset = frozenset({
+_SERVICE_STATUS_AVAILABLE: Final[frozenset[ServiceStatus]] = frozenset({
     ServiceStatus.HEALTHY,
     ServiceStatus.DEGRADED,
 })
 
-_SERVICE_STATUS_KOREAN_MAP: dict[ServiceStatus, str] = {
+_SERVICE_STATUS_KOREAN_MAP: Final[dict[ServiceStatus, str]] = {
     ServiceStatus.UNKNOWN: "알 수 없음",
     ServiceStatus.STARTING: "시작 중",
     ServiceStatus.HEALTHY: "정상",
@@ -375,9 +413,13 @@ class QueuePriority(Enum):
         """한글 우선순위명 반환."""
         return _QUEUE_PRIORITY_KOREAN_MAP[self]
 
+    def __str__(self) -> str:
+        """문자열 표현."""
+        return self.name
+
 
 # QueuePriority 한글 맵 (클래스 정의 후 초기화)
-_QUEUE_PRIORITY_KOREAN_MAP: dict[QueuePriority, str] = {
+_QUEUE_PRIORITY_KOREAN_MAP: Final[dict[QueuePriority, str]] = {
     QueuePriority.CRITICAL: "긴급",
     QueuePriority.HIGH: "높음",
     QueuePriority.NORMAL: "보통",
@@ -420,9 +462,13 @@ class Environment(Enum):
         """한글 환경명 반환."""
         return _ENVIRONMENT_KOREAN_MAP[self]
 
+    def __str__(self) -> str:
+        """문자열 표현."""
+        return self.value
+
 
 # Environment 한글 맵 (클래스 정의 후 초기화)
-_ENVIRONMENT_KOREAN_MAP: dict[Environment, str] = {
+_ENVIRONMENT_KOREAN_MAP: Final[dict[Environment, str]] = {
     Environment.DEVELOPMENT: "개발",
     Environment.STAGING: "스테이징",
     Environment.PRODUCTION: "프로덕션",
@@ -476,21 +522,6 @@ VALID_TASK_TRANSITIONS: Final[dict[TaskStatus, tuple[TaskStatus, ...]]] = {
     TaskStatus.REVOKED: (),
     TaskStatus.ERROR: (),
 }
-
-
-def is_valid_transition(from_status: TaskStatus, to_status: TaskStatus) -> bool:
-    """
-    상태 전이가 유효한지 확인.
-
-    Args:
-        from_status: 현재 상태
-        to_status: 목표 상태
-
-    Returns:
-        전이 가능 여부
-    """
-    allowed = VALID_TASK_TRANSITIONS.get(from_status, ())
-    return to_status in allowed
 
 
 # =============================================================================
@@ -566,15 +597,19 @@ class QualityLevel(Enum):
         """분석에 사용 가능한지 여부."""
         return self in _QUALITY_LEVEL_USABLE
 
+    def __str__(self) -> str:
+        """문자열 표현."""
+        return self.value
+
 
 # QualityLevel 캐시 (클래스 정의 후 초기화)
-_QUALITY_LEVEL_USABLE: frozenset = frozenset({
+_QUALITY_LEVEL_USABLE: Final[frozenset[QualityLevel]] = frozenset({
     QualityLevel.EXCELLENT,
     QualityLevel.GOOD,
     QualityLevel.ACCEPTABLE,
 })
 
-_QUALITY_LEVEL_DESC_MAP: dict[QualityLevel, str] = {
+_QUALITY_LEVEL_DESC_MAP: Final[dict[QualityLevel, str]] = {
     QualityLevel.EXCELLENT: "최상 품질 - 분석에 최적화됨",
     QualityLevel.GOOD: "양호 품질 - 정확한 분석 가능",
     QualityLevel.ACCEPTABLE: "허용 품질 - 기본 분석 가능",
@@ -582,7 +617,7 @@ _QUALITY_LEVEL_DESC_MAP: dict[QualityLevel, str] = {
     QualityLevel.UNACCEPTABLE: "사용 불가 - 분석 불가능",
 }
 
-_QUALITY_LEVEL_MIN_SCORE_MAP: dict[QualityLevel, int] = {
+_QUALITY_LEVEL_MIN_SCORE_MAP: Final[dict[QualityLevel, int]] = {
     QualityLevel.EXCELLENT: 90,
     QualityLevel.GOOD: 75,
     QualityLevel.ACCEPTABLE: 60,
@@ -590,7 +625,7 @@ _QUALITY_LEVEL_MIN_SCORE_MAP: dict[QualityLevel, int] = {
     QualityLevel.UNACCEPTABLE: 0,
 }
 
-_QUALITY_LEVEL_MAX_SCORE_MAP: dict[QualityLevel, int] = {
+_QUALITY_LEVEL_MAX_SCORE_MAP: Final[dict[QualityLevel, int]] = {
     QualityLevel.EXCELLENT: 100,
     QualityLevel.GOOD: 89,
     QualityLevel.ACCEPTABLE: 74,
@@ -657,27 +692,31 @@ class TaskType(Enum):
         """학습 작업인지 확인."""
         return self in _TASK_TYPE_LEARNING
 
+    def __str__(self) -> str:
+        """문자열 표현."""
+        return self.value
+
 
 # TaskType 캐시 (클래스 정의 후 초기화)
-_TASK_TYPE_ANALYSIS: frozenset = frozenset({
+_TASK_TYPE_ANALYSIS: Final[frozenset[TaskType]] = frozenset({
     TaskType.ANALYSIS_TRAINING,
     TaskType.ANALYSIS_COMPARISON,
     TaskType.ANALYSIS_GAME,
     TaskType.ANALYSIS_REFEREE,
 })
 
-_TASK_TYPE_REPORT: frozenset = frozenset({
+_TASK_TYPE_REPORT: Final[frozenset[TaskType]] = frozenset({
     TaskType.REPORT_WEEKLY,
     TaskType.REPORT_PROGRESS,
     TaskType.REPORT_CUSTOM,
 })
 
-_TASK_TYPE_LEARNING: frozenset = frozenset({
+_TASK_TYPE_LEARNING: Final[frozenset[TaskType]] = frozenset({
     TaskType.LEARNING_TRAINING,
     TaskType.LEARNING_VALIDATION,
 })
 
-_TASK_TYPE_KOREAN_MAP: dict[TaskType, str] = {
+_TASK_TYPE_KOREAN_MAP: Final[dict[TaskType, str]] = {
     TaskType.ANALYSIS_TRAINING: "훈련 분석",
     TaskType.ANALYSIS_COMPARISON: "비교 분석",
     TaskType.ANALYSIS_GAME: "경기 분석",
@@ -750,9 +789,13 @@ class LearningStatus(Enum):
         """한글 상태명 반환."""
         return _LEARNING_STATUS_KOREAN_MAP[self]
 
+    def __str__(self) -> str:
+        """문자열 표현."""
+        return self.value
+
 
 # LearningStatus 캐시 (클래스 정의 후 초기화)
-_LEARNING_STATUS_ACTIVE: frozenset = frozenset({
+_LEARNING_STATUS_ACTIVE: Final[frozenset[LearningStatus]] = frozenset({
     LearningStatus.PREPARING,
     LearningStatus.TRAINING,
     LearningStatus.VALIDATING,
@@ -760,7 +803,7 @@ _LEARNING_STATUS_ACTIVE: frozenset = frozenset({
     LearningStatus.ROLLING_BACK,
 })
 
-_LEARNING_STATUS_TERMINAL: frozenset = frozenset({
+_LEARNING_STATUS_TERMINAL: Final[frozenset[LearningStatus]] = frozenset({
     LearningStatus.COMPLETED,
     LearningStatus.DEPLOYED,
     LearningStatus.FAILED,
@@ -768,7 +811,7 @@ _LEARNING_STATUS_TERMINAL: frozenset = frozenset({
     LearningStatus.ROLLED_BACK,
 })
 
-_LEARNING_STATUS_CAN_TRIGGER: frozenset = frozenset({
+_LEARNING_STATUS_CAN_TRIGGER: Final[frozenset[LearningStatus]] = frozenset({
     LearningStatus.IDLE,
     LearningStatus.READY,
     LearningStatus.COMPLETED,
@@ -778,7 +821,7 @@ _LEARNING_STATUS_CAN_TRIGGER: frozenset = frozenset({
     LearningStatus.ROLLED_BACK,
 })
 
-_LEARNING_STATUS_KOREAN_MAP: dict[LearningStatus, str] = {
+_LEARNING_STATUS_KOREAN_MAP: Final[dict[LearningStatus, str]] = {
     LearningStatus.IDLE: "유휴",
     LearningStatus.READY: "준비 완료",
     LearningStatus.PREPARING: "준비 중",
@@ -820,7 +863,6 @@ __all__ = [
     "LearningStatus",
     # 상태 전이 규칙
     "VALID_TASK_TRANSITIONS",
-    "is_valid_transition",
 ]
 
 # 모듈 버전 정보

@@ -14,13 +14,15 @@ COURTVIEW - AI 농구 분석 플랫폼
 버전: 1.0.0
 """
 
+from __future__ import annotations
+
 # =============================================================================
 # 표준 라이브러리
 # =============================================================================
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum, unique
-from typing import Any
+from typing import Any, Final
 from uuid import UUID, uuid4
 
 # =============================================================================
@@ -29,6 +31,34 @@ from uuid import UUID, uuid4
 from shared.constants.localization import SupportedLanguage
 from shared.dto.geometry_dto import Point3D
 from shared.dto.tracking_dto import Track
+
+
+# =============================================================================
+# i18n 모듈 레벨 캐시
+# =============================================================================
+
+_TEAM_I18N: Final[dict[str, dict[str, str]]] = {
+    "team_a": {"ko": "팀 A (홈)", "en": "Team A (Home)", "ja": "チームA（ホーム）", "zh": "A队（主场）", "es": "Equipo A (Local)"},
+    "team_b": {"ko": "팀 B (원정)", "en": "Team B (Away)", "ja": "チームB（アウェイ）", "zh": "B队（客场）", "es": "Equipo B (Visitante)"},
+    "unknown": {"ko": "미분류", "en": "Unknown", "ja": "不明", "zh": "未知", "es": "Desconocido"},
+}
+
+_PLAYER_ROLE_I18N: Final[dict[str, dict[str, str]]] = {
+    "player": {"ko": "선수", "en": "Player", "ja": "選手", "zh": "球员", "es": "Jugador"},
+    "referee": {"ko": "심판", "en": "Referee", "ja": "審判", "zh": "裁判", "es": "Árbitro"},
+    "coach": {"ko": "코치", "en": "Coach", "ja": "コーチ", "zh": "教练", "es": "Entrenador"},
+    "staff": {"ko": "스태프", "en": "Staff", "ja": "スタッフ", "zh": "工作人员", "es": "Personal"},
+    "unknown": {"ko": "미분류", "en": "Unknown", "ja": "不明", "zh": "未知", "es": "Desconocido"},
+}
+
+_PLAYER_POSITION_I18N: Final[dict[str, dict[str, str]]] = {
+    "point_guard": {"ko": "포인트 가드", "en": "Point Guard", "ja": "ポイントガード", "zh": "控球后卫", "es": "Base"},
+    "shooting_guard": {"ko": "슈팅 가드", "en": "Shooting Guard", "ja": "シューティングガード", "zh": "得分后卫", "es": "Escolta"},
+    "small_forward": {"ko": "스몰 포워드", "en": "Small Forward", "ja": "スモールフォワード", "zh": "小前锋", "es": "Alero"},
+    "power_forward": {"ko": "파워 포워드", "en": "Power Forward", "ja": "パワーフォワード", "zh": "大前锋", "es": "Ala-Pívot"},
+    "center": {"ko": "센터", "en": "Center", "ja": "センター", "zh": "中锋", "es": "Pívot"},
+    "unknown": {"ko": "미분류", "en": "Unknown", "ja": "不明", "zh": "未知", "es": "Desconocido"},
+}
 
 
 # =============================================================================
@@ -41,6 +71,10 @@ class Team(str, Enum):
     팀 열거형.
 
     경기 참가 팀을 정의합니다.
+
+    >>> team = Team.TEAM_A
+    >>> team.opponent
+    <Team.TEAM_B: 'team_b'>
     """
 
     # 팀 A (홈)
@@ -48,6 +82,9 @@ class Team(str, Enum):
 
     # 팀 B (원정)
     TEAM_B = "team_b"
+
+    # 심판 (CV_team.pt 3-class 모델 출력 중 하나)
+    REFEREE = "referee"
 
     # 미분류
     UNKNOWN = "unknown"
@@ -67,39 +104,9 @@ class Team(str, Enum):
         return Team.UNKNOWN
 
     def get_name(self, lang: SupportedLanguage = SupportedLanguage.KO) -> str:
-        """
-        다국어 팀명 반환.
-
-        Args:
-            lang: 언어 코드 (기본: 한국어)
-
-        Returns:
-            해당 언어의 팀명
-        """
-        translations: dict[Team, dict[SupportedLanguage, str]] = {
-            Team.TEAM_A: {
-                SupportedLanguage.KO: "팀 A (홈)",
-                SupportedLanguage.EN: "Team A (Home)",
-                SupportedLanguage.JA: "チームA（ホーム）",
-                SupportedLanguage.ZH: "A队（主场）",
-                SupportedLanguage.ES: "Equipo A (Local)",
-            },
-            Team.TEAM_B: {
-                SupportedLanguage.KO: "팀 B (원정)",
-                SupportedLanguage.EN: "Team B (Away)",
-                SupportedLanguage.JA: "チームB（アウェイ）",
-                SupportedLanguage.ZH: "B队（客场）",
-                SupportedLanguage.ES: "Equipo B (Visitante)",
-            },
-            Team.UNKNOWN: {
-                SupportedLanguage.KO: "미분류",
-                SupportedLanguage.EN: "Unknown",
-                SupportedLanguage.JA: "不明",
-                SupportedLanguage.ZH: "未知",
-                SupportedLanguage.ES: "Desconocido",
-            },
-        }
-        return translations[self].get(lang, translations[self][SupportedLanguage.KO])
+        """다국어 팀명 반환 (모듈 레벨 캐시 참조)."""
+        entry = _TEAM_I18N[self.value]
+        return entry.get(lang.value, entry["ko"])
 
     def to_korean(self) -> str:
         """한글 팀명 반환 (하위 호환성)."""
@@ -140,53 +147,9 @@ class PlayerRole(str, Enum):
         return self in (PlayerRole.PLAYER, PlayerRole.REFEREE)
 
     def get_name(self, lang: SupportedLanguage = SupportedLanguage.KO) -> str:
-        """
-        다국어 역할명 반환.
-
-        Args:
-            lang: 언어 코드 (기본: 한국어)
-
-        Returns:
-            해당 언어의 역할명
-        """
-        translations: dict[PlayerRole, dict[SupportedLanguage, str]] = {
-            PlayerRole.PLAYER: {
-                SupportedLanguage.KO: "선수",
-                SupportedLanguage.EN: "Player",
-                SupportedLanguage.JA: "選手",
-                SupportedLanguage.ZH: "球员",
-                SupportedLanguage.ES: "Jugador",
-            },
-            PlayerRole.REFEREE: {
-                SupportedLanguage.KO: "심판",
-                SupportedLanguage.EN: "Referee",
-                SupportedLanguage.JA: "審判",
-                SupportedLanguage.ZH: "裁判",
-                SupportedLanguage.ES: "Árbitro",
-            },
-            PlayerRole.COACH: {
-                SupportedLanguage.KO: "코치",
-                SupportedLanguage.EN: "Coach",
-                SupportedLanguage.JA: "コーチ",
-                SupportedLanguage.ZH: "教练",
-                SupportedLanguage.ES: "Entrenador",
-            },
-            PlayerRole.STAFF: {
-                SupportedLanguage.KO: "스태프",
-                SupportedLanguage.EN: "Staff",
-                SupportedLanguage.JA: "スタッフ",
-                SupportedLanguage.ZH: "工作人员",
-                SupportedLanguage.ES: "Personal",
-            },
-            PlayerRole.UNKNOWN: {
-                SupportedLanguage.KO: "미분류",
-                SupportedLanguage.EN: "Unknown",
-                SupportedLanguage.JA: "不明",
-                SupportedLanguage.ZH: "未知",
-                SupportedLanguage.ES: "Desconocido",
-            },
-        }
-        return translations[self].get(lang, translations[self][SupportedLanguage.KO])
+        """다국어 역할명 반환 (모듈 레벨 캐시 참조)."""
+        entry = _PLAYER_ROLE_I18N[self.value]
+        return entry.get(lang.value, entry["ko"])
 
     def to_korean(self) -> str:
         """한글 역할명 반환 (하위 호환성)."""
@@ -249,60 +212,9 @@ class PlayerPosition(str, Enum):
         )
 
     def get_name(self, lang: SupportedLanguage = SupportedLanguage.KO) -> str:
-        """
-        다국어 포지션명 반환.
-
-        Args:
-            lang: 언어 코드 (기본: 한국어)
-
-        Returns:
-            해당 언어의 포지션명
-        """
-        translations: dict[PlayerPosition, dict[SupportedLanguage, str]] = {
-            PlayerPosition.POINT_GUARD: {
-                SupportedLanguage.KO: "포인트 가드",
-                SupportedLanguage.EN: "Point Guard",
-                SupportedLanguage.JA: "ポイントガード",
-                SupportedLanguage.ZH: "控球后卫",
-                SupportedLanguage.ES: "Base",
-            },
-            PlayerPosition.SHOOTING_GUARD: {
-                SupportedLanguage.KO: "슈팅 가드",
-                SupportedLanguage.EN: "Shooting Guard",
-                SupportedLanguage.JA: "シューティングガード",
-                SupportedLanguage.ZH: "得分后卫",
-                SupportedLanguage.ES: "Escolta",
-            },
-            PlayerPosition.SMALL_FORWARD: {
-                SupportedLanguage.KO: "스몰 포워드",
-                SupportedLanguage.EN: "Small Forward",
-                SupportedLanguage.JA: "スモールフォワード",
-                SupportedLanguage.ZH: "小前锋",
-                SupportedLanguage.ES: "Alero",
-            },
-            PlayerPosition.POWER_FORWARD: {
-                SupportedLanguage.KO: "파워 포워드",
-                SupportedLanguage.EN: "Power Forward",
-                SupportedLanguage.JA: "パワーフォワード",
-                SupportedLanguage.ZH: "大前锋",
-                SupportedLanguage.ES: "Ala-Pívot",
-            },
-            PlayerPosition.CENTER: {
-                SupportedLanguage.KO: "센터",
-                SupportedLanguage.EN: "Center",
-                SupportedLanguage.JA: "センター",
-                SupportedLanguage.ZH: "中锋",
-                SupportedLanguage.ES: "Pívot",
-            },
-            PlayerPosition.UNKNOWN: {
-                SupportedLanguage.KO: "미분류",
-                SupportedLanguage.EN: "Unknown",
-                SupportedLanguage.JA: "不明",
-                SupportedLanguage.ZH: "未知",
-                SupportedLanguage.ES: "Desconocido",
-            },
-        }
-        return translations[self].get(lang, translations[self][SupportedLanguage.KO])
+        """다국어 포지션명 반환 (모듈 레벨 캐시 참조)."""
+        entry = _PLAYER_POSITION_I18N[self.value]
+        return entry.get(lang.value, entry["ko"])
 
     def to_korean(self) -> str:
         """한글 포지션명 반환 (하위 호환성)."""
@@ -313,7 +225,7 @@ class PlayerPosition(str, Enum):
 # 데이터 클래스
 # =============================================================================
 
-@dataclass
+@dataclass(slots=True)
 class PlayerID:
     """
     선수 ID.
@@ -336,7 +248,7 @@ class PlayerID:
     confidence: float = 0.0
     is_confirmed: bool = False
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """초기화 후 처리."""
         self.confidence = max(0.0, min(1.0, self.confidence))
 
@@ -377,8 +289,8 @@ class PlayerID:
         return self.track_id == other.track_id
 
 
-@dataclass
-class PlayerInfo:
+@dataclass(slots=True)
+class DetailedPlayerInfo:
     """
     선수 정보.
 
@@ -429,7 +341,7 @@ class PlayerInfo:
         return self.height_cm is not None or self.weight_kg is not None
 
 
-@dataclass
+@dataclass(slots=True)
 class IdentificationSource:
     """
     식별 소스.
@@ -450,12 +362,12 @@ class IdentificationSource:
     frame_index: int | None = None
     data: dict[str, Any] = field(default_factory=dict)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """초기화 후 처리."""
         self.confidence = max(0.0, min(1.0, self.confidence))
 
 
-@dataclass
+@dataclass(slots=True)
 class PlayerIdentification:
     """
     선수 식별 결과.
@@ -496,15 +408,10 @@ class PlayerIdentification:
         best = max(self.sources, key=lambda s: s.confidence)
         return best.source_type
 
-    def add_source(self, source: IdentificationSource) -> None:
-        """소스 추가."""
-        self.sources.append(source)
-        # 전체 신뢰도 업데이트 (가중 평균)
-        total_conf = sum(s.confidence for s in self.sources)
-        self.confidence = total_conf / len(self.sources) if self.sources else 0.0
+    # 상태 변이 로직 이관: add_source → detection/player/ 서비스 레이어
 
 
-@dataclass
+@dataclass(slots=True)
 class PlayerHistoryEntry:
     """
     선수 히스토리 항목.
@@ -528,7 +435,7 @@ class PlayerHistoryEntry:
     action: str = "idle"
 
 
-@dataclass
+@dataclass(slots=True)
 class ManagedPlayer:
     """
     관리되는 선수.
@@ -548,7 +455,7 @@ class ManagedPlayer:
     """
 
     player_id: PlayerID = field(default_factory=PlayerID)
-    info: PlayerInfo | None = None
+    info: DetailedPlayerInfo | None = None
     track: Track | None = None
     identification: PlayerIdentification | None = None
     history: list[PlayerHistoryEntry] = field(default_factory=list)
@@ -591,26 +498,11 @@ class ManagedPlayer:
         """추적 지속 프레임 수."""
         return self.last_seen_frame - self.first_seen_frame
 
-    def add_history_entry(self, entry: PlayerHistoryEntry) -> None:
-        """히스토리 항목 추가."""
-        self.history.append(entry)
-        self.last_seen_frame = entry.frame_index
-        self.total_frames += 1
-
-    def update_from_track(self, track: Track, frame_index: int) -> None:
-        """트랙에서 상태 업데이트."""
-        self.track = track
-        self.last_seen_frame = frame_index
-
-        entry = PlayerHistoryEntry(
-            frame_index=frame_index,
-            position=track.position_3d,
-            velocity=track.velocity,
-        )
-        self.add_history_entry(entry)
+    # 비즈니스 로직 이관 완료: add_history_entry, update_from_track
+    # → detection/player/ 서비스 레이어
 
 
-@dataclass
+@dataclass(slots=True)
 class PlayerManager:
     """
     선수 관리자.
@@ -639,32 +531,9 @@ class PlayerManager:
         """식별된 선수 수."""
         return sum(1 for p in self.players.values() if p.is_identified)
 
-    def get_player(self, track_id: int) -> ManagedPlayer | None:
-        """트랙 ID로 선수 조회."""
-        return self.players.get(track_id)
-
-    def add_player(self, player: ManagedPlayer) -> None:
-        """선수 추가."""
-        track_id = player.track_id
-        self.players[track_id] = player
-
-        # 팀별 분류
-        if player.team == Team.TEAM_A:
-            if track_id not in self.team_a_players:
-                self.team_a_players.append(track_id)
-        elif player.team == Team.TEAM_B:
-            if track_id not in self.team_b_players:
-                self.team_b_players.append(track_id)
-        else:
-            if track_id not in self.unidentified_players:
-                self.unidentified_players.append(track_id)
-
-    def get_team_players(self, team: Team) -> list[ManagedPlayer]:
-        """팀별 선수 목록."""
-        return [
-            p for p in self.players.values()
-            if p.team == team
-        ]
+    # 비즈니스 로직 이관 완료: add_player, get_team_players
+    # → detection/player/ 서비스 레이어
+    # get_player는 단순 조회로 유지
 
 
 # =============================================================================
@@ -672,17 +541,14 @@ class PlayerManager:
 # =============================================================================
 
 __all__ = [
-    # Re-export (다국어 지원)
-    "SupportedLanguage",
-
-    # Enum
+    # Enum (DTO 고유)
     "Team",
     "PlayerRole",
     "PlayerPosition",
 
     # 데이터 클래스
     "PlayerID",
-    "PlayerInfo",
+    "DetailedPlayerInfo",
     "IdentificationSource",
     "PlayerIdentification",
     "PlayerHistoryEntry",

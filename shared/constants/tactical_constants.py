@@ -39,13 +39,13 @@ COURTVIEW - AI 농구 분석 플랫폼
     이 파일은 전술 분석의 '기준값(threshold)'과 '분류 어휘(vocabulary)'만 정의합니다.
 """
 
+from __future__ import annotations
+
+
 from enum import Enum, unique
 from typing import Final
 
 from shared.constants.localization import SupportedLanguage
-
-
-__version__: str = "1.0.0"
 
 
 # =============================================================================
@@ -58,6 +58,19 @@ class SetPlayType(str, Enum):
 
     하프코트 세트 오펜스에서 인식 가능한 플레이 패턴.
     set_play_recognizer.py에서 패턴 매칭의 기준으로 사용됩니다.
+
+    사용 예시::
+
+        >>> play = SetPlayType.PICK_AND_ROLL
+        >>> play.involves_screen
+        True
+        >>> play.get_name()
+        '픽앤롤'
+        >>> from shared.constants.tactical_constants import SPACING_OPTIMAL_DISTANCE_M
+        >>> SPACING_OPTIMAL_DISTANCE_M
+        4.5
+        >>> TurnoverCategory.FORCED_LIVE.is_forced
+        True
     """
 
     HORN = "horn"                       # 혼 (하이포스트 2인 + 엘보우)
@@ -604,71 +617,78 @@ COMEBACK_MIN_DURATION_SEC: Final[float] = 60.0
 # 유틸리티 함수
 # =============================================================================
 
-def classify_spacing_quality(avg_player_distance_m: float) -> SpacingQuality:
+
+def classify_transition_phase(time_sec: float) -> TransitionPhase:
     """
-    평균 선수 간 거리로 스페이싱 등급 분류.
+    점유 전환 후 경과 시간 기반 전환 공격 페이즈 분류.
 
     Args:
-        avg_player_distance_m: 5인 선수 간 평균 거리 (미터)
+        time_sec: 점유 전환 시점부터 경과 시간 (초).
 
     Returns:
-        SpacingQuality 등급
+        TransitionPhase: 해당 시간 구간에 대응하는 전환 페이즈.
+            - PRIMARY_BREAK: 0 ~ PRIMARY_BREAK_MAX_SEC (5.0초) 이하
+            - SECONDARY_BREAK: PRIMARY_BREAK_MAX_SEC 초과 ~ SECONDARY_BREAK_MAX_SEC (8.0초) 이하
+            - EARLY_OFFENSE: SECONDARY_BREAK_MAX_SEC 초과
     """
-    if avg_player_distance_m >= SPACING_OPTIMAL_DISTANCE_M:
-        return SpacingQuality.EXCELLENT
-    elif avg_player_distance_m >= SPACING_MIN_DISTANCE_M:
-        return SpacingQuality.GOOD
-    elif avg_player_distance_m >= SPACING_COLLAPSED_DISTANCE_M + 0.5:
-        return SpacingQuality.AVERAGE
-    elif avg_player_distance_m >= SPACING_COLLAPSED_DISTANCE_M:
-        return SpacingQuality.POOR
-    else:
-        return SpacingQuality.COLLAPSED
-
-
-def classify_transition_phase(time_since_possession_sec: float) -> TransitionPhase:
-    """
-    점유 경과 시간으로 전환 공격 페이즈 분류.
-
-    Args:
-        time_since_possession_sec: 점유 시작 후 경과 시간 (초)
-
-    Returns:
-        TransitionPhase 페이즈
-    """
-    if time_since_possession_sec <= PRIMARY_BREAK_MAX_SEC:
+    if time_sec <= PRIMARY_BREAK_MAX_SEC:
         return TransitionPhase.PRIMARY_BREAK
-    elif time_since_possession_sec <= SECONDARY_BREAK_MAX_SEC:
+    if time_sec <= SECONDARY_BREAK_MAX_SEC:
         return TransitionPhase.SECONDARY_BREAK
-    else:
-        return TransitionPhase.EARLY_OFFENSE
+    return TransitionPhase.EARLY_OFFENSE
 
 
-def is_scoring_run(
-    team_points_unanswered: int, opponent_consecutive_scoreless: int
-) -> bool:
+def classify_spacing_quality(avg_distance_m: float) -> SpacingQuality:
     """
-    스코어링 런 판정.
+    선수 간 평균 거리 기반 플로어 스페이싱 등급 분류.
 
     Args:
-        team_points_unanswered: 팀 연속 무응답 득점
-        opponent_consecutive_scoreless: 상대 연속 무득점 점유 횟수
+        avg_distance_m: 5인 선수 간 평균 쌍별(pairwise) 거리 (미터).
 
     Returns:
-        스코어링 런 여부
+        SpacingQuality: 거리 구간에 대응하는 스페이싱 등급.
+            - COLLAPSED: avg_distance_m <= SPACING_COLLAPSED_DISTANCE_M (2.5m)
+            - POOR: 2.5m < avg_distance_m <= 3.0m (COLLAPSED ~ MIN 중간)
+            - AVERAGE: 3.0m < avg_distance_m <= SPACING_MIN_DISTANCE_M (3.5m)
+            - GOOD: 3.5m < avg_distance_m <= SPACING_OPTIMAL_DISTANCE_M (4.5m)
+            - EXCELLENT: avg_distance_m > SPACING_OPTIMAL_DISTANCE_M (4.5m)
+    """
+    if avg_distance_m <= SPACING_COLLAPSED_DISTANCE_M:
+        return SpacingQuality.COLLAPSED
+    midpoint = (SPACING_COLLAPSED_DISTANCE_M + SPACING_MIN_DISTANCE_M) / 2.0
+    if avg_distance_m <= midpoint:
+        return SpacingQuality.POOR
+    if avg_distance_m <= SPACING_MIN_DISTANCE_M:
+        return SpacingQuality.AVERAGE
+    if avg_distance_m <= SPACING_OPTIMAL_DISTANCE_M:
+        return SpacingQuality.GOOD
+    return SpacingQuality.EXCELLENT
+
+
+def is_scoring_run(unanswered_points: int, opponent_scoreless: int) -> bool:
+    """
+    스코어링 런 조건 충족 여부 판정.
+
+    한 팀의 연속 무응답 득점이 최소 기준을 초과하고,
+    상대 팀의 연속 무득점 점유 횟수가 최소 기준 이상일 때 런으로 판정.
+
+    Args:
+        unanswered_points: 해당 팀의 연속 무응답 득점 합계.
+        opponent_scoreless: 상대 팀의 연속 무득점 점유 횟수.
+
+    Returns:
+        bool: 스코어링 런 조건 충족 시 True.
     """
     return (
-        team_points_unanswered >= SCORING_RUN_MIN_POINTS
-        and opponent_consecutive_scoreless >= SCORING_RUN_MIN_UNANSWERED
+        unanswered_points >= SCORING_RUN_MIN_POINTS
+        and opponent_scoreless >= SCORING_RUN_MIN_UNANSWERED
     )
 
 
 # =============================================================================
 # 모듈 Export 정의
 # =============================================================================
-__all__: list[str] = [
-    # 버전
-    "__version__",
+__all__ = [
     # 열거형
     "SetPlayType",
     "TransitionPhase",
@@ -740,7 +760,10 @@ __all__: list[str] = [
     "BLOWOUT_MARGIN",
     "COMEBACK_MIN_DURATION_SEC",
     # 유틸리티 함수
-    "classify_spacing_quality",
     "classify_transition_phase",
+    "classify_spacing_quality",
     "is_scoring_run",
 ]
+
+# 모듈 버전 정보
+__version__ = "1.0.0"

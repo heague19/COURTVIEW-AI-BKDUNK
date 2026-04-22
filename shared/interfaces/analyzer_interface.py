@@ -30,6 +30,8 @@ COURTVIEW - AI 농구 분석 플랫폼
     - shared/interfaces/storage_interface.py: 스토리지 인터페이스 (유사 패턴)
 """
 
+from __future__ import annotations
+
 # =============================================================================
 # 표준 라이브러리 (Standard Library)
 # =============================================================================
@@ -37,7 +39,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum, unique
-from typing import Any, Generic, TypeVar
+from typing import Any, Final, Generic, TypeVar
 from uuid import UUID
 
 # =============================================================================
@@ -48,6 +50,7 @@ import numpy as np
 # =============================================================================
 # 프로젝트 내부 모듈
 # =============================================================================
+from shared.constants.camera_constants import DEFAULT_FRAME_RATE
 from shared.constants.localization import SupportedLanguage
 
 
@@ -117,7 +120,7 @@ class AnalyzerState(str, Enum):
 
 # -- AnalyzerState 다국어 이름 캐시 (모듈 레벨, 1회 생성) --
 
-_ANALYZER_STATE_NAME_MAP: dict[AnalyzerState, dict[SupportedLanguage, str]] = {
+_ANALYZER_STATE_NAME_MAP: Final[dict[AnalyzerState, dict[SupportedLanguage, str]]] = {
     AnalyzerState.UNINITIALIZED: {
         SupportedLanguage.KO: "초기화 전",
         SupportedLanguage.EN: "Uninitialized",
@@ -166,7 +169,7 @@ _ANALYZER_STATE_NAME_MAP: dict[AnalyzerState, dict[SupportedLanguage, str]] = {
 # =============================================================================
 # 분석 결과 기본 구조
 # =============================================================================
-@dataclass
+@dataclass(slots=True)
 class AnalysisResult(Generic[OutputT]):
     """
     분석 결과 래퍼.
@@ -223,7 +226,7 @@ class AnalysisResult(Generic[OutputT]):
 # =============================================================================
 # 분석기 메트릭
 # =============================================================================
-@dataclass
+@dataclass(slots=True)
 class AnalyzerMetrics:
     """
     분석기 성능 메트릭.
@@ -243,7 +246,18 @@ class AnalyzerMetrics:
     last_error_time: datetime | None = None
 
     def update(self, result: AnalysisResult[Any], processing_time_ms: float) -> None:
-        """메트릭 업데이트."""
+        """메트릭 업데이트.
+
+        .. warning::
+            **스레드 안전하지 않음 (not thread-safe)**.
+            다중 스레드/프로세스에서 동일 ``AnalyzerMetrics`` 인스턴스에 동시 호출 시
+            race condition 발생 가능. 8대 카메라 병렬 분석 등 멀티 스레드 환경에서는
+            호출자가 ``threading.Lock`` 또는 ``asyncio.Lock``으로 동기화할 것.
+
+        Args:
+            result: 분석 결과 (success/failure 포함)
+            processing_time_ms: 처리 시간 (밀리초)
+        """
         self.total_processed += 1
         self.total_processing_time_ms += processing_time_ms
 
@@ -459,8 +473,10 @@ class ISequenceAnalyzer(IAnalyzer[list[np.ndarray], OutputT, ConfigT], Generic[O
         pass
 
     def analyze(self, input_data: list[np.ndarray]) -> AnalysisResult[OutputT]:
-        """기본 analyze는 start_frame_index=0, fps=30으로 호출."""
-        return self.analyze_sequence(input_data, start_frame_index=0, fps=30.0)
+        """기본 analyze는 start_frame_index=0, fps=DEFAULT_FRAME_RATE로 호출."""
+        return self.analyze_sequence(
+            input_data, start_frame_index=0, fps=float(DEFAULT_FRAME_RATE)
+        )
 
     def validate_input(self, input_data: list[np.ndarray]) -> bool:
         """시퀀스 유효성 검사."""
@@ -550,7 +566,7 @@ class IStreamAnalyzer(IAnalyzer[np.ndarray, OutputT, ConfigT], Generic[OutputT, 
 # =============================================================================
 # 비교 분석기 인터페이스
 # =============================================================================
-@dataclass
+@dataclass(slots=True)
 class ComparisonInput(Generic[InputT]):
     """비교 분석 입력."""
 

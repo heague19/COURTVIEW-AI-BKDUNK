@@ -25,7 +25,7 @@ COURTVIEW - AI 농구 분석 플랫폼
     - game_analysis/situation_splits/
 
 의존성:
-    - shared/constants/game_rule_constants.py: CourtZone, PlayType
+    - shared/constants/game_rule_constants.py: PlayType
 
 소비자:
     - game_analysis/coaching_intelligence/: 전술 추천 시 참조
@@ -34,13 +34,117 @@ COURTVIEW - AI 농구 분석 플랫폼
     - feedback_system/: 전술 피드백 생성
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum, unique
-from typing import Any
 from uuid import UUID, uuid4
 
 from shared.constants.game_rule_constants import PlayType
+
+
+# =============================================================================
+# 세부 구조체 (dict[str, Any] 대체 — 타입 안전성 보장)
+# =============================================================================
+
+@dataclass(slots=True)
+class DetectedPlay:
+    """감지된 세트 플레이 항목."""
+
+    play_name: str = ""  # 플레이 이름
+    count: int = 0  # 감지 횟수
+    success_rate: float = 0.0  # 성공률 (0~1)
+
+
+@dataclass(slots=True)
+class PassConnection:
+    """패싱 네트워크 연결."""
+
+    from_tracking_id: int = 0
+    to_tracking_id: int = 0
+    count: int = 0  # 패스 횟수
+    assist_rate: float = 0.0  # 어시스트 비율 (0~1)
+
+
+@dataclass(slots=True)
+class DriveStats:
+    """드라이브 분석 통계."""
+
+    total_drives: int = 0
+    pts_per_drive: float = 0.0  # 드라이브당 득점
+    finish_rate: float = 0.0  # 마무리 성공률 (0~1)
+    kick_out_rate: float = 0.0  # 킥아웃 비율 (0~1)
+    foul_drawn_rate: float = 0.0  # 파울 유도율 (0~1)
+    turnover_rate: float = 0.0  # 턴오버율 (0~1)
+
+
+@dataclass(slots=True)
+class OffBallMovement:
+    """오프볼 무브먼트 통계."""
+
+    cuts: int = 0  # 컷 횟수
+    screens_set: int = 0  # 스크린 세트 횟수
+    distance_traveled_m: float = 0.0  # 이동 거리 (m)
+    avg_speed_mps: float = 0.0  # 평균 속도 (m/s)
+
+
+@dataclass(slots=True)
+class ClutchStats:
+    """클러치 상황 통계 (4쿼터 잔여 5분, 점수차 5점 이내)."""
+
+    points: int = 0
+    fg_pct: float = 0.0  # FG%
+    ft_pct: float = 0.0  # FT%
+    turnovers: int = 0
+    plus_minus: int = 0
+
+
+@dataclass(slots=True)
+class FatigueIndicators:
+    """피로 지표."""
+
+    speed_decline_pct: float = 0.0  # 속도 감소율 (0~1)
+    jump_decline_pct: float = 0.0  # 점프 높이 감소율 (0~1)
+    reaction_change_pct: float = 0.0  # 반응 속도 변화율 (0~1)
+    minutes_played: float = 0.0  # 출전 시간 (분)
+
+
+@dataclass(slots=True)
+class ScoringRun:
+    """스코어링 런 항목."""
+
+    team_id: str = ""
+    points: int = 0  # 런 동안 득점
+    start_time: float = 0.0  # 시작 시간 (초)
+    end_time: float = 0.0  # 종료 시간 (초)
+
+
+@dataclass(slots=True)
+class MomentumShift:
+    """모멘텀 전환점."""
+
+    frame: int = 0
+    from_state: str = ""  # MomentumState.value
+    to_state: str = ""  # MomentumState.value
+
+
+@dataclass(slots=True)
+class TimeoutEffectiveness:
+    """타임아웃 효과 분석."""
+
+    pre_timeout_trend: str = ""  # 타임아웃 전 추세
+    post_timeout_trend: str = ""  # 타임아웃 후 추세
+    scoring_change: float = 0.0  # 득점 변화량
+
+
+@dataclass(slots=True)
+class ReboundPosition:
+    """리바운드 위치/경합 데이터."""
+
+    player_tracking_id: int = 0
+    position: str = ""  # 리바운드 위치 (paint, mid_range 등)
+    contest_type: str = ""  # 경합 유형 (contested/uncontested/tip)
 
 
 # =============================================================================
@@ -53,6 +157,9 @@ class DefenseScheme(str, Enum):
     수비 스킴 열거형.
 
     defensive_analysis/defense_type_classifier에서 분류.
+
+    >>> DefenseScheme.ZONE_2_3.is_zone
+    True
     """
 
     MAN_TO_MAN = "man_to_man"            # 맨투맨
@@ -114,7 +221,7 @@ class TrendDirection(str, Enum):
 # 전술 분석 (tactical_analysis)
 # =============================================================================
 
-@dataclass
+@dataclass(slots=True)
 class PickAndRollAnalysis:
     """
     픽앤롤 분석 결과.
@@ -132,7 +239,7 @@ class PickAndRollAnalysis:
     most_effective_action: str = ""  # 가장 효율적인 액션
 
 
-@dataclass
+@dataclass(slots=True)
 class FastBreakAnalysis:
     """
     속공 분석 결과.
@@ -149,7 +256,7 @@ class FastBreakAnalysis:
     average_transition_time_seconds: float = 0.0
 
 
-@dataclass
+@dataclass(slots=True)
 class SetPlayAnalysis:
     """
     세트 플레이 인식 결과.
@@ -157,14 +264,14 @@ class SetPlayAnalysis:
     tactical_analysis/set_play_recognizer에서 산출.
     """
 
-    # 감지된 플레이 (play_name, count, success_rate)
-    detected_plays: list[dict[str, Any]] = field(default_factory=list)
+    # 감지된 플레이
+    detected_plays: list[DetectedPlay] = field(default_factory=list)
     total_set_plays: int = 0
     set_play_ppp: float = 0.0
     top_plays: list[str] = field(default_factory=list)  # 가장 많이 사용된 플레이
 
 
-@dataclass
+@dataclass(slots=True)
 class PassingNetworkData:
     """
     패싱 네트워크 분석 결과.
@@ -172,8 +279,8 @@ class PassingNetworkData:
     tactical_analysis/passing_network_analyzer에서 산출.
     """
 
-    # 연결 (from_tracking_id, to_tracking_id, count, assist_rate)
-    connections: list[dict[str, Any]] = field(default_factory=list)
+    # 연결
+    connections: list[PassConnection] = field(default_factory=list)
     hockey_assists: int = 0  # 세컨드 어시스트
     average_passes_per_possession: float = 0.0
     ball_movement_rating: float = 0.0  # 볼 무브먼트 평점 (0~100)
@@ -183,7 +290,7 @@ class PassingNetworkData:
 # 수비 분석 (defensive_analysis)
 # =============================================================================
 
-@dataclass
+@dataclass(slots=True)
 class DefenseAnalysis:
     """
     종합 수비 분석 결과.
@@ -210,7 +317,7 @@ class DefenseAnalysis:
     box_out_rate: float = 0.0
 
 
-@dataclass
+@dataclass(slots=True)
 class MatchupData:
     """
     1v1 매치업 추적 결과.
@@ -232,7 +339,7 @@ class MatchupData:
 # 개인 분석 (individual_analysis)
 # =============================================================================
 
-@dataclass
+@dataclass(slots=True)
 class IndividualAnalysis:
     """
     개인 심층 분석 결과.
@@ -242,13 +349,13 @@ class IndividualAnalysis:
 
     player_tracking_id: int = 0
     # 드라이브 분석
-    drives: dict[str, Any] = field(default_factory=dict)
+    drives: DriveStats | None = None
     # 오프볼 무브먼트
-    off_ball_movement: dict[str, Any] = field(default_factory=dict)
+    off_ball_movement: OffBallMovement | None = None
     # 클러치 스탯
-    clutch_stats: dict[str, Any] = field(default_factory=dict)
+    clutch_stats: ClutchStats | None = None
     # 피로 지표
-    fatigue_indicators: dict[str, Any] = field(default_factory=dict)
+    fatigue_indicators: FatigueIndicators | None = None
     # 넷레이팅
     on_court_net_rating: float = 0.0
     off_court_net_rating: float = 0.0
@@ -263,7 +370,7 @@ class IndividualAnalysis:
 # 공간 분석 (spatial_analysis)
 # =============================================================================
 
-@dataclass
+@dataclass(slots=True)
 class SpacingData:
     """
     공간 활용 분석 결과.
@@ -282,7 +389,7 @@ class SpacingData:
 # 라인업 분석 (lineup_analysis)
 # =============================================================================
 
-@dataclass
+@dataclass(slots=True)
 class LineupData:
     """
     라인업 효율 분석 결과.
@@ -304,7 +411,7 @@ class LineupData:
 # 게임 흐름 (game_flow)
 # =============================================================================
 
-@dataclass
+@dataclass(slots=True)
 class GameFlowData:
     """
     게임 흐름 및 모멘텀 분석 결과.
@@ -312,25 +419,25 @@ class GameFlowData:
     game_flow/ 서브모듈의 종합.
     """
 
-    # 스코어링 런 (team_id, points, start_time, end_time)
-    scoring_runs: list[dict[str, Any]] = field(default_factory=list)
-    # 모멘텀 전환점 (frame, from_state, to_state)
-    momentum_shifts: list[dict[str, Any]] = field(default_factory=list)
+    # 스코어링 런
+    scoring_runs: list[ScoringRun] = field(default_factory=list)
+    # 모멘텀 전환점
+    momentum_shifts: list[MomentumShift] = field(default_factory=list)
     current_momentum: MomentumState = MomentumState.NEUTRAL
     # 리드
     lead_changes: int = 0
     ties: int = 0
     largest_lead_home: int = 0
     largest_lead_away: int = 0
-    # 타임아웃 효과 (pre_timeout_trend, post_timeout_trend)
-    timeout_effectiveness: dict[str, Any] = field(default_factory=dict)
+    # 타임아웃 효과
+    timeout_effectiveness: TimeoutEffectiveness | None = None
 
 
 # =============================================================================
 # 전환 분석 (transition_analysis)
 # =============================================================================
 
-@dataclass
+@dataclass(slots=True)
 class TransitionData:
     """
     전환 공수 분석 결과.
@@ -350,7 +457,7 @@ class TransitionData:
 # 플레이 유형 분석 (play_type_analysis)
 # =============================================================================
 
-@dataclass
+@dataclass(slots=True)
 class PlayTypeData:
     """
     플레이 유형별 효율 분석.
@@ -371,7 +478,7 @@ class PlayTypeData:
 # 상황별 스플릿 (situation_splits)
 # =============================================================================
 
-@dataclass
+@dataclass(slots=True)
 class SituationSplitData:
     """
     상황별 성적 스플릿.
@@ -392,7 +499,7 @@ class SituationSplitData:
 # 리바운드 전술 분석
 # =============================================================================
 
-@dataclass
+@dataclass(slots=True)
 class ReboundAnalysis:
     """
     리바운드 전술 분석 결과.
@@ -417,8 +524,8 @@ class ReboundAnalysis:
     second_chance_points: int = 0
     second_chance_conversion_rate: float = 0.0  # 오펜시브 리바운드 → 득점 전환율 (0~1)
 
-    # 위치/경합 분석 (player_tracking_id, position, contest_type 등)
-    rebound_positioning: list[dict[str, Any]] = field(default_factory=list)
+    # 위치/경합 분석
+    rebound_positioning: list[ReboundPosition] = field(default_factory=list)
 
     # 고급 지표
     crash_rate: float = 0.0  # 오펜시브 리바운드 크래시율 (0~1)
@@ -431,7 +538,7 @@ class ReboundAnalysis:
 # Phase 3 종합 결과
 # =============================================================================
 
-@dataclass
+@dataclass(slots=True)
 class TacticalAnalysisResult:
     """
     Phase 3 전체 전술/분석 종합 결과.
@@ -481,6 +588,17 @@ class TacticalAnalysisResult:
 # 모듈 Export 정의
 # =============================================================================
 __all__ = [
+    # 세부 구조체
+    "DetectedPlay",
+    "PassConnection",
+    "DriveStats",
+    "OffBallMovement",
+    "ClutchStats",
+    "FatigueIndicators",
+    "ScoringRun",
+    "MomentumShift",
+    "TimeoutEffectiveness",
+    "ReboundPosition",
     # 열거형
     "DefenseScheme",
     "MomentumState",

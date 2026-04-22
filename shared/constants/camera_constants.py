@@ -15,7 +15,21 @@ COURTVIEW - AI 농구 분석 플랫폼
 - CameraType: is_network, is_local, to_korean()
 - CameraState: is_active, is_available, can_start_capture, to_korean()
 - CameraQualityPreset: to_korean()
+
+사용 예시:
+    >>> from shared.constants.camera_constants import CameraType, CameraState, CameraQualityPreset
+    >>> CameraType.RTSP.is_network
+    True
+    >>> CameraState.RECORDING.is_active
+    True
+    >>> CameraQualityPreset.ULTRA.resolution
+    (1920, 1080)
+    >>> CameraQualityPreset.ULTRA.fps
+    60
 """
+
+from __future__ import annotations
+
 
 from enum import Enum, unique
 from typing import Final
@@ -74,13 +88,13 @@ CAMERA_INIT_MAX_WAIT_SEC: Final[int] = 60
 # =============================================================================
 
 # 지원되는 해상도 목록 (가로, 세로)
-SUPPORTED_RESOLUTIONS: Final[list[tuple[int, int]]] = [
+SUPPORTED_RESOLUTIONS: Final[tuple[tuple[int, int], ...]] = (
     (640, 480),     # VGA - 테스트/저사양용
     (1280, 720),    # HD 720p - 기본
     (1920, 1080),   # Full HD 1080p - 권장
     (2560, 1440),   # QHD 2K
     (3840, 2160),   # UHD 4K - 고품질
-]
+)
 
 # 기본 해상도 (Full HD)
 DEFAULT_RESOLUTION: Final[tuple[int, int]] = (1920, 1080)
@@ -103,7 +117,7 @@ GAME_RECOMMENDED_RESOLUTION: Final[tuple[int, int]] = (1920, 1080)
 # =============================================================================
 
 # 지원되는 프레임레이트 목록
-SUPPORTED_FRAME_RATES: Final[list[int]] = [
+SUPPORTED_FRAME_RATES: Final[tuple[int, ...]] = (
     15,   # 저사양/테스트용
     24,   # 영화 표준
     25,   # PAL 표준
@@ -111,7 +125,7 @@ SUPPORTED_FRAME_RATES: Final[list[int]] = [
     50,   # PAL 고프레임
     60,   # NTSC 고프레임 - 권장
     120,  # 슬로모션 분석용
-]
+)
 
 # 기본 프레임레이트
 DEFAULT_FRAME_RATE: Final[int] = 30
@@ -122,10 +136,12 @@ MIN_FRAME_RATE: Final[int] = 15
 # 최대 프레임레이트 (성능 한계)
 MAX_FRAME_RATE: Final[int] = 120
 
-# 동작 분석 권장 프레임레이트 (슈팅, 드리블 등)
+# 동작 분석 이론적 권장 프레임레이트 (슈팅 릴리스·드리블 바운스 순간 포착용)
+# 주의: Desktop 프로덕션 런타임은 GAME_ANALYSIS_RECOMMENDED_FPS(30fps)로 동작함 (SPOIN 2026-04-20 SSOT).
+# 60fps는 향후 고속 카메라 업그레이드 시 참조용 이론값.
 MOTION_ANALYSIS_RECOMMENDED_FPS: Final[int] = 60
 
-# 경기 분석 권장 프레임레이트
+# 경기 분석 권장 프레임레이트 (Desktop 프로덕션 SSOT — SPOIN 2026-04-20)
 GAME_ANALYSIS_RECOMMENDED_FPS: Final[int] = 30
 
 # 슬로모션 분석 권장 프레임레이트
@@ -225,12 +241,12 @@ class CameraType(Enum):
 
 
 # CameraType용 캐시 (클래스 정의 후 초기화)
-_CAMERA_TYPE_IS_NETWORK: frozenset = frozenset({
+_CAMERA_TYPE_IS_NETWORK: frozenset[CameraType] = frozenset({
     CameraType.IP,
     CameraType.RTSP,
 })
 
-_CAMERA_TYPE_IS_LOCAL: frozenset = frozenset({
+_CAMERA_TYPE_IS_LOCAL: frozenset[CameraType] = frozenset({
     CameraType.USB,
     CameraType.FILE,
     CameraType.VIRTUAL,
@@ -331,13 +347,13 @@ class CameraState(Enum):
 
 
 # CameraState용 캐시 (클래스 정의 후 초기화)
-_CAMERA_STATE_IS_ACTIVE: frozenset = frozenset({
+_CAMERA_STATE_IS_ACTIVE: frozenset[CameraState] = frozenset({
     CameraState.READY,
     CameraState.RECORDING,
     CameraState.STREAMING,
 })
 
-_CAMERA_STATE_IS_AVAILABLE: frozenset = frozenset({
+_CAMERA_STATE_IS_AVAILABLE: frozenset[CameraState] = frozenset({
     CameraState.CONNECTED,
     CameraState.READY,
     CameraState.RECORDING,
@@ -345,7 +361,7 @@ _CAMERA_STATE_IS_AVAILABLE: frozenset = frozenset({
     CameraState.PAUSED,
 })
 
-_CAMERA_STATE_CAN_START_CAPTURE: frozenset = frozenset({
+_CAMERA_STATE_CAN_START_CAPTURE: frozenset[CameraState] = frozenset({
     CameraState.CONNECTED,
     CameraState.READY,
     CameraState.PAUSED,
@@ -635,7 +651,7 @@ __all__ = [
     "GAME_RECOMMENDED_RESOLUTION",   # Tuple: (1920, 1080)
 
     # ═══════════════════════════════════════════════════════════════════════════
-    # 프레임레이트 - 7개
+    # 프레임레이트 - 8개
     # ═══════════════════════════════════════════════════════════════════════════
     "SUPPORTED_FRAME_RATES",         # List[int]: 15~120fps
     "DEFAULT_FRAME_RATE",            # int: 30 (NTSC)

@@ -20,11 +20,30 @@ COURTVIEW - AI 농구 분석 플랫폼
 - NBA Official Rules 2023-24
 - KBL 공식 경기 규정
 - NBL Official Rules
+
+사용 예시:
+    >>> from shared.constants.court_constants import CourtZone, CourtStandard
+    >>> zone = CourtZone.LEFT_CORNER_THREE
+    >>> zone.is_three_point
+    True
+    >>> zone.point_value
+    3
+    >>> zone.get_name(SupportedLanguage.KO)
+    '좌측 코너 3점'
+    >>> standard = CourtStandard.FIBA
+    >>> standard.court_length
+    28.0
+    >>> standard.three_point_distance
+    6.75
 """
 
+from __future__ import annotations
+
+# === 표준 라이브러리 ===
 from enum import Enum, unique
 from typing import Final
 
+# === 프로젝트 모듈 ===
 from shared.constants.localization import SupportedLanguage
 
 
@@ -91,9 +110,9 @@ RESTRICTED_AREA_NBA_RADIUS_M: Final[float] = 1.22  # 4ft
 # 골대 높이 (바닥에서 림 상단까지)
 HOOP_HEIGHT_M: Final[float] = 3.05       # 10ft
 
-# 림 직경 (내경)
-HOOP_DIAMETER_M: Final[float] = 0.45     # 45cm / 18in
-HOOP_RADIUS_M: Final[float] = 0.225
+# 림 직경 (내경) — FIBA/NBA 공식 18 inch = 0.4572m (Phase 15 H5 SSOT 정정)
+HOOP_DIAMETER_M: Final[float] = 0.4572   # 45.72cm / 18 inch
+HOOP_RADIUS_M: Final[float] = 0.2286     # 9 inch
 
 # 림 두께
 HOOP_RIM_THICKNESS_M: Final[float] = 0.02  # 2cm
@@ -134,13 +153,16 @@ LINE_WIDTH_M: Final[float] = 0.05  # 5cm
 # =============================================================================
 
 @unique
-class CourtZone(Enum):
+class CourtZone(str, Enum):
     """
     코트 구역 열거형.
 
     슛 위치 분석 및 플레이 분석을 위한 코트 구역 정의.
     21개 구역: 페인트(3) + 미드레인지(7) + 3점(7) + 딥3점(3) + 백코트(1)
     """
+
+    def __str__(self) -> str:
+        return self.value
 
     # 페인트존 (제한 구역)
     PAINT_LEFT = "paint_left"
@@ -425,13 +447,16 @@ COURT_ZONE_IS_DEEP_THREE: Final[frozenset[CourtZone]] = frozenset({
 # =============================================================================
 
 @unique
-class CourtStandard(Enum):
+class CourtStandard(str, Enum):
     """
     코트 규격 표준 열거형.
 
     다양한 리그/협회별 코트 규격을 정의합니다.
     7개 표준: FIBA, NBA, NCAA, KBL, NBL, HIGH_SCHOOL, YOUTH
     """
+
+    def __str__(self) -> str:
+        return self.value
 
     FIBA = "fiba"              # FIBA 국제 표준
     NBA = "nba"                # NBA
@@ -644,7 +669,15 @@ TEEN_HOOP_HEIGHT_M: Final[float] = 3.05   # 성인과 동일
 
 
 # =============================================================================
-# 코트 검출 파라미터 (court_detector.py용)
+# [DEPRECATED: court_detection 폐기 2026-04-20]
+# 아래 섹션의 60+ 상수(LSD/CLAHE/RANSAC/Canny/Hough/HSV)는 더 이상 사용하지 않음.
+# 코트 인식은 설치 시 1회 수행되는 캘리브레이션(configs/calibration/*.json)으로 대체됨.
+# 실제 런타임 참조 0건 확인 후(Phase 6 detection 감사) 삭제 예정.
+# 캘리브레이션 경로: infrastructure/multi_camera/coordinate_transformer.py
+# =============================================================================
+
+# =============================================================================
+# 코트 검출 파라미터 (court_detector.py용) — [DEPRECATED 2026-04-20]
 # =============================================================================
 
 # Canny 에지 감지 임계값
@@ -688,7 +721,7 @@ COURT_LINE_EDGE_STRENGTH_FACTOR: Final[float] = 0.2
 
 
 # =============================================================================
-# 코트 매핑 파라미터 (court_mapper.py용)
+# 코트 매핑 파라미터 (court_mapper.py용) — [DEPRECATED 2026-04-20]
 # =============================================================================
 
 # 호모그래피 계산 최소 포인트 수
@@ -711,9 +744,131 @@ COURT_QUALITY_EXCELLENT_THRESHOLD: Final[float] = 0.95
 COURT_QUALITY_GOOD_THRESHOLD: Final[float] = 0.85
 COURT_QUALITY_FAIR_THRESHOLD: Final[float] = 0.70
 
+# 캘리브레이션 재투영 오차 임계값 (미터)
+COURT_CALIBRATION_EXCELLENT_ERROR_M: Final[float] = 0.05  # 5cm 미만
+COURT_CALIBRATION_GOOD_ERROR_M: Final[float] = 0.15       # 15cm 미만
+COURT_CALIBRATION_FAIR_ERROR_M: Final[float] = 0.30       # 30cm 미만
+
+# 딥러닝 바운딩 박스 확장 마진 (픽셀)
+COURT_DL_BBOX_MARGIN_PX: Final[int] = 15
+
 
 # =============================================================================
-# 구역 분류 파라미터 (zone_classifier.py용)
+# LSD (Line Segment Detector) 파라미터 (court_detector v2.0.0 패턴 엔진) — [DEPRECATED 2026-04-20]
+# =============================================================================
+
+# LSD 스케일 팩터 (이미지 다운스케일)
+COURT_LSD_SCALE: Final[float] = 0.8
+
+# LSD 시그마 스케일 (가우시안 스무딩)
+COURT_LSD_SIGMA_SCALE: Final[float] = 0.6
+
+# LSD 양자화 오차 (그래디언트 각도)
+COURT_LSD_QUANT: Final[float] = 2.0
+
+# LSD 각도 허용 오차 (도)
+COURT_LSD_ANG_TH: Final[float] = 22.5
+
+# LSD 로그 엡실론
+COURT_LSD_LOG_EPS: Final[float] = 0.0
+
+# LSD 밀도 임계값
+COURT_LSD_DENSITY_TH: Final[float] = 0.7
+
+# LSD 히스토그램 빈 수
+COURT_LSD_N_BINS: Final[int] = 1024
+
+# LSD 최소 라인 길이 비율 (이미지 대각선 대비)
+COURT_LSD_MIN_LINE_LENGTH_RATIO: Final[float] = 0.03
+
+
+# =============================================================================
+# CLAHE 전처리 파라미터 (court_detector v2.0.0 패턴 엔진) — [DEPRECATED 2026-04-20]
+# =============================================================================
+
+# CLAHE 클리핑 리밋 (대비 제한)
+COURT_CLAHE_CLIP_LIMIT: Final[float] = 2.0
+
+# CLAHE 타일 크기
+COURT_CLAHE_TILE_SIZE: Final[int] = 8
+
+# 라인/바닥 밝기 대비 최소 비율 (라인이 바닥보다 밝아야 함)
+COURT_LINE_CONTRAST_MIN_RATIO: Final[float] = 1.5
+
+
+# =============================================================================
+# RANSAC 원 감지 파라미터 (센터서클 — court_detector v2.0.0) — [DEPRECATED 2026-04-20]
+# =============================================================================
+
+# RANSAC 최대 반복 횟수
+COURT_CIRCLE_RANSAC_ITERATIONS: Final[int] = 500
+
+# 최소 원호 비율 (전체 원의 25% 이상 보여야 감지)
+COURT_CIRCLE_MIN_ARC_RATIO: Final[float] = 0.25
+
+# RANSAC 인라이어 거리 임계값 (픽셀)
+COURT_CIRCLE_INLIER_THRESHOLD_PX: Final[float] = 3.0
+
+# 원 반지름 허용 오차 비율 (규격 대비 15%)
+COURT_CIRCLE_RADIUS_TOLERANCE_RATIO: Final[float] = 0.15
+
+
+# =============================================================================
+# 기하학 검증 파라미터 (court_detector v2.0.0) — [DEPRECATED 2026-04-20]
+# =============================================================================
+
+# 코트 규격 대비 길이 허용 오차 비율 (10%)
+COURT_GEOMETRIC_LENGTH_TOLERANCE_RATIO: Final[float] = 0.10
+
+# 수직/수평 판정 각도 허용 오차 (도)
+COURT_GEOMETRIC_ANGLE_TOLERANCE_DEG: Final[float] = 5.0
+
+# 평행선 판정 최대 각도 차이 (도)
+COURT_GEOMETRIC_PARALLEL_THRESHOLD_DEG: Final[float] = 8.0
+
+# 직교 판정 최소 각도 (도)
+COURT_GEOMETRIC_PERPENDICULAR_THRESHOLD_DEG: Final[float] = 82.0
+
+
+# =============================================================================
+# 패턴-DL 융합 파라미터 (court_detector v2.0.0) — [DEPRECATED 2026-04-20]
+# =============================================================================
+
+# 패턴 엔진 융합 가중치 (Primary)
+COURT_FUSION_WEIGHT_PATTERN: Final[float] = 0.65
+
+# DL 엔진 융합 가중치 (Accelerator)
+COURT_FUSION_WEIGHT_DL: Final[float] = 0.35
+
+# 패턴 고신뢰도 임계값 (이 이상이면 DL 스킵)
+COURT_PATTERN_HIGH_CONFIDENCE: Final[float] = 0.80
+
+# 패턴 최소 신뢰도 (이 미만이면 감지 실패)
+COURT_PATTERN_MIN_CONFIDENCE: Final[float] = 0.40
+
+
+# =============================================================================
+# 적응형 색상 감지 파라미터 (court_detector v2.0.0) — [DEPRECATED 2026-04-20]
+# =============================================================================
+
+# 색상 샘플링 영역 비율 (이미지 중앙 10%)
+COURT_ADAPTIVE_HSV_SAMPLE_RATIO: Final[float] = 0.1
+
+# k-means 클러스터 수 (코트 바닥 주요 색상)
+COURT_ADAPTIVE_HSV_CLUSTER_K: Final[int] = 3
+
+# 흰색 라인 최소 밝기 (V채널)
+COURT_LINE_WHITE_V_MIN: Final[int] = 180
+
+# 노란색 라인 Hue 범위
+COURT_LINE_YELLOW_H_RANGE: Final[tuple[int, int]] = (20, 40)
+
+# 빨간색 라인 Hue 범위
+COURT_LINE_RED_H_RANGE: Final[tuple[int, int]] = (0, 10)
+
+
+# =============================================================================
+# 구역 분류 파라미터 (zone_classifier.py용) — [DEPRECATED 2026-04-20]
 # =============================================================================
 
 # 코너 3점 구역 너비 (미터)
@@ -871,6 +1026,62 @@ __all__ = [
     "COURT_QUALITY_EXCELLENT_THRESHOLD",
     "COURT_QUALITY_GOOD_THRESHOLD",
     "COURT_QUALITY_FAIR_THRESHOLD",
+    "COURT_CALIBRATION_EXCELLENT_ERROR_M",
+    "COURT_CALIBRATION_GOOD_ERROR_M",
+    "COURT_CALIBRATION_FAIR_ERROR_M",
+    "COURT_DL_BBOX_MARGIN_PX",
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # LSD 파라미터 - 8개
+    # ═══════════════════════════════════════════════════════════════════════════
+    "COURT_LSD_SCALE",
+    "COURT_LSD_SIGMA_SCALE",
+    "COURT_LSD_QUANT",
+    "COURT_LSD_ANG_TH",
+    "COURT_LSD_LOG_EPS",
+    "COURT_LSD_DENSITY_TH",
+    "COURT_LSD_N_BINS",
+    "COURT_LSD_MIN_LINE_LENGTH_RATIO",
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # CLAHE 전처리 파라미터 - 3개
+    # ═══════════════════════════════════════════════════════════════════════════
+    "COURT_CLAHE_CLIP_LIMIT",
+    "COURT_CLAHE_TILE_SIZE",
+    "COURT_LINE_CONTRAST_MIN_RATIO",
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # RANSAC 원 감지 파라미터 - 4개
+    # ═══════════════════════════════════════════════════════════════════════════
+    "COURT_CIRCLE_RANSAC_ITERATIONS",
+    "COURT_CIRCLE_MIN_ARC_RATIO",
+    "COURT_CIRCLE_INLIER_THRESHOLD_PX",
+    "COURT_CIRCLE_RADIUS_TOLERANCE_RATIO",
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # 기하학 검증 파라미터 - 4개
+    # ═══════════════════════════════════════════════════════════════════════════
+    "COURT_GEOMETRIC_LENGTH_TOLERANCE_RATIO",
+    "COURT_GEOMETRIC_ANGLE_TOLERANCE_DEG",
+    "COURT_GEOMETRIC_PARALLEL_THRESHOLD_DEG",
+    "COURT_GEOMETRIC_PERPENDICULAR_THRESHOLD_DEG",
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # 패턴-DL 융합 파라미터 - 4개
+    # ═══════════════════════════════════════════════════════════════════════════
+    "COURT_FUSION_WEIGHT_PATTERN",
+    "COURT_FUSION_WEIGHT_DL",
+    "COURT_PATTERN_HIGH_CONFIDENCE",
+    "COURT_PATTERN_MIN_CONFIDENCE",
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # 적응형 색상 감지 파라미터 - 5개
+    # ═══════════════════════════════════════════════════════════════════════════
+    "COURT_ADAPTIVE_HSV_SAMPLE_RATIO",
+    "COURT_ADAPTIVE_HSV_CLUSTER_K",
+    "COURT_LINE_WHITE_V_MIN",
+    "COURT_LINE_YELLOW_H_RANGE",
+    "COURT_LINE_RED_H_RANGE",
 
     # ═══════════════════════════════════════════════════════════════════════════
     # 구역 분류 파라미터 - 5개

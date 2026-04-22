@@ -14,14 +14,38 @@ COURTVIEW - AI 농구 분석 플랫폼
 버전: 1.0.0
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum, unique
-from typing import Any
+from typing import Any, Final
 from uuid import UUID, uuid4
 
 from shared.constants.localization import SupportedLanguage
 from shared.dto.geometry_dto import BoundingBox, Point2D
+
+
+# =============================================================================
+# i18n 모듈 레벨 캐시
+# =============================================================================
+
+_OCR_BACKEND_I18N: Final[dict[str, dict[str, str]]] = {
+    "easyocr": {"ko": "EasyOCR (경량)", "en": "EasyOCR (Lightweight)", "ja": "EasyOCR（軽量）", "zh": "EasyOCR（轻量）", "es": "EasyOCR (Ligero)"},
+    "paddleocr": {"ko": "PaddleOCR (고정확도)", "en": "PaddleOCR (High Accuracy)", "ja": "PaddleOCR（高精度）", "zh": "PaddleOCR（高精度）", "es": "PaddleOCR (Alta Precisión)"},
+    "tesseract": {"ko": "Tesseract (범용)", "en": "Tesseract (General Purpose)", "ja": "Tesseract（汎用）", "zh": "Tesseract（通用）", "es": "Tesseract (Propósito General)"},
+    "trocr": {"ko": "TrOCR (트랜스포머)", "en": "TrOCR (Transformer)", "ja": "TrOCR（トランスフォーマー）", "zh": "TrOCR（变换器）", "es": "TrOCR (Transformador)"},
+    "custom": {"ko": "커스텀 모델", "en": "Custom Model", "ja": "カスタムモデル", "zh": "自定义模型", "es": "Modelo Personalizado"},
+}
+
+_OCR_STATUS_I18N: Final[dict[str, dict[str, str]]] = {
+    "success": {"ko": "성공", "en": "Success", "ja": "成功", "zh": "成功", "es": "Éxito"},
+    "partial": {"ko": "부분 성공", "en": "Partial Success", "ja": "部分成功", "zh": "部分成功", "es": "Éxito Parcial"},
+    "failed": {"ko": "실패", "en": "Failed", "ja": "失敗", "zh": "失败", "es": "Fallido"},
+    "low_confidence": {"ko": "낮은 신뢰도", "en": "Low Confidence", "ja": "低信頼度", "zh": "低置信度", "es": "Baja Confianza"},
+    "processing": {"ko": "처리 중", "en": "Processing", "ja": "処理中", "zh": "处理中", "es": "Procesando"},
+    "skipped": {"ko": "건너뜀", "en": "Skipped", "ja": "スキップ", "zh": "已跳过", "es": "Omitido"},
+}
 
 
 # =============================================================================
@@ -35,6 +59,10 @@ class OCRBackend(str, Enum):
 
     지원되는 OCR 엔진을 정의합니다.
     다국어(i18n) 지원: get_name() 메서드로 5개 언어 지원
+
+    >>> backend = OCRBackend.EASYOCR
+    >>> backend.is_lightweight
+    True
     """
 
     # EasyOCR - 경량/빠른 처리
@@ -77,53 +105,9 @@ class OCRBackend(str, Enum):
         return self.get_name(SupportedLanguage.KO)
 
     def get_name(self, lang: SupportedLanguage = SupportedLanguage.KO) -> str:
-        """
-        다국어 백엔드명 반환.
-
-        Args:
-            lang: 지원 언어 (기본값: 한국어)
-
-        Returns:
-            해당 언어로 번역된 백엔드명
-        """
-        translations: dict[SupportedLanguage, dict["OCRBackend", str]] = {
-            SupportedLanguage.KO: {
-                OCRBackend.EASYOCR: "EasyOCR (경량)",
-                OCRBackend.PADDLEOCR: "PaddleOCR (고정확도)",
-                OCRBackend.TESSERACT: "Tesseract (범용)",
-                OCRBackend.TROCR: "TrOCR (트랜스포머)",
-                OCRBackend.CUSTOM: "커스텀 모델",
-            },
-            SupportedLanguage.EN: {
-                OCRBackend.EASYOCR: "EasyOCR (Lightweight)",
-                OCRBackend.PADDLEOCR: "PaddleOCR (High Accuracy)",
-                OCRBackend.TESSERACT: "Tesseract (General Purpose)",
-                OCRBackend.TROCR: "TrOCR (Transformer)",
-                OCRBackend.CUSTOM: "Custom Model",
-            },
-            SupportedLanguage.JA: {
-                OCRBackend.EASYOCR: "EasyOCR（軽量）",
-                OCRBackend.PADDLEOCR: "PaddleOCR（高精度）",
-                OCRBackend.TESSERACT: "Tesseract（汎用）",
-                OCRBackend.TROCR: "TrOCR（トランスフォーマー）",
-                OCRBackend.CUSTOM: "カスタムモデル",
-            },
-            SupportedLanguage.ZH: {
-                OCRBackend.EASYOCR: "EasyOCR（轻量）",
-                OCRBackend.PADDLEOCR: "PaddleOCR（高精度）",
-                OCRBackend.TESSERACT: "Tesseract（通用）",
-                OCRBackend.TROCR: "TrOCR（变换器）",
-                OCRBackend.CUSTOM: "自定义模型",
-            },
-            SupportedLanguage.ES: {
-                OCRBackend.EASYOCR: "EasyOCR (Ligero)",
-                OCRBackend.PADDLEOCR: "PaddleOCR (Alta Precisión)",
-                OCRBackend.TESSERACT: "Tesseract (Propósito General)",
-                OCRBackend.TROCR: "TrOCR (Transformador)",
-                OCRBackend.CUSTOM: "Modelo Personalizado",
-            },
-        }
-        return translations.get(lang, translations[SupportedLanguage.KO])[self]
+        """다국어 백엔드명 반환 (모듈 레벨 캐시 참조)."""
+        entry = _OCR_BACKEND_I18N[self.value]
+        return entry.get(lang.value, entry["ko"])
 
 
 @unique
@@ -174,65 +158,16 @@ class OCRStatus(str, Enum):
         return self.get_name(SupportedLanguage.KO)
 
     def get_name(self, lang: SupportedLanguage = SupportedLanguage.KO) -> str:
-        """
-        다국어 상태명 반환.
-
-        Args:
-            lang: 지원 언어 (기본값: 한국어)
-
-        Returns:
-            해당 언어로 번역된 상태명
-        """
-        translations: dict[SupportedLanguage, dict["OCRStatus", str]] = {
-            SupportedLanguage.KO: {
-                OCRStatus.SUCCESS: "성공",
-                OCRStatus.PARTIAL: "부분 성공",
-                OCRStatus.FAILED: "실패",
-                OCRStatus.LOW_CONFIDENCE: "낮은 신뢰도",
-                OCRStatus.PROCESSING: "처리 중",
-                OCRStatus.SKIPPED: "건너뜀",
-            },
-            SupportedLanguage.EN: {
-                OCRStatus.SUCCESS: "Success",
-                OCRStatus.PARTIAL: "Partial Success",
-                OCRStatus.FAILED: "Failed",
-                OCRStatus.LOW_CONFIDENCE: "Low Confidence",
-                OCRStatus.PROCESSING: "Processing",
-                OCRStatus.SKIPPED: "Skipped",
-            },
-            SupportedLanguage.JA: {
-                OCRStatus.SUCCESS: "成功",
-                OCRStatus.PARTIAL: "部分成功",
-                OCRStatus.FAILED: "失敗",
-                OCRStatus.LOW_CONFIDENCE: "低信頼度",
-                OCRStatus.PROCESSING: "処理中",
-                OCRStatus.SKIPPED: "スキップ",
-            },
-            SupportedLanguage.ZH: {
-                OCRStatus.SUCCESS: "成功",
-                OCRStatus.PARTIAL: "部分成功",
-                OCRStatus.FAILED: "失败",
-                OCRStatus.LOW_CONFIDENCE: "低置信度",
-                OCRStatus.PROCESSING: "处理中",
-                OCRStatus.SKIPPED: "已跳过",
-            },
-            SupportedLanguage.ES: {
-                OCRStatus.SUCCESS: "Éxito",
-                OCRStatus.PARTIAL: "Éxito Parcial",
-                OCRStatus.FAILED: "Fallido",
-                OCRStatus.LOW_CONFIDENCE: "Baja Confianza",
-                OCRStatus.PROCESSING: "Procesando",
-                OCRStatus.SKIPPED: "Omitido",
-            },
-        }
-        return translations.get(lang, translations[SupportedLanguage.KO])[self]
+        """다국어 상태명 반환 (모듈 레벨 캐시 참조)."""
+        entry = _OCR_STATUS_I18N[self.value]
+        return entry.get(lang.value, entry["ko"])
 
 
 # =============================================================================
 # 데이터 클래스
 # =============================================================================
 
-@dataclass
+@dataclass(slots=True)
 class OCRResult:
     """
     OCR 결과.
@@ -263,7 +198,7 @@ class OCRResult:
     processing_time_ms: float = 0.0
     raw_output: dict[str, Any] | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """초기화 후 처리."""
         self.confidence = max(0.0, min(1.0, self.confidence))
         self.text = self.text.strip()
@@ -296,7 +231,7 @@ class OCRResult:
             return None
 
 
-@dataclass
+@dataclass(slots=True)
 class JerseyNumber:
     """
     등번호.
@@ -327,7 +262,7 @@ class JerseyNumber:
     is_confirmed: bool = False
     confirmation_count: int = 0
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """초기화 후 처리."""
         self.confidence = max(0.0, min(1.0, self.confidence))
 
@@ -365,7 +300,7 @@ class JerseyNumber:
         return self.number == other.number
 
 
-@dataclass
+@dataclass(slots=True)
 class JerseyNumberVote:
     """
     등번호 투표.
@@ -391,18 +326,10 @@ class JerseyNumberVote:
             return 0.0
         return self.total_confidence / self.votes
 
-    def add_vote(
-        self,
-        camera_id: str,
-        confidence: float,
-    ) -> None:
-        """투표 추가."""
-        self.votes += 1
-        self.total_confidence += confidence
-        self.sources.append((camera_id, confidence))
+    # 상태 변이 로직 이관: add_vote → detection/ocr/ 서비스 레이어
 
 
-@dataclass
+@dataclass(slots=True)
 class MultiViewOCRResult:
     """
     멀티뷰 OCR 결과.
@@ -454,62 +381,11 @@ class MultiViewOCRResult:
         )
         return sorted_votes[0].votes - sorted_votes[1].votes
 
-    def add_result(
-        self,
-        camera_id: str,
-        jersey_number: JerseyNumber,
-    ) -> None:
-        """뷰 결과 추가."""
-        if not jersey_number.is_valid:
-            return
-
-        self.view_results[camera_id] = jersey_number
-        number = jersey_number.number
-
-        if number not in self.votes:
-            self.votes[number] = JerseyNumberVote(number=number)
-
-        self.votes[number].add_vote(camera_id, jersey_number.confidence)
-
-    def resolve(self, min_votes: int = 1) -> None:
-        """최종 등번호 결정."""
-        if not self.votes:
-            return
-
-        # 투표 수 기준 정렬
-        sorted_votes = sorted(
-            self.votes.values(),
-            key=lambda v: (v.votes, v.average_confidence),
-            reverse=True
-        )
-
-        winner = sorted_votes[0]
-        if winner.votes >= min_votes:
-            self.final_number = winner.number
-            self.final_confidence = winner.average_confidence
-
-            # 만장일치 확인
-            if len(sorted_votes) == 1 or (
-                len(sorted_votes) > 1 and sorted_votes[1].votes == 0
-            ):
-                self.is_unanimous = True
-
-    def to_jersey_number(self) -> JerseyNumber | None:
-        """JerseyNumber로 변환."""
-        if self.final_number is None:
-            return None
-
-        return JerseyNumber(
-            number=self.final_number,
-            confidence=self.final_confidence,
-            source="multiview",
-            person_id=self.person_id,
-            is_confirmed=self.is_unanimous,
-            confirmation_count=self.votes[self.final_number].votes if self.final_number in self.votes else 0,
-        )
+    # 비즈니스 로직 이관 완료: add_result, resolve, to_jersey_number
+    # → detection/ocr/ 서비스 레이어
 
 
-@dataclass
+@dataclass(slots=True)
 class OCRAnalysisResult:
     """
     OCR 분석 결과.
@@ -567,10 +443,7 @@ class OCRAnalysisResult:
 # =============================================================================
 
 __all__ = [
-    # 다국어 지원 (re-export)
-    "SupportedLanguage",
-
-    # Enum (i18n 지원)
+    # Enum (DTO 고유)
     "OCRBackend",
     "OCRStatus",
 

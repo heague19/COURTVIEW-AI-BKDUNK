@@ -11,6 +11,9 @@ COURTVIEW - AI 농구 분석 플랫폼
 버전: 1.0.0
 """
 
+from __future__ import annotations
+
+
 from enum import Enum, unique
 from typing import Final
 
@@ -22,8 +25,8 @@ from typing import Final
 # 최대 동기화 드리프트 허용 오차 (밀리초)
 MAX_SYNC_DRIFT_MS: Final[float] = 50.0
 
-# 프레임 동기화 허용 오차 (밀리초) - 1 프레임 @ 60fps
-FRAME_SYNC_TOLERANCE_MS: Final[float] = 16.67
+# 프레임 동기화 허용 오차 (밀리초) - 1 프레임 @ 30fps (SPOIN 2026-04-20 SSOT 확정)
+FRAME_SYNC_TOLERANCE_MS: Final[float] = 33.33
 
 # 오디오 동기화 허용 오차 (밀리초)
 AUDIO_SYNC_TOLERANCE_MS: Final[float] = 40.0
@@ -56,8 +59,8 @@ AUDIO_CHANNELS: Final[int] = 2
 # 프레임 처리 관련 상수
 # =============================================================================
 
-# 최대 프레임 드리프트 (밀리초) - 1 프레임 @ 60fps
-MAX_FRAME_DRIFT_MS: Final[float] = 16.67
+# 최대 프레임 드리프트 (밀리초) - 1 프레임 @ 30fps (SPOIN 2026-04-20 SSOT 확정)
+MAX_FRAME_DRIFT_MS: Final[float] = 33.33
 
 # 기본 FPS
 DEFAULT_FPS: Final[int] = 30
@@ -134,13 +137,13 @@ MAX_VIDEO_WIDTH: Final[int] = 3840
 MAX_VIDEO_HEIGHT: Final[int] = 2160
 
 # 표준 해상도 목록
-STANDARD_RESOLUTIONS: Final[list[tuple[int, int]]] = [
+STANDARD_RESOLUTIONS: Final[tuple[tuple[int, int], ...]] = (
     (640, 480),     # VGA
     (1280, 720),    # HD 720p
     (1920, 1080),   # Full HD 1080p
     (2560, 1440),   # QHD 2K
     (3840, 2160),   # UHD 4K
-]
+)
 
 # 분석용 정규화 해상도
 ANALYSIS_NORMALIZED_RESOLUTION: Final[tuple[int, int]] = (1920, 1080)
@@ -179,6 +182,20 @@ class VideoFormat(Enum):
     비디오 파일 포맷 열거형.
 
     지원되는 컨테이너 포맷을 정의합니다.
+
+    사용 예시::
+
+        >>> fmt = VideoFormat.MP4
+        >>> fmt.extension
+        '.mp4'
+        >>> fmt.mime_type
+        'video/mp4'
+        >>> VideoFormat.from_extension('.mov')
+        <VideoFormat.MOV: 'mov'>
+        >>> VideoCodec.H264.is_hardware_accelerated
+        True
+        >>> ColorSpace.RGB.channels
+        3
     """
 
     MP4 = "mp4"
@@ -265,7 +282,7 @@ class VideoCodec(Enum):
 
 # -- VideoCodec 캐시 (직접 할당) --
 
-_VIDEO_CODEC_IS_HARDWARE_ACCELERATED: frozenset = frozenset({
+_VIDEO_CODEC_IS_HARDWARE_ACCELERATED: frozenset[VideoCodec] = frozenset({
     VideoCodec.H264,
     VideoCodec.H265,
     VideoCodec.VP9,
@@ -307,7 +324,7 @@ class AudioCodec(Enum):
 
 # -- AudioCodec 캐시 (직접 할당) --
 
-_AUDIO_CODEC_IS_LOSSY: frozenset = frozenset({
+_AUDIO_CODEC_IS_LOSSY: frozenset[AudioCodec] = frozenset({
     AudioCodec.AAC,
     AudioCodec.MP3,
     AudioCodec.OPUS,
@@ -315,9 +332,14 @@ _AUDIO_CODEC_IS_LOSSY: frozenset = frozenset({
 })
 
 
-# 지원되는 비디오 확장자
+# 지원되는 비디오 확장자 (Phase 15 H5 SSOT — utils.video_utils와 통합)
 SUPPORTED_VIDEO_EXTENSIONS: Final[frozenset[str]] = frozenset({
-    ".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v"
+    ".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v", ".wmv", ".flv"
+})
+
+# 지원되는 이미지 확장자 (Phase 15 H5 — utils.video_utils에서 이관)
+SUPPORTED_IMAGE_EXTENSIONS: Final[frozenset[str]] = frozenset({
+    ".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".webp"
 })
 
 # 지원되는 비디오 MIME 타입
@@ -507,6 +529,7 @@ __all__ = [
 
     # 지원 포맷
     "SUPPORTED_VIDEO_EXTENSIONS",
+    "SUPPORTED_IMAGE_EXTENSIONS",
     "SUPPORTED_VIDEO_MIME_TYPES",
     "SUPPORTED_VIDEO_CODECS",
 

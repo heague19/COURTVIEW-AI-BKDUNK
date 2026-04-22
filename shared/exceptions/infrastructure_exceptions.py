@@ -7,16 +7,19 @@ COURTVIEW - AI 농구 분석 플랫폼
 설명: 인프라스트럭처 관련 예외 클래스 정의
       - 데이터베이스, 캐시, 큐, 스토리지, 스트림, 외부 서비스
       - 비디오 처리, 카메라, 캘리브레이션, 좌표변환, 설정
-      - 58개 예외 클래스 (Retryable 17개, NonRetryable 10개, Critical 1개, 기반 30개)
+      - 61개 예외 클래스 (Retryable 17개, NonRetryable 10개, Critical 1개, 기반 33개)
 
 작성자: SPOIN_COURTVIEW
-최종 수정: 2026-02-16
+최종 수정: 2026-02-18
 버전: 1.0.0
 """
+
+from __future__ import annotations
 
 # =============================================================================
 # 표준 라이브러리 (Standard Library)
 # =============================================================================
+import re
 from typing import Any
 
 # =============================================================================
@@ -191,8 +194,6 @@ class DatabaseException(CourtViewException):
             정제된 쿼리
         """
         # 비밀번호, 토큰 등 민감 정보 마스킹
-        import re
-
         patterns = [
             (r"password\s*=\s*'[^']*'", "password='***'"),
             (r"token\s*=\s*'[^']*'", "token='***'"),
@@ -2517,7 +2518,7 @@ class CorruptedFileException(DecodingException):
 # =============================================================================
 
 
-class FrameExtractionException(InfrastructureException):
+class InfraFrameExtractionException(InfrastructureException):
     """프레임 추출 예외."""
 
     def __init__(
@@ -2565,7 +2566,7 @@ class FrameExtractionException(InfrastructureException):
         video_path: str,
         reason: str,
         cause: Exception | None = None,
-    ) -> "FrameExtractionException":
+    ) -> "InfraFrameExtractionException":
         """추출기 초기화 실패 팩토리 메서드."""
         return cls(
             message=f"프레임 추출기 초기화에 실패했습니다: {reason}",
@@ -2580,7 +2581,7 @@ class FrameExtractionException(InfrastructureException):
         frame_index: int,
         reason: str,
         cause: Exception | None = None,
-    ) -> "FrameExtractionException":
+    ) -> "InfraFrameExtractionException":
         """프레임 추출 실패 팩토리 메서드."""
         return cls(
             message=f"프레임 {frame_index} 추출에 실패했습니다: {reason}",
@@ -2595,7 +2596,7 @@ class FrameExtractionException(InfrastructureException):
         video_path: str,
         timeout_seconds: float,
         cause: Exception | None = None,
-    ) -> "FrameExtractionException":
+    ) -> "InfraFrameExtractionException":
         """추출 타임아웃 팩토리 메서드."""
         return cls(
             message=f"프레임 추출 시간이 초과되었습니다: {timeout_seconds}초",
@@ -2611,7 +2612,7 @@ class FrameExtractionException(InfrastructureException):
         start_frame: int,
         end_frame: int,
         total_frames: int,
-    ) -> "FrameExtractionException":
+    ) -> "InfraFrameExtractionException":
         """유효하지 않은 프레임 범위 팩토리 메서드."""
         return cls(
             message=f"유효하지 않은 프레임 범위입니다: {start_frame}-{end_frame} (총 {total_frames})",
@@ -2629,7 +2630,7 @@ class FrameExtractionException(InfrastructureException):
         video_path: str,
         reason: str,
         cause: Exception | None = None,
-    ) -> "FrameExtractionException":
+    ) -> "InfraFrameExtractionException":
         """키프레임 감지 실패 팩토리 메서드."""
         return cls(
             message=f"키프레임 감지에 실패했습니다: {reason}",
@@ -2644,7 +2645,7 @@ class FrameExtractionException(InfrastructureException):
         video_path: str,
         buffer_size: int,
         max_size: int,
-    ) -> "FrameExtractionException":
+    ) -> "InfraFrameExtractionException":
         """버퍼 오버플로우 팩토리 메서드."""
         return cls(
             message=f"프레임 버퍼가 초과되었습니다: {buffer_size}/{max_size}",
@@ -2899,7 +2900,7 @@ class NormalizationException(InfrastructureException):
         )
 
 
-class ResolutionException(InfrastructureException):
+class InfraResolutionException(InfrastructureException):
     """해상도 관련 예외."""
 
     def __init__(
@@ -2952,7 +2953,7 @@ class ResolutionException(InfrastructureException):
         width: int,
         height: int,
         reason: str,
-    ) -> "ResolutionException":
+    ) -> "InfraResolutionException":
         """유효하지 않은 해상도 팩토리 메서드."""
         return cls(
             message=f"유효하지 않은 해상도입니다 ({width}x{height}): {reason}",
@@ -2966,7 +2967,7 @@ class ResolutionException(InfrastructureException):
         width: int,
         height: int,
         supported_resolutions: list,
-    ) -> "ResolutionException":
+    ) -> "InfraResolutionException":
         """지원하지 않는 해상도 팩토리 메서드."""
         return cls(
             message=f"지원하지 않는 해상도입니다: {width}x{height}",
@@ -2982,7 +2983,7 @@ class ResolutionException(InfrastructureException):
         height: int,
         min_width: int,
         min_height: int,
-    ) -> "ResolutionException":
+    ) -> "InfraResolutionException":
         """최소 해상도 미달 팩토리 메서드."""
         return cls(
             message=f"해상도가 최소 요구사항 미달입니다: {width}x{height} < {min_width}x{min_height}",
@@ -2998,7 +2999,7 @@ class ResolutionException(InfrastructureException):
         height: int,
         max_width: int,
         max_height: int,
-    ) -> "ResolutionException":
+    ) -> "InfraResolutionException":
         """최대 해상도 초과 팩토리 메서드."""
         return cls(
             message=f"해상도가 최대 허용치 초과입니다: {width}x{height} > {max_width}x{max_height}",
@@ -3014,7 +3015,7 @@ class ResolutionException(InfrastructureException):
         target_resolution: tuple[int, int],
         method: str,
         cause: Exception | None = None,
-    ) -> "ResolutionException":
+    ) -> "InfraResolutionException":
         """보간 실패 팩토리 메서드."""
         return cls(
             message=f"해상도 보간에 실패했습니다: {source_resolution} -> {target_resolution} ({method})",
@@ -3391,11 +3392,11 @@ __all__ = [
     "CodecException",
     "CorruptedFileException",
     # 프레임 추출 예외
-    "FrameExtractionException",
+    "InfraFrameExtractionException",
     "EndOfStreamException",
     # 비디오 정규화 예외
     "NormalizationException",
-    "ResolutionException",
+    "InfraResolutionException",
     # 비디오 분류 예외
     "ClassificationException",
     # 적응형 샘플링 예외
@@ -3406,13 +3407,18 @@ __all__ = [
     "CameraTimeoutException",
     # 캘리브레이션 예외 (v3.0.0 멀티카메라)
     "CalibrationException",
-    "InsufficientDataException",
+    "InfraInsufficientDataException",
     # 좌표 변환 예외 (v3.0.0 멀티카메라)
     "TransformationException",
     "CalibrationRequiredException",
     # 설정 예외
-    "ConfigurationException",
-    "ValidationException",
+    "InfraConfigurationException",
+    "InfraValidationException",
+    # 프레임 정렬 예외 (v3.0.0 전처리)
+    "AlignmentException",
+    "FrameDropException",
+    # 동기화 예외 (v3.0.0 전처리)
+    "SyncException",
 ]
 
 
@@ -3567,7 +3573,7 @@ class CalibrationException(InfrastructureException):
         self.reprojection_error = reprojection_error
 
 
-class InsufficientDataException(CalibrationException):
+class InfraInsufficientDataException(CalibrationException):
     """캘리브레이션 데이터 부족 예외."""
 
     def __init__(
@@ -3677,7 +3683,7 @@ class CalibrationRequiredException(TransformationException):
 # =============================================================================
 # 설정 예외
 # =============================================================================
-class ConfigurationException(InfrastructureException):
+class InfraConfigurationException(InfrastructureException):
     """설정 예외."""
 
     def __init__(
@@ -3709,7 +3715,7 @@ class ConfigurationException(InfrastructureException):
         self.config_path = config_path
 
 
-class ValidationException(InfrastructureException):
+class InfraValidationException(InfrastructureException):
     """유효성 검증 예외."""
 
     def __init__(
@@ -3744,6 +3750,130 @@ class ValidationException(InfrastructureException):
         )
         self.field = field
         self.value = value
+
+
+# =============================================================================
+# 프레임 정렬 예외 (v3.0.0 전처리)
+# =============================================================================
+class AlignmentException(InfrastructureException):
+    """프레임 정렬 예외."""
+
+    def __init__(
+        self,
+        message: str = "프레임 정렬에 실패했습니다",
+        camera_id: str | None = None,
+        timestamp_ms: float | None = None,
+        details: dict[str, Any] | None = None,
+        cause: Exception | None = None,
+    ) -> None:
+        """
+        프레임 정렬 예외 초기화.
+
+        Args:
+            message: 에러 메시지
+            camera_id: 관련 카메라 ID
+            timestamp_ms: 관련 타임스탬프
+            details: 추가 상세 정보
+            cause: 원인 예외
+        """
+        combined_details = details or {}
+        if camera_id:
+            combined_details["camera_id"] = camera_id
+        if timestamp_ms is not None:
+            combined_details["timestamp_ms"] = timestamp_ms
+
+        super().__init__(
+            message=message,
+            error_code=ErrorCode.MULTI_CAMERA_ERROR,
+            details=combined_details,
+            cause=cause,
+        )
+        self.camera_id = camera_id
+        self.timestamp_ms = timestamp_ms
+
+
+class FrameDropException(InfrastructureException):
+    """프레임 드롭 예외."""
+
+    def __init__(
+        self,
+        message: str = "프레임 드롭이 발생했습니다",
+        dropped_count: int = 0,
+        total_count: int = 0,
+        details: dict[str, Any] | None = None,
+        cause: Exception | None = None,
+    ) -> None:
+        """
+        프레임 드롭 예외 초기화.
+
+        Args:
+            message: 에러 메시지
+            dropped_count: 드롭된 프레임 수
+            total_count: 전체 프레임 수
+            details: 추가 상세 정보
+            cause: 원인 예외
+        """
+        combined_details = details or {}
+        if dropped_count:
+            combined_details["dropped_count"] = dropped_count
+        if total_count:
+            combined_details["total_count"] = total_count
+
+        super().__init__(
+            message=message,
+            error_code=ErrorCode.CAMERA_FRAME_DROP,
+            details=combined_details,
+            cause=cause,
+        )
+        self.dropped_count = dropped_count
+        self.total_count = total_count
+
+    @property
+    def drop_rate(self) -> float:
+        """드롭률 반환."""
+        if self.total_count == 0:
+            return 0.0
+        return self.dropped_count / self.total_count
+
+
+# =============================================================================
+# 동기화 예외 (v3.0.0 전처리)
+# =============================================================================
+class SyncException(InfrastructureException):
+    """멀티카메라 영상 동기화 예외."""
+
+    def __init__(
+        self,
+        message: str = "영상 동기화에 실패했습니다",
+        camera_ids: list[str] | None = None,
+        sync_method: str | None = None,
+        details: dict[str, Any] | None = None,
+        cause: Exception | None = None,
+    ) -> None:
+        """
+        동기화 예외 초기화.
+
+        Args:
+            message: 에러 메시지
+            camera_ids: 관련 카메라 ID 목록
+            sync_method: 사용된 동기화 방법
+            details: 추가 상세 정보
+            cause: 원인 예외
+        """
+        combined_details = details or {}
+        if camera_ids:
+            combined_details["camera_ids"] = camera_ids
+        if sync_method:
+            combined_details["sync_method"] = sync_method
+
+        super().__init__(
+            message=message,
+            error_code=ErrorCode.CAMERA_SYNC_ERROR,
+            details=combined_details,
+            cause=cause,
+        )
+        self.camera_ids = camera_ids or []
+        self.sync_method = sync_method
 
 
 # =============================================================================

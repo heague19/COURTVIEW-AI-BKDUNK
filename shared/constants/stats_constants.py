@@ -31,13 +31,13 @@ COURTVIEW - AI 농구 분석 플랫폼
 - feedback_system/: 통계 기반 피드백 생성
 """
 
+from __future__ import annotations
+
+
 from enum import Enum, unique
 from typing import Final
 
 from shared.constants.localization import SupportedLanguage
-
-
-__version__: str = "1.0.0"
 
 
 # =============================================================================
@@ -50,6 +50,15 @@ class StatCategory(str, Enum):
 
     농구 통계를 기능별로 분류합니다.
     기록지 출력, 리포트 섹션 구분, 피드백 생성에 사용됩니다.
+
+    사용 예시::
+
+        >>> cat = StatCategory.SHOOTING
+        >>> cat.get_name()
+        '슈팅 스탯'
+        >>> from shared.constants.stats_constants import FREE_THROW_TRIP_FACTOR
+        >>> FREE_THROW_TRIP_FACTOR  # TS% 수식 계수
+        0.44
     """
 
     BASIC = "basic"                 # 기본 스탯 (PTS, REB, AST, STL, BLK, TOV)
@@ -581,131 +590,9 @@ EARLY_OFFENSE_MAX_SEC: Final[float] = 10.0
 
 
 # =============================================================================
-# 유틸리티 함수
-# =============================================================================
-
-def calculate_ts_pct(points: int, fga: int, fta: int) -> float:
-    """
-    True Shooting% (TS%) 계산.
-
-    TS% = PTS / (2 × (FGA + 0.44 × FTA))
-
-    Args:
-        points: 총 득점
-        fga: 야투 시도
-        fta: 자유투 시도
-
-    Returns:
-        TS% (0.0~1.0), 시도 없으면 0.0
-    """
-    denominator = 2.0 * (fga + FREE_THROW_TRIP_FACTOR * fta)
-    if denominator <= 0.0:
-        return 0.0
-    return points / denominator
-
-
-def calculate_efg_pct(fg: int, three_pm: int, fga: int) -> float:
-    """
-    Effective FG% (eFG%) 계산.
-
-    eFG% = (FG + 0.5 × 3PM) / FGA
-
-    Args:
-        fg: 야투 성공
-        three_pm: 3점슛 성공
-        fga: 야투 시도
-
-    Returns:
-        eFG% (0.0~1.0+), 시도 없으면 0.0
-    """
-    if fga <= 0:
-        return 0.0
-    return (fg + THREE_POINT_EFG_BONUS * three_pm) / fga
-
-
-def calculate_usg_pct(
-    fga: int, fta: int, tov: int,
-    minutes_played: float, team_minutes: float,
-    team_fga: int, team_fta: int, team_tov: int,
-) -> float:
-    """
-    Usage Rate (USG%) 계산.
-
-    USG% = 100 × ((FGA + 0.44 × FTA + TOV) × (TM_MP / 5)) / (MP × (TM_FGA + 0.44 × TM_FTA + TM_TOV))
-
-    Args:
-        fga: 개인 야투 시도
-        fta: 개인 자유투 시도
-        tov: 개인 턴오버
-        minutes_played: 개인 출전 시간 (분)
-        team_minutes: 팀 총 출전 시간 (분)
-        team_fga: 팀 야투 시도
-        team_fta: 팀 자유투 시도
-        team_tov: 팀 턴오버
-
-    Returns:
-        USG% (0.0~100.0), 분모 0이면 0.0
-    """
-    player_usage = fga + FREE_THROW_TRIP_FACTOR * fta + tov
-    team_usage = team_fga + FREE_THROW_TRIP_FACTOR * team_fta + team_tov
-
-    if minutes_played <= 0.0 or team_usage <= 0.0:
-        return 0.0
-
-    return 100.0 * (player_usage * (team_minutes / PLAYERS_ON_COURT_PER_TEAM)) / (
-        minutes_played * team_usage
-    )
-
-
-def get_performance_rating(percentile: float) -> PerformanceRating:
-    """
-    백분위로부터 성능 등급 반환.
-
-    Args:
-        percentile: 백분위 (0~100)
-
-    Returns:
-        PerformanceRating 등급
-    """
-    if percentile >= PERCENTILE_ELITE_THRESHOLD:
-        return PerformanceRating.ELITE
-    elif percentile >= PERCENTILE_ABOVE_AVERAGE_THRESHOLD:
-        return PerformanceRating.ABOVE_AVERAGE
-    elif percentile >= PERCENTILE_AVERAGE_LOW_THRESHOLD:
-        return PerformanceRating.AVERAGE
-    elif percentile >= PERCENTILE_BELOW_AVERAGE_THRESHOLD:
-        return PerformanceRating.BELOW_AVERAGE
-    else:
-        return PerformanceRating.POOR
-
-
-def is_clutch_situation(
-    score_margin: int, time_remaining_sec: int, period: int
-) -> bool:
-    """
-    클러치 상황 여부 판별.
-
-    Args:
-        score_margin: 점수차 (절대값)
-        time_remaining_sec: 남은 시간 (초)
-        period: 현재 쿼터 (4 이상이면 4Q 또는 OT)
-
-    Returns:
-        클러치 상황 여부
-    """
-    return (
-        period >= 4
-        and abs(score_margin) <= WP_CLUTCH_MARGIN_POINTS
-        and time_remaining_sec <= WP_CLUTCH_TIME_REMAINING_SEC
-    )
-
-
-# =============================================================================
 # 모듈 Export 정의
 # =============================================================================
-__all__: list[str] = [
-    # 버전
-    "__version__",
+__all__ = [
     # 열거형
     "StatCategory",
     "PerformanceRating",
@@ -793,6 +680,133 @@ __all__: list[str] = [
     "calculate_ts_pct",
     "calculate_efg_pct",
     "calculate_usg_pct",
-    "get_performance_rating",
     "is_clutch_situation",
+    "get_performance_rating",
 ]
+
+
+# =============================================================================
+# 유틸리티 함수
+# =============================================================================
+
+
+def calculate_ts_pct(points: int, fga: int, fta: int) -> float:
+    """트루 슈팅 퍼센티지 (TS%) 계산.
+
+    TS% = PTS / (2 × (FGA + 0.44 × FTA))
+
+    Args:
+        points: 총 득점.
+        fga: 야투 시도 수.
+        fta: 자유투 시도 수.
+
+    Returns:
+        TS% (0~100). 분모 0이면 0.0.
+    """
+    denominator = 2.0 * (fga + FREE_THROW_TRIP_FACTOR * fta)
+    if denominator <= 0.0:
+        return 0.0
+    return points / denominator * 100.0
+
+
+def calculate_efg_pct(fgm: int, tpm: int, fga: int) -> float:
+    """유효 야투율 (eFG%) 계산.
+
+    eFG% = (FGM + 0.5 × 3PM) / FGA
+
+    Args:
+        fgm: 야투 성공 수.
+        tpm: 3점 성공 수.
+        fga: 야투 시도 수.
+
+    Returns:
+        eFG% (0~100). FGA 0이면 0.0.
+    """
+    if fga <= 0:
+        return 0.0
+    return (fgm + THREE_POINT_EFG_BONUS * tpm) / fga * 100.0
+
+
+def calculate_usg_pct(
+    fga: int,
+    fta: int,
+    tov: int,
+    minutes_played: float,
+    team_minutes: float,
+    team_fga: int,
+    team_fta: int,
+    team_tov: int,
+) -> float:
+    """사용률 (USG%) 계산.
+
+    USG% = 100 × ((FGA + 0.44×FTA + TOV) × (Team_MP / 5))
+           / (MP × (Team_FGA + 0.44×Team_FTA + Team_TOV))
+
+    Args:
+        fga: 선수 야투 시도.
+        fta: 선수 자유투 시도.
+        tov: 선수 턴오버.
+        minutes_played: 선수 출전 시간 (분).
+        team_minutes: 팀 총 출전 시간 (분).
+        team_fga: 팀 야투 시도.
+        team_fta: 팀 자유투 시도.
+        team_tov: 팀 턴오버.
+
+    Returns:
+        USG% (0~100). 분모 0이면 0.0.
+    """
+    if minutes_played <= 0.0 or team_minutes <= 0.0:
+        return 0.0
+    player_actions = fga + FREE_THROW_TRIP_FACTOR * fta + tov
+    team_actions = team_fga + FREE_THROW_TRIP_FACTOR * team_fta + team_tov
+    if team_actions <= 0.0:
+        return 0.0
+    return 100.0 * (player_actions * (team_minutes / PLAYERS_ON_COURT_PER_TEAM)) / (minutes_played * team_actions)
+
+
+def is_clutch_situation(
+    score_margin: int,
+    time_remaining_sec: int,
+    period: int,
+) -> bool:
+    """클러치 상황 여부를 판별한다.
+
+    4쿼터 또는 연장전에서 점수차 ±5점 이내, 남은 시간 5분 이내.
+
+    Args:
+        score_margin: 점수차 (절대값으로 비교).
+        time_remaining_sec: 남은 시간 (초).
+        period: 쿼터 번호 (4 이상이면 4Q/OT).
+
+    Returns:
+        클러치 상황이면 True.
+    """
+    return (
+        period >= 4
+        and abs(score_margin) <= WP_CLUTCH_MARGIN_POINTS
+        and time_remaining_sec <= WP_CLUTCH_TIME_REMAINING_SEC
+    )
+
+
+def get_performance_rating(percentile: float) -> PerformanceRating:
+    """백분위 → 성과 등급 변환.
+
+    Args:
+        percentile: 백분위 (0~100).
+
+    Returns:
+        PerformanceRating 열거형.
+    """
+    if percentile >= PERCENTILE_ELITE_THRESHOLD:
+        return PerformanceRating.ELITE
+    if percentile >= PERCENTILE_ABOVE_AVERAGE_THRESHOLD:
+        return PerformanceRating.ABOVE_AVERAGE
+    if percentile >= PERCENTILE_AVERAGE_LOW_THRESHOLD:
+        return PerformanceRating.AVERAGE
+    if percentile >= PERCENTILE_BELOW_AVERAGE_THRESHOLD:
+        return PerformanceRating.BELOW_AVERAGE
+    return PerformanceRating.POOR
+
+
+# 모듈 버전 정보
+__version__ = "1.0.0"

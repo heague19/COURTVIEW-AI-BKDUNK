@@ -12,15 +12,15 @@ COURTVIEW - AI 농구 분석 플랫폼
       - 경기 관리: 타임아웃, 교체, 게임 클락 관리
 
 작성자: SPOIN_COURTVIEW
+최종 수정: 2026-03-16
 버전: 1.0.0
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum, unique
-from typing import Any
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 # =============================================================================
 # 열거형 (shared.constants에서 import)
@@ -96,6 +96,8 @@ class RefereeCall(BaseModel):
     단일 판정의 상세 정보.
     """
 
+    model_config = ConfigDict(frozen=True)
+
     call_id: UUID = Field(default_factory=uuid4, description="판정 ID")
     call_type: CallType = Field(..., description="판정 유형")
     rule_set: RuleSet = Field(..., description="적용 규정")
@@ -140,6 +142,8 @@ class RefereePosition(BaseModel):
     판정 당시 심판의 위치와 시야각 분석.
     """
 
+    model_config = ConfigDict(frozen=True)
+
     referee_id: str = Field(..., description="심판 ID")
     position_x: float = Field(..., ge=-1.0, le=1.0, description="위치 X (정규화)")
     position_y: float = Field(..., ge=-1.0, le=1.0, description="위치 Y (정규화)")
@@ -166,6 +170,8 @@ class CallContext(BaseModel):
 
     판정 당시의 경기 상황.
     """
+
+    model_config = ConfigDict(frozen=True)
 
     # 점수
     home_score: int = Field(..., ge=0, description="홈팀 점수")
@@ -198,6 +204,8 @@ class ReplayReview(BaseModel):
 
     비디오 리뷰 프로세스 전체 정보.
     """
+
+    model_config = ConfigDict(frozen=True)
 
     review_id: UUID = Field(default_factory=uuid4, description="리뷰 ID")
     trigger: ReviewTrigger = Field(..., description="리뷰 발동 사유")
@@ -241,6 +249,8 @@ class ChallengeRequest(BaseModel):
     코치의 판정 이의 제기.
     """
 
+    model_config = ConfigDict(frozen=True)
+
     challenge_id: UUID = Field(default_factory=uuid4, description="챌린지 ID")
     team_id: str = Field(..., description="요청 팀 ID")
     coach_name: str | None = Field(default=None, description="코치 이름")
@@ -251,7 +261,7 @@ class ChallengeRequest(BaseModel):
 
     # 시간 정보
     requested_at: datetime = Field(
-        default_factory=datetime.now, description="요청 시각"
+        default_factory=lambda: datetime.now(timezone.utc), description="요청 시각 (UTC)"
     )
     game_clock: str = Field(..., description="게임 시계 (MM:SS)")
     quarter: int = Field(..., ge=1, le=4, description="쿼터")
@@ -278,6 +288,8 @@ class CallAccuracy(BaseModel):
 
     개별 판정 또는 심판 전체의 정확도 분석.
     """
+
+    model_config = ConfigDict(frozen=True)
 
     referee_id: str | None = Field(default=None, description="심판 ID")
     game_id: str | None = Field(default=None, description="경기 ID")
@@ -332,6 +344,8 @@ class ConsistencyMetrics(BaseModel):
     심판 판정의 일관성 분석.
     """
 
+    model_config = ConfigDict(frozen=True)
+
     referee_id: str = Field(..., description="심판 ID")
 
     # 일관성 점수 (0-100)
@@ -370,6 +384,8 @@ class RefereePerformance(BaseModel):
 
     심판의 전반적인 성과 평가.
     """
+
+    model_config = ConfigDict(frozen=True)
 
     referee_id: str = Field(..., description="심판 ID")
     game_id: str = Field(..., description="경기 ID")
@@ -414,6 +430,8 @@ class TimeoutManagement(BaseModel):
     타임아웃 관리 DTO.
     """
 
+    model_config = ConfigDict(frozen=True)
+
     game_id: str = Field(..., description="경기 ID")
 
     # 홈팀 타임아웃
@@ -440,6 +458,8 @@ class SubstitutionRecord(BaseModel):
     선수 교체 기록 DTO.
     """
 
+    model_config = ConfigDict(frozen=True)
+
     substitution_id: UUID = Field(default_factory=uuid4, description="교체 ID")
     team_id: str = Field(..., description="팀 ID")
 
@@ -459,10 +479,31 @@ class SubstitutionRecord(BaseModel):
     )
 
 
+class ClockAdjustment(BaseModel):
+    """
+    시간 조정 레코드.
+
+    게임 클락 또는 샷클락 수동 조정 이력.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    adjusted_at_frame: int = Field(default=0, ge=0, description="조정 시점 프레임")
+    adjustment_seconds: float = Field(
+        default=0.0, description="조정량 (초, 양수=추가, 음수=감소)"
+    )
+    reason: str = Field(default="", description="조정 사유")
+    adjusted_by: str = Field(
+        default="", description="조정 주체 (referee/official/system)"
+    )
+
+
 class GameClockManagement(BaseModel):
     """
     게임 클락 관리 DTO.
     """
+
+    model_config = ConfigDict(frozen=True)
 
     game_id: str = Field(..., description="경기 ID")
 
@@ -474,7 +515,7 @@ class GameClockManagement(BaseModel):
     )
 
     # 시간 조정 이력
-    clock_adjustments: list[dict[str, Any]] = Field(
+    clock_adjustments: list[ClockAdjustment] = Field(
         default_factory=list, description="시간 조정 이력"
     )
 
@@ -495,6 +536,8 @@ class AdvantageDecision(BaseModel):
     파울 발생 시 어드밴티지 룰 적용 여부와 결과를 기록.
     FIBA Rule 36.1.3 (어드밴티지), NBA Rule 12B-I (컨티뉴에이션) 등.
     """
+
+    model_config = ConfigDict(frozen=True)
 
     decision_id: UUID = Field(default_factory=uuid4, description="판정 ID")
     rule_set: RuleSet = Field(..., description="적용 규정")
@@ -555,6 +598,8 @@ class UnsportsmanlikeBehavior(BaseModel):
     FIBA Rule 36 (비신사적 파울), NBA Rule 12A-VII (테크니컬 파울) 등.
     """
 
+    model_config = ConfigDict(frozen=True)
+
     behavior_id: UUID = Field(default_factory=uuid4, description="행위 ID")
     action_type: UnsportsmanlikeActionType = Field(..., description="행위 유형")
 
@@ -596,6 +641,8 @@ class RefereeReport(BaseModel):
 
     경기 전체의 심판 판정 리포트.
     """
+
+    model_config = ConfigDict(frozen=True)
 
     report_id: UUID = Field(default_factory=uuid4, description="리포트 ID")
     game_id: str = Field(..., description="경기 ID")
@@ -645,7 +692,7 @@ class RefereeReport(BaseModel):
 
     # 메타데이터
     created_at: datetime = Field(
-        default_factory=datetime.now, description="생성 시각"
+        default_factory=lambda: datetime.now(timezone.utc), description="생성 시각 (UTC)"
     )
 
 
@@ -654,15 +701,9 @@ class RefereeReport(BaseModel):
 # =============================================================================
 
 __all__ = [
-    # 열거형 (referee_rule_constants/game_rule_constants에서 re-export)
-    "RuleSet",
-    "CallType",
-    "SignalType",
-    "ReviewTrigger",
-    "ReviewOutcome",
-    "RefereeRole",
-    "ViolationType",
-    "FoulType",
+    # 상수 Enum은 shared.constants에서 직접 임포트 권장
+    # (RuleSet, CallType, SignalType, ReviewTrigger, ReviewOutcome,
+    #  RefereeRole, ViolationType, FoulType은 re-export 제거)
     # 판정 시스템 DTO
     "RefereeCall",
     "RefereePosition",
@@ -675,6 +716,7 @@ __all__ = [
     "ConsistencyMetrics",
     "RefereePerformance",
     # 경기 관리 DTO
+    "ClockAdjustment",
     "TimeoutManagement",
     "SubstitutionRecord",
     "GameClockManagement",

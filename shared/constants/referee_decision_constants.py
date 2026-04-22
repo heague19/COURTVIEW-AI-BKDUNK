@@ -31,15 +31,24 @@ COURTVIEW - AI 농구 분석 플랫폼
 - ai_referee/fouls/shooting_foul_classifier.py: 슈팅파울 분류
 - ai_referee/fouls/flagrant_detector.py: 플래그런트/UF 파울 판정
 - ai_referee/fouls/technical_violation_detector.py: 테크니컬 파울 감지
+
+사용 예시::
+
+    >>> from shared.constants.referee_decision_constants import DecisionConfidence, FoulGrade
+    >>> DecisionConfidence.AUTO_CONFIRM.requires_human_review
+    False
+    >>> FoulGrade.FLAGRANT_2.results_in_ejection
+    True
 """
 
+from __future__ import annotations
+
+# === 표준 라이브러리 ===
 from enum import Enum, unique
 from typing import Final
 
+# === 프로젝트 모듈 ===
 from shared.constants.localization import SupportedLanguage
-
-
-__version__: str = "1.0.0"
 
 
 # =============================================================================
@@ -68,7 +77,7 @@ class DecisionConfidence(str, Enum):
     @property
     def requires_human_review(self) -> bool:
         """사람 확인 필요 여부."""
-        return self in (DecisionConfidence.MODERATE, DecisionConfidence.LOW)
+        return self in _CONFIDENCE_REQUIRES_REVIEW
 
     def get_name(self, lang: SupportedLanguage = SupportedLanguage.KO) -> str:
         """다국어 등급명 반환."""
@@ -77,7 +86,11 @@ class DecisionConfidence(str, Enum):
         )
 
 
-_CONFIDENCE_I18N: dict[DecisionConfidence, dict[SupportedLanguage, str]] = {
+_CONFIDENCE_REQUIRES_REVIEW: Final[frozenset[DecisionConfidence]] = frozenset({
+    DecisionConfidence.MODERATE, DecisionConfidence.LOW,
+})
+
+_CONFIDENCE_I18N: Final[dict[DecisionConfidence, dict[SupportedLanguage, str]]] = {
     DecisionConfidence.AUTO_CONFIRM: {
         SupportedLanguage.KO: "자동 확정",
         SupportedLanguage.EN: "Auto Confirm",
@@ -132,7 +145,7 @@ class FoulGrade(str, Enum):
     @property
     def results_in_ejection(self) -> bool:
         """즉시 퇴장 여부."""
-        return self in (FoulGrade.FLAGRANT_2, FoulGrade.DISQUALIFYING)
+        return self in _FOUL_GRADE_EJECTABLE
 
     @property
     def grants_free_throws(self) -> bool:
@@ -146,7 +159,11 @@ class FoulGrade(str, Enum):
         )
 
 
-_FOUL_GRADE_I18N: dict[FoulGrade, dict[SupportedLanguage, str]] = {
+_FOUL_GRADE_EJECTABLE: Final[frozenset[FoulGrade]] = frozenset({
+    FoulGrade.FLAGRANT_2, FoulGrade.DISQUALIFYING,
+})
+
+_FOUL_GRADE_I18N: Final[dict[FoulGrade, dict[SupportedLanguage, str]]] = {
     FoulGrade.NORMAL: {
         SupportedLanguage.KO: "일반 파울",
         SupportedLanguage.EN: "Normal Foul",
@@ -209,7 +226,7 @@ class ContactArea(str, Enum):
     @property
     def is_high_risk(self) -> bool:
         """고위험 접촉 부위 여부 (머리/목, 무릎)."""
-        return self in (ContactArea.HEAD_NECK, ContactArea.KNEE)
+        return self in _CONTACT_AREA_HIGH_RISK
 
     def get_name(self, lang: SupportedLanguage = SupportedLanguage.KO) -> str:
         """다국어 부위명 반환."""
@@ -218,7 +235,11 @@ class ContactArea(str, Enum):
         )
 
 
-_CONTACT_AREA_I18N: dict[ContactArea, dict[SupportedLanguage, str]] = {
+_CONTACT_AREA_HIGH_RISK: Final[frozenset[ContactArea]] = frozenset({
+    ContactArea.HEAD_NECK, ContactArea.KNEE,
+})
+
+_CONTACT_AREA_I18N: Final[dict[ContactArea, dict[SupportedLanguage, str]]] = {
     ContactArea.HEAD_NECK: {
         SupportedLanguage.KO: "머리/목",
         SupportedLanguage.EN: "Head/Neck",
@@ -505,73 +526,10 @@ CHALLENGE_MIN_REMAINING_SEC: Final[int] = 0  # 항상 가능
 # 유틸리티 함수
 # =============================================================================
 
-def classify_decision_confidence(confidence: float) -> DecisionConfidence:
-    """
-    신뢰도 수치로 판정 등급 분류.
-
-    Args:
-        confidence: 신뢰도 (0.0~1.0)
-
-    Returns:
-        DecisionConfidence 등급
-    """
-    if confidence >= DECISION_AUTO_CONFIRM_THRESHOLD:
-        return DecisionConfidence.AUTO_CONFIRM
-    elif confidence >= DECISION_HIGH_CONFIDENCE_THRESHOLD:
-        return DecisionConfidence.HIGH
-    elif confidence >= DECISION_MODERATE_CONFIDENCE_THRESHOLD:
-        return DecisionConfidence.MODERATE
-    else:
-        return DecisionConfidence.LOW
-
-
-def classify_foul_grade(
-    severity_score: float, ball_relatedness: float
-) -> FoulGrade:
-    """
-    접촉 강도와 볼 관련성으로 파울 등급 분류.
-
-    Args:
-        severity_score: 접촉 강도 점수 (0.0~1.0)
-        ball_relatedness: 볼 관련성 점수 (0.0~1.0)
-
-    Returns:
-        FoulGrade 등급
-    """
-    if severity_score >= FLAGRANT_2_SEVERITY_SCORE:
-        return FoulGrade.FLAGRANT_2
-    elif (severity_score >= FLAGRANT_1_SEVERITY_SCORE
-          or ball_relatedness < BALL_RELATEDNESS_THRESHOLD):
-        return FoulGrade.FLAGRANT_1
-    else:
-        return FoulGrade.NORMAL
-
-
-def is_action_reviewable(
-    confidence: float, is_scoring_play: bool = False
-) -> bool:
-    """
-    해당 판정이 리뷰 대상인지 판별.
-
-    Args:
-        confidence: 판정 신뢰도
-        is_scoring_play: 득점 관련 플레이 여부
-
-    Returns:
-        리뷰 대상 여부
-    """
-    threshold = DECISION_MODERATE_CONFIDENCE_THRESHOLD
-    if is_scoring_play:
-        threshold = DECISION_HIGH_CONFIDENCE_THRESHOLD
-    return confidence < threshold
-
-
 # =============================================================================
 # 모듈 Export 정의
 # =============================================================================
-__all__: list[str] = [
-    # 버전
-    "__version__",
+__all__ = [
     # 열거형
     "DecisionConfidence",
     "FoulGrade",
@@ -634,6 +592,30 @@ __all__: list[str] = [
     "CHALLENGE_MIN_REMAINING_SEC",
     # 유틸리티 함수
     "classify_decision_confidence",
-    "classify_foul_grade",
-    "is_action_reviewable",
 ]
+
+
+# =============================================================================
+# 유틸리티 함수
+# =============================================================================
+
+
+def classify_decision_confidence(confidence: float) -> DecisionConfidence:
+    """신뢰도 값(0~1) → DecisionConfidence 등급 변환.
+
+    Args:
+        confidence: 판정 신뢰도 (0.0~1.0).
+
+    Returns:
+        DecisionConfidence 등급.
+    """
+    if confidence >= DECISION_AUTO_CONFIRM_THRESHOLD:
+        return DecisionConfidence.AUTO_CONFIRM
+    if confidence >= DECISION_HIGH_CONFIDENCE_THRESHOLD:
+        return DecisionConfidence.HIGH
+    if confidence >= DECISION_MODERATE_CONFIDENCE_THRESHOLD:
+        return DecisionConfidence.MODERATE
+    return DecisionConfidence.LOW
+
+
+__version__ = "1.0.0"

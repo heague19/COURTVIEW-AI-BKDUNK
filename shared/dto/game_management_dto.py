@@ -33,13 +33,68 @@ COURTVIEW - AI 농구 분석 플랫폼
     그것은 심판 평가용 경량 버전이고, 이 파일은 경기 운영용 풀 버전이다.
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum, unique
-from typing import Any
 from uuid import UUID, uuid4
 
 from shared.constants.referee_rule_constants import RuleSet
+
+
+# =============================================================================
+# 세부 구조체 (dict[str, Any] 대체)
+# =============================================================================
+
+@dataclass(slots=True)
+class TimeoutRecord:
+    """타임아웃 사용 기록."""
+
+    quarter: int = 0
+    game_clock: str = ""  # 사용 시점 게임 클락 (MM:SS)
+    duration_seconds: float = 0.0  # 타임아웃 길이 (초)
+
+
+@dataclass(slots=True)
+class PlayerBoxStat:
+    """선수별 박스스코어 통계."""
+
+    player_tracking_id: int = 0
+    name: str = ""
+    minutes: float = 0.0
+    points: int = 0
+    rebounds: int = 0
+    assists: int = 0
+    steals: int = 0
+    blocks: int = 0
+    turnovers: int = 0
+    fouls: int = 0
+    fg_made: int = 0
+    fg_attempts: int = 0
+    three_made: int = 0
+    three_attempts: int = 0
+    ft_made: int = 0
+    ft_attempts: int = 0
+    plus_minus: int = 0
+
+
+@dataclass(slots=True)
+class TeamBoxStat:
+    """팀 종합 박스스코어 통계."""
+
+    fg_pct: float = 0.0
+    three_pct: float = 0.0
+    ft_pct: float = 0.0
+    rebounds: int = 0
+    assists: int = 0
+    steals: int = 0
+    blocks: int = 0
+    turnovers: int = 0
+    points_in_paint: int = 0
+    fast_break_points: int = 0
+    second_chance_points: int = 0
+    bench_points: int = 0
 
 
 # =============================================================================
@@ -52,6 +107,10 @@ class GameState(str, Enum):
     경기 상태 열거형.
 
     clock_manager에서 관리하는 경기 진행 상태.
+
+    >>> state = GameState.LIVE
+    >>> state.is_active
+    True
     """
 
     PREGAME = "pregame"        # 경기 전
@@ -116,7 +175,7 @@ class CorrectionType(str, Enum):
 # 데이터 클래스
 # =============================================================================
 
-@dataclass
+@dataclass(slots=True)
 class OnCourtLineup:
     """
     현재 코트 위 5인 라인업.
@@ -144,7 +203,7 @@ class OnCourtLineup:
         return self.player_count == 5
 
 
-@dataclass
+@dataclass(slots=True)
 class SubstitutionEvent:
     """
     교체 이벤트.
@@ -168,7 +227,7 @@ class SubstitutionEvent:
     initiated_by: str = "coach"  # coach, official, injury
 
 
-@dataclass
+@dataclass(slots=True)
 class FoulState:
     """
     팀/선수 파울 상태.
@@ -196,7 +255,7 @@ class FoulState:
         return count >= self.foul_limit - 1
 
 
-@dataclass
+@dataclass(slots=True)
 class TimeoutState:
     """
     타임아웃 상태.
@@ -208,13 +267,13 @@ class TimeoutState:
     team_id: str = ""
     timeouts_remaining: int = 0
     timeouts_used: int = 0
-    # 사용 이력 (quarter, game_clock, duration_seconds)
-    timeout_history: list[dict[str, Any]] = field(default_factory=list)
+    # 사용 이력
+    timeout_history: list[TimeoutRecord] = field(default_factory=list)
     # 마지막 타임아웃 시각
     last_timeout_game_clock: str | None = None
 
 
-@dataclass
+@dataclass(slots=True)
 class ClockState:
     """
     경기 시계 상태.
@@ -251,7 +310,7 @@ class ClockState:
         return self.shot_clock_seconds < 7.0
 
 
-@dataclass
+@dataclass(slots=True)
 class CorrectionRecord:
     """
     기록 정정 기록.
@@ -275,7 +334,7 @@ class CorrectionRecord:
     reason: str = ""
 
 
-@dataclass
+@dataclass(slots=True)
 class OfficialBoxScore:
     """
     공식 기록지 데이터.
@@ -295,10 +354,10 @@ class OfficialBoxScore:
     final_score: tuple[int, int] = (0, 0)  # (홈, 어웨이)
     quarter_scores: list[tuple[int, int]] = field(default_factory=list)
     overtime_scores: list[tuple[int, int]] = field(default_factory=list)
-    # 선수별 통계 (Dict 형태로 직렬화 편의)
-    player_stats: list[dict[str, Any]] = field(default_factory=list)
+    # 선수별 통계
+    player_stats: list[PlayerBoxStat] = field(default_factory=list)
     # 팀 통계
-    team_stats: dict[str, Any] = field(default_factory=dict)
+    team_stats: TeamBoxStat | None = None
     # 심판 정보
     officials: list[str] = field(default_factory=list)
 
@@ -313,7 +372,7 @@ class OfficialBoxScore:
         return ""  # 동점 (연장전 전)
 
 
-@dataclass
+@dataclass(slots=True)
 class GameManagementSnapshot:
     """
     특정 시점의 전체 경기 관리 상태 스냅샷.
@@ -346,6 +405,10 @@ class GameManagementSnapshot:
 # 모듈 Export 정의
 # =============================================================================
 __all__ = [
+    # 세부 구조체
+    "TimeoutRecord",
+    "PlayerBoxStat",
+    "TeamBoxStat",
     # 열거형
     "GameState",
     "BonusStatus",

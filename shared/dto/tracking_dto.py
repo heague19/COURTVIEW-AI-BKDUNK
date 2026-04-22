@@ -14,12 +14,14 @@ COURTVIEW - AI 농구 분석 플랫폼
 버전: 1.0.0
 """
 
+from __future__ import annotations
+
 # =============================================================================
 # 표준 라이브러리
 # =============================================================================
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import Any
+from enum import Enum, unique
+from typing import Any, Final
 
 # =============================================================================
 # 서드파티 라이브러리
@@ -31,18 +33,85 @@ from numpy.typing import NDArray
 # 프로젝트 내부 모듈
 # =============================================================================
 from shared.constants.localization import SupportedLanguage
+from shared.constants.tracking_constants import (
+    APPEARANCE_COST_WEIGHT,
+    MOTION_COST_WEIGHT,
+)
 from shared.dto.geometry_dto import BoundingBox, Point2D, Point3D, Trajectory3D
+
+
+# =============================================================================
+# i18n 모듈 레벨 캐시
+# =============================================================================
+
+_TRACK_STATE_I18N: Final[dict[str, dict[str, str]]] = {
+    "tentative": {
+        "ko": "임시", "en": "Tentative", "ja": "仮", "zh": "临时", "es": "Provisional",
+    },
+    "confirmed": {
+        "ko": "확정", "en": "Confirmed", "ja": "確定", "zh": "已确认", "es": "Confirmado",
+    },
+    "lost": {
+        "ko": "추적 중단", "en": "Lost", "ja": "追跡中断", "zh": "丢失", "es": "Perdido",
+    },
+    "deleted": {
+        "ko": "삭제됨", "en": "Deleted", "ja": "削除済み", "zh": "已删除", "es": "Eliminado",
+    },
+    "occluded": {
+        "ko": "가려짐", "en": "Occluded", "ja": "遮蔽", "zh": "被遮挡", "es": "Ocluido",
+    },
+}
+
+_TRACK_SOURCE_I18N: Final[dict[str, dict[str, str]]] = {
+    "single_view": {
+        "ko": "단일 뷰", "en": "Single View", "ja": "シングルビュー", "zh": "单视图", "es": "Vista Única",
+    },
+    "multi_view": {
+        "ko": "멀티뷰", "en": "Multi-View", "ja": "マルチビュー", "zh": "多视图", "es": "Multi-Vista",
+    },
+    "recovered": {
+        "ko": "복구됨", "en": "Recovered", "ja": "復旧", "zh": "已恢复", "es": "Recuperado",
+    },
+    "interpolated": {
+        "ko": "보간됨", "en": "Interpolated", "ja": "補間", "zh": "插值", "es": "Interpolado",
+    },
+    "manual": {
+        "ko": "수동", "en": "Manual", "ja": "手動", "zh": "手动", "es": "Manual",
+    },
+}
+
+_TRACKED_OBJECT_TYPE_I18N: Final[dict[str, dict[str, str]]] = {
+    "player": {
+        "ko": "선수", "en": "Player", "ja": "選手", "zh": "球员", "es": "Jugador",
+    },
+    "ball": {
+        "ko": "공", "en": "Ball", "ja": "ボール", "zh": "球", "es": "Balón",
+    },
+    "referee": {
+        "ko": "심판", "en": "Referee", "ja": "審判", "zh": "裁判", "es": "Árbitro",
+    },
+    "coach": {
+        "ko": "코치", "en": "Coach", "ja": "コーチ", "zh": "教练", "es": "Entrenador",
+    },
+    "unknown": {
+        "ko": "미확인", "en": "Unknown", "ja": "不明", "zh": "未知", "es": "Desconocido",
+    },
+}
 
 
 # =============================================================================
 # 열거형
 # =============================================================================
 
+@unique
 class TrackState(str, Enum):
     """
     트랙 상태 열거형.
 
     객체 추적의 현재 상태를 나타냅니다.
+
+    >>> TrackState.CONFIRMED.is_active
+    True
     """
 
     TENTATIVE = "tentative"    # 임시 (확정 대기)
@@ -62,59 +131,16 @@ class TrackState(str, Enum):
         return self in (TrackState.TENTATIVE, TrackState.CONFIRMED)
 
     def get_name(self, lang: SupportedLanguage = SupportedLanguage.KO) -> str:
-        """
-        다국어 상태명 반환.
-
-        Args:
-            lang: 언어 코드 (기본: 한국어)
-
-        Returns:
-            해당 언어의 상태명
-        """
-        translations: dict[TrackState, dict[SupportedLanguage, str]] = {
-            TrackState.TENTATIVE: {
-                SupportedLanguage.KO: "임시",
-                SupportedLanguage.EN: "Tentative",
-                SupportedLanguage.JA: "仮",
-                SupportedLanguage.ZH: "临时",
-                SupportedLanguage.ES: "Provisional",
-            },
-            TrackState.CONFIRMED: {
-                SupportedLanguage.KO: "확정",
-                SupportedLanguage.EN: "Confirmed",
-                SupportedLanguage.JA: "確定",
-                SupportedLanguage.ZH: "已确认",
-                SupportedLanguage.ES: "Confirmado",
-            },
-            TrackState.LOST: {
-                SupportedLanguage.KO: "추적 중단",
-                SupportedLanguage.EN: "Lost",
-                SupportedLanguage.JA: "追跡中断",
-                SupportedLanguage.ZH: "丢失",
-                SupportedLanguage.ES: "Perdido",
-            },
-            TrackState.DELETED: {
-                SupportedLanguage.KO: "삭제됨",
-                SupportedLanguage.EN: "Deleted",
-                SupportedLanguage.JA: "削除済み",
-                SupportedLanguage.ZH: "已删除",
-                SupportedLanguage.ES: "Eliminado",
-            },
-            TrackState.OCCLUDED: {
-                SupportedLanguage.KO: "가려짐",
-                SupportedLanguage.EN: "Occluded",
-                SupportedLanguage.JA: "遮蔽",
-                SupportedLanguage.ZH: "被遮挡",
-                SupportedLanguage.ES: "Ocluido",
-            },
-        }
-        return translations[self].get(lang, translations[self][SupportedLanguage.KO])
+        """다국어 상태명 반환 (모듈 레벨 캐시 참조)."""
+        entry = _TRACK_STATE_I18N[self.value]
+        return entry.get(lang.value, entry["ko"])
 
     def to_korean(self) -> str:
         """한글 상태명 반환 (하위 호환성)."""
         return self.get_name(SupportedLanguage.KO)
 
 
+@unique
 class TrackSource(str, Enum):
     """
     트랙 소스 열거형.
@@ -129,59 +155,16 @@ class TrackSource(str, Enum):
     MANUAL = "manual"                # 수동 지정
 
     def get_name(self, lang: SupportedLanguage = SupportedLanguage.KO) -> str:
-        """
-        다국어 소스명 반환.
-
-        Args:
-            lang: 언어 코드 (기본: 한국어)
-
-        Returns:
-            해당 언어의 소스명
-        """
-        translations: dict[TrackSource, dict[SupportedLanguage, str]] = {
-            TrackSource.SINGLE_VIEW: {
-                SupportedLanguage.KO: "단일 뷰",
-                SupportedLanguage.EN: "Single View",
-                SupportedLanguage.JA: "シングルビュー",
-                SupportedLanguage.ZH: "单视图",
-                SupportedLanguage.ES: "Vista Única",
-            },
-            TrackSource.MULTI_VIEW: {
-                SupportedLanguage.KO: "멀티뷰",
-                SupportedLanguage.EN: "Multi-View",
-                SupportedLanguage.JA: "マルチビュー",
-                SupportedLanguage.ZH: "多视图",
-                SupportedLanguage.ES: "Multi-Vista",
-            },
-            TrackSource.RECOVERED: {
-                SupportedLanguage.KO: "복구됨",
-                SupportedLanguage.EN: "Recovered",
-                SupportedLanguage.JA: "復旧",
-                SupportedLanguage.ZH: "已恢复",
-                SupportedLanguage.ES: "Recuperado",
-            },
-            TrackSource.INTERPOLATED: {
-                SupportedLanguage.KO: "보간됨",
-                SupportedLanguage.EN: "Interpolated",
-                SupportedLanguage.JA: "補間",
-                SupportedLanguage.ZH: "插值",
-                SupportedLanguage.ES: "Interpolado",
-            },
-            TrackSource.MANUAL: {
-                SupportedLanguage.KO: "수동",
-                SupportedLanguage.EN: "Manual",
-                SupportedLanguage.JA: "手動",
-                SupportedLanguage.ZH: "手动",
-                SupportedLanguage.ES: "Manual",
-            },
-        }
-        return translations[self].get(lang, translations[self][SupportedLanguage.KO])
+        """다국어 소스명 반환 (모듈 레벨 캐시 참조)."""
+        entry = _TRACK_SOURCE_I18N[self.value]
+        return entry.get(lang.value, entry["ko"])
 
     def to_korean(self) -> str:
         """한글 소스명 반환 (하위 호환성)."""
         return self.get_name(SupportedLanguage.KO)
 
 
+@unique
 class TrackedObjectType(str, Enum):
     """
     추적 객체 유형 열거형.
@@ -196,53 +179,9 @@ class TrackedObjectType(str, Enum):
     UNKNOWN = "unknown"
 
     def get_name(self, lang: SupportedLanguage = SupportedLanguage.KO) -> str:
-        """
-        다국어 유형명 반환.
-
-        Args:
-            lang: 언어 코드 (기본: 한국어)
-
-        Returns:
-            해당 언어의 유형명
-        """
-        translations: dict[TrackedObjectType, dict[SupportedLanguage, str]] = {
-            TrackedObjectType.PLAYER: {
-                SupportedLanguage.KO: "선수",
-                SupportedLanguage.EN: "Player",
-                SupportedLanguage.JA: "選手",
-                SupportedLanguage.ZH: "球员",
-                SupportedLanguage.ES: "Jugador",
-            },
-            TrackedObjectType.BALL: {
-                SupportedLanguage.KO: "공",
-                SupportedLanguage.EN: "Ball",
-                SupportedLanguage.JA: "ボール",
-                SupportedLanguage.ZH: "球",
-                SupportedLanguage.ES: "Balón",
-            },
-            TrackedObjectType.REFEREE: {
-                SupportedLanguage.KO: "심판",
-                SupportedLanguage.EN: "Referee",
-                SupportedLanguage.JA: "審判",
-                SupportedLanguage.ZH: "裁判",
-                SupportedLanguage.ES: "Árbitro",
-            },
-            TrackedObjectType.COACH: {
-                SupportedLanguage.KO: "코치",
-                SupportedLanguage.EN: "Coach",
-                SupportedLanguage.JA: "コーチ",
-                SupportedLanguage.ZH: "教练",
-                SupportedLanguage.ES: "Entrenador",
-            },
-            TrackedObjectType.UNKNOWN: {
-                SupportedLanguage.KO: "미확인",
-                SupportedLanguage.EN: "Unknown",
-                SupportedLanguage.JA: "不明",
-                SupportedLanguage.ZH: "未知",
-                SupportedLanguage.ES: "Desconocido",
-            },
-        }
-        return translations[self].get(lang, translations[self][SupportedLanguage.KO])
+        """다국어 유형명 반환 (모듈 레벨 캐시 참조)."""
+        entry = _TRACKED_OBJECT_TYPE_I18N[self.value]
+        return entry.get(lang.value, entry["ko"])
 
     def to_korean(self) -> str:
         """한글 유형명 반환 (하위 호환성)."""
@@ -253,7 +192,7 @@ class TrackedObjectType(str, Enum):
 # 데이터 클래스
 # =============================================================================
 
-@dataclass
+@dataclass(slots=True)
 class TrackHistory:
     """
     트랙 이력.
@@ -315,35 +254,10 @@ class TrackHistory:
             timestamps=self.timestamps.copy(),
         )
 
-    def add_entry(
-        self,
-        position: Point2D,
-        timestamp: float,
-        bbox: BoundingBox | None = None,
-        confidence: float = 1.0,
-        position_3d: Point3D | None = None,
-    ) -> None:
-        """이력 항목 추가."""
-        self.positions.append(position)
-        self.timestamps.append(timestamp)
-        if bbox is not None:
-            self.bboxes.append(bbox)
-        self.confidences.append(confidence)
-        if position_3d is not None:
-            self.positions_3d.append(position_3d)
-
-    def trim(self, max_length: int) -> None:
-        """이력 길이 제한."""
-        if self.length > max_length:
-            excess = self.length - max_length
-            self.positions = self.positions[excess:]
-            self.timestamps = self.timestamps[excess:]
-            self.bboxes = self.bboxes[excess:] if self.bboxes else []
-            self.confidences = self.confidences[excess:]
-            self.positions_3d = self.positions_3d[excess:] if self.positions_3d else []
+    # 비즈니스 로직 이관 완료: add_entry, trim → infrastructure/tracking/ 서비스 레이어
 
 
-@dataclass
+@dataclass(slots=True)
 class KalmanState:
     """
     칼만 필터 상태.
@@ -401,7 +315,7 @@ class KalmanState:
         )
 
 
-@dataclass
+@dataclass(slots=True)
 class Track:
     """
     단일 트랙.
@@ -440,7 +354,7 @@ class Track:
     time_since_update: int = 0
     attributes: dict[str, Any] = field(default_factory=dict)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """초기화 후 처리."""
         if self.bbox is not None and self.position is None:
             self.position = self.bbox.center
@@ -477,40 +391,10 @@ class Track:
         """팀."""
         return self.attributes.get("team")
 
-    def update(
-        self,
-        bbox: BoundingBox,
-        confidence: float,
-        timestamp: float,
-        position_3d: Point3D | None = None,
-    ) -> None:
-        """트랙 업데이트."""
-        self.bbox = bbox
-        self.position = bbox.center
-        self.confidence = confidence
-        if position_3d is not None:
-            self.position_3d = position_3d
-
-        # 이력 추가
-        self.history.add_entry(
-            position=self.position,
-            timestamp=timestamp,
-            bbox=bbox,
-            confidence=confidence,
-            position_3d=position_3d,
-        )
-
-        self.hits += 1
-        self.time_since_update = 0
-        self.age += 1
-
-    def mark_missed(self) -> None:
-        """감지 실패 표시."""
-        self.time_since_update += 1
-        self.age += 1
+    # 비즈니스 로직 이관 완료: update, mark_missed → infrastructure/tracking/ 서비스 레이어
 
 
-@dataclass
+@dataclass(slots=True)
 class TrackAssociation:
     """
     트랙-감지 연관.
@@ -534,10 +418,10 @@ class TrackAssociation:
     @property
     def combined_score(self) -> float:
         """결합 점수 (높을수록 좋음)."""
-        return self.iou * 0.5 + self.appearance_similarity * 0.5
+        return self.iou * MOTION_COST_WEIGHT + self.appearance_similarity * APPEARANCE_COST_WEIGHT
 
 
-@dataclass
+@dataclass(slots=True)
 class TrackingResult:
     """
     추적 결과.
@@ -591,7 +475,7 @@ class TrackingResult:
         return [t for t in self.tracks if t.object_type == object_type]
 
 
-@dataclass
+@dataclass(slots=True)
 class MultiViewTrackingResult:
     """
     멀티뷰 추적 결과.
@@ -632,10 +516,7 @@ class MultiViewTrackingResult:
 # =============================================================================
 
 __all__ = [
-    # Re-export (다국어 지원)
-    "SupportedLanguage",
-
-    # Enum
+    # Enum (DTO 고유)
     "TrackState",
     "TrackSource",
     "TrackedObjectType",

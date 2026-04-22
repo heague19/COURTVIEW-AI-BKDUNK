@@ -13,16 +13,20 @@ COURTVIEW - AI 농구 분석 플랫폼
 버전: 1.0.0
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum, unique
-from typing import Any, Final, Optional
+from typing import Any, Final
 from uuid import UUID, uuid4
 
 import numpy as np
 
 from shared.constants.ball_constants import (
     BALL_DETECTION_MIN_CONFIDENCE,
+    SHOT_RELEASE_ANGLE_MAX,
+    SHOT_RELEASE_ANGLE_MIN,
     SHOT_RELEASE_ANGLE_OPTIMAL,
     TRAJECTORY_MIN_POINTS,
     BallSize,
@@ -44,6 +48,16 @@ class TrajectoryType(str, Enum):
     궤적 유형 열거형.
 
     공의 궤적 유형을 정의합니다.
+
+    사용 예시::
+
+        >>> det = BallDetection(confidence=0.95)
+        >>> det.is_valid  # position이 None이므로
+        False
+        >>> TrajectoryType.SHOT.is_flight
+        True
+        >>> BallShotResult.MADE.is_successful
+        True
     """
 
     # 슈팅 궤적
@@ -161,7 +175,7 @@ _TRAJECTORY_TYPE_I18N: Final[dict[TrajectoryType, dict[SupportedLanguage, str]]]
 
 
 @unique
-class ShotResult(str, Enum):
+class BallShotResult(str, Enum):
     """
     슛 결과 열거형.
 
@@ -192,12 +206,12 @@ class ShotResult(str, Enum):
     @property
     def is_successful(self) -> bool:
         """성공적인 슛인지."""
-        return self == ShotResult.MADE
+        return self == BallShotResult.MADE
 
     @property
     def is_complete(self) -> bool:
         """완료된 결과인지."""
-        return self not in (ShotResult.IN_PROGRESS, ShotResult.UNKNOWN)
+        return self not in (BallShotResult.IN_PROGRESS, BallShotResult.UNKNOWN)
 
     def get_name(self, lang: SupportedLanguage = SupportedLanguage.KO) -> str:
         """
@@ -217,51 +231,51 @@ class ShotResult(str, Enum):
         return self.get_name(SupportedLanguage.KO)
 
 
-# ShotResult i18n 캐시 (모듈 레벨 — 매 호출 재생성 방지)
-_SHOT_RESULT_I18N: Final[dict[ShotResult, dict[SupportedLanguage, str]]] = {
-    ShotResult.MADE: {
+# BallShotResult i18n 캐시 (모듈 레벨 — 매 호출 재생성 방지)
+_SHOT_RESULT_I18N: Final[dict[BallShotResult, dict[SupportedLanguage, str]]] = {
+    BallShotResult.MADE: {
         SupportedLanguage.KO: "골인",
         SupportedLanguage.EN: "Made",
         SupportedLanguage.JA: "成功",
         SupportedLanguage.ZH: "命中",
         SupportedLanguage.ES: "Encestado",
     },
-    ShotResult.MISSED_RIM: {
+    BallShotResult.MISSED_RIM: {
         SupportedLanguage.KO: "림 미스",
         SupportedLanguage.EN: "Missed Rim",
         SupportedLanguage.JA: "リムミス",
         SupportedLanguage.ZH: "打铁",
         SupportedLanguage.ES: "Errado en el Aro",
     },
-    ShotResult.AIR_BALL: {
+    BallShotResult.AIR_BALL: {
         SupportedLanguage.KO: "에어볼",
         SupportedLanguage.EN: "Air Ball",
         SupportedLanguage.JA: "エアボール",
         SupportedLanguage.ZH: "三不沾",
         SupportedLanguage.ES: "Air Ball",
     },
-    ShotResult.BLOCKED: {
+    BallShotResult.BLOCKED: {
         SupportedLanguage.KO: "블록됨",
         SupportedLanguage.EN: "Blocked",
         SupportedLanguage.JA: "ブロック",
         SupportedLanguage.ZH: "被封盖",
         SupportedLanguage.ES: "Bloqueado",
     },
-    ShotResult.HIT_BACKBOARD: {
+    BallShotResult.HIT_BACKBOARD: {
         SupportedLanguage.KO: "백보드 맞음",
         SupportedLanguage.EN: "Hit Backboard",
         SupportedLanguage.JA: "バックボード",
         SupportedLanguage.ZH: "打板",
         SupportedLanguage.ES: "Golpeó el Tablero",
     },
-    ShotResult.IN_PROGRESS: {
+    BallShotResult.IN_PROGRESS: {
         SupportedLanguage.KO: "진행 중",
         SupportedLanguage.EN: "In Progress",
         SupportedLanguage.JA: "進行中",
         SupportedLanguage.ZH: "进行中",
         SupportedLanguage.ES: "En Progreso",
     },
-    ShotResult.UNKNOWN: {
+    BallShotResult.UNKNOWN: {
         SupportedLanguage.KO: "미분류",
         SupportedLanguage.EN: "Unknown",
         SupportedLanguage.JA: "不明",
@@ -275,7 +289,7 @@ _SHOT_RESULT_I18N: Final[dict[ShotResult, dict[SupportedLanguage, str]]] = {
 # 데이터 클래스
 # =============================================================================
 
-@dataclass
+@dataclass(slots=True)
 class BallDetection:
     """
     공 감지.
@@ -296,19 +310,19 @@ class BallDetection:
         holder_id: 보유자 ID (선택적)
     """
 
-    position: Optional[Point2D] = None
-    position_3d: Optional[Point3D] = None
+    position: Point2D | None = None
+    position_3d: Point3D | None = None
     confidence: float = 0.0
     state: BallState = BallState.LOST
-    bbox: Optional[BoundingBox] = None
+    bbox: BoundingBox | None = None
     radius_pixels: float = 0.0
     frame_index: int = 0
-    timestamp: Optional[datetime] = None
-    camera_id: Optional[str] = None
-    velocity: Optional[tuple[float, float, float]] = None
-    holder_id: Optional[int] = None
+    timestamp: datetime | None = None
+    camera_id: str | None = None
+    velocity: tuple[float, float, float] | None = None
+    holder_id: int | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """초기화 후 처리."""
         self.confidence = max(0.0, min(1.0, self.confidence))
 
@@ -346,21 +360,21 @@ class BallDetection:
         return self.velocity is not None
 
     @property
-    def speed(self) -> Optional[float]:
+    def speed(self) -> float | None:
         """속도 크기 (m/s)."""
         if self.velocity is None:
             return None
         vx, vy, vz = self.velocity
         return float(np.sqrt(vx**2 + vy**2 + vz**2))
 
-    def distance_to(self, other: "BallDetection") -> Optional[float]:
+    def distance_to(self, other: "BallDetection") -> float | None:
         """다른 감지까지의 2D 거리."""
         if self.position is None or other.position is None:
             return None
         return self.position.distance_to(other.position)
 
 
-@dataclass
+@dataclass(slots=True)
 class BallTrajectory:
     """
     공 궤적.
@@ -389,7 +403,7 @@ class BallTrajectory:
     timestamps: list[float] = field(default_factory=list)
     velocities: list[tuple[float, float, float]] = field(default_factory=list)
     start_frame: int = 0
-    end_frame: Optional[int] = None
+    end_frame: int | None = None
     confidence: float = 0.0
     is_complete: bool = False
 
@@ -423,7 +437,7 @@ class BallTrajectory:
         return len(self.points_3d) > 0
 
     @property
-    def average_speed(self) -> Optional[float]:
+    def average_speed(self) -> float | None:
         """평균 속도 (m/s)."""
         if not self.velocities:
             return None
@@ -434,7 +448,7 @@ class BallTrajectory:
         return float(np.mean(speeds))
 
     @property
-    def max_speed(self) -> Optional[float]:
+    def max_speed(self) -> float | None:
         """최대 속도 (m/s)."""
         if not self.velocities:
             return None
@@ -454,24 +468,9 @@ class BallTrajectory:
             total += self.points_2d[i].distance_to(self.points_2d[i + 1])
         return total
 
-    def add_detection(self, detection: BallDetection) -> None:
-        """감지 추가."""
-        self.detections.append(detection)
-        if detection.position is not None:
-            self.points_2d.append(detection.position)
-        if detection.position_3d is not None:
-            self.points_3d.append(detection.position_3d)
-        if detection.timestamp is not None:
-            self.timestamps.append(detection.timestamp.timestamp())
-        if detection.velocity is not None:
-            self.velocities.append(detection.velocity)
+    # 비즈니스 로직 이관 완료: add_detection → detection/ball/ 서비스 레이어
 
-        # 시작/종료 프레임 업데이트
-        if len(self.detections) == 1:
-            self.start_frame = detection.frame_index
-        self.end_frame = detection.frame_index
-
-    def to_trajectory_3d(self) -> Optional[Trajectory3D]:
+    def to_trajectory_3d(self) -> Trajectory3D | None:
         """Trajectory3D로 변환."""
         if not self.points_3d:
             return None
@@ -481,7 +480,7 @@ class BallTrajectory:
         )
 
 
-@dataclass
+@dataclass(slots=True)
 class ShotTrajectory:
     """
     슛 궤적.
@@ -509,27 +508,27 @@ class ShotTrajectory:
     """
 
     shot_id: UUID = field(default_factory=uuid4)
-    trajectory: Optional[BallTrajectory] = None
+    trajectory: BallTrajectory | None = None
     shot_type: ShotType = ShotType.JUMP_SHOT
-    result: ShotResult = ShotResult.UNKNOWN
-    shooter_id: Optional[int] = None
-    release_position: Optional[Point3D] = None
+    result: BallShotResult = BallShotResult.UNKNOWN
+    shooter_id: int | None = None
+    release_position: Point3D | None = None
     release_height: float = 0.0
     release_angle: float = 0.0
     release_velocity: float = 0.0
-    apex_position: Optional[Point3D] = None
+    apex_position: Point3D | None = None
     apex_height: float = 0.0
     entry_angle: float = 0.0
-    landing_position: Optional[Point3D] = None
+    landing_position: Point3D | None = None
     distance_to_hoop: float = 0.0
-    spin_rate: Optional[float] = None
+    spin_rate: float | None = None
     confidence: float = 0.0
     analysis_data: dict[str, Any] = field(default_factory=dict)
 
     @property
     def is_made(self) -> bool:
         """골인 여부."""
-        return self.result == ShotResult.MADE
+        return self.result == BallShotResult.MADE
 
     @property
     def is_three_pointer(self) -> bool:
@@ -562,8 +561,8 @@ class ShotTrajectory:
 
     def is_angle_in_optimal_range(
         self,
-        min_angle: float = 45.0,
-        max_angle: float = 55.0,
+        min_angle: float = SHOT_RELEASE_ANGLE_MIN,
+        max_angle: float = SHOT_RELEASE_ANGLE_MAX,
     ) -> bool:
         """릴리즈 각도가 최적 범위 내인지."""
         return min_angle <= self.release_angle <= max_angle
@@ -579,7 +578,7 @@ class ShotTrajectory:
         )
 
 
-@dataclass
+@dataclass(slots=True)
 class BallAnalysisResult:
     """
     공 분석 결과.
@@ -598,8 +597,8 @@ class BallAnalysisResult:
 
     frame_index: int = 0
     timestamp: float = 0.0
-    detection: Optional[BallDetection] = None
-    active_trajectory: Optional[BallTrajectory] = None
+    detection: BallDetection | None = None
+    active_trajectory: BallTrajectory | None = None
     completed_trajectories: list[BallTrajectory] = field(default_factory=list)
     shot_trajectories: list[ShotTrajectory] = field(default_factory=list)
     processing_time_ms: float = 0.0
@@ -637,17 +636,9 @@ class BallAnalysisResult:
 # =============================================================================
 
 __all__ = [
-    # 다국어 지원 (analysis_dto에서 re-export)
-    "SupportedLanguage",
-
-    # Enum (ball_constants에서 re-export)
-    "BallState",
-    "BallSize",
-    "ShotType",
-
-    # DTO 고유 Enum
+    # Enum (DTO 고유)
     "TrajectoryType",
-    "ShotResult",
+    "BallShotResult",
 
     # 데이터 클래스
     "BallDetection",

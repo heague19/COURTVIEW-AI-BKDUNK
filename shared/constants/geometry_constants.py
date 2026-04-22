@@ -18,7 +18,22 @@ COURTVIEW - AI 농구 분석 플랫폼
 - Multiple View Geometry in Computer Vision (Hartley & Zisserman)
 - OpenCV 카메라 캘리브레이션 알고리즘
 - 농구 코트 3D 재구성 및 선수 위치 추정
+
+사용 예시::
+
+    >>> from shared.constants.geometry_constants import (
+    ...     GeometryMethod, CoordinateSystem, DistortionModel
+    ... )
+    >>> GeometryMethod.RANSAC.is_robust
+    True
+    >>> CoordinateSystem.IMAGE.is_2d
+    True
+    >>> DistortionModel.BROWN_CONRADY.to_korean()
+    '브라운-콘래디'
 """
+
+from __future__ import annotations
+
 
 from enum import Enum, unique
 from typing import Final
@@ -353,7 +368,7 @@ class GeometryMethod(Enum):
 
 # -- GeometryMethod 캐시 (직접 할당) --
 
-_GEOMETRY_METHOD_IS_ROBUST: frozenset = frozenset({
+_GEOMETRY_METHOD_IS_ROBUST: frozenset[GeometryMethod] = frozenset({
     GeometryMethod.RANSAC,
     GeometryMethod.LMEDS,
 })
@@ -432,12 +447,12 @@ class CoordinateSystem(Enum):
 
 # -- CoordinateSystem 캐시 (직접 할당) --
 
-_COORDINATE_SYSTEM_IS_2D: frozenset = frozenset({
+_COORDINATE_SYSTEM_IS_2D: frozenset[CoordinateSystem] = frozenset({
     CoordinateSystem.IMAGE,
     CoordinateSystem.NORMALIZED_IMAGE,
 })
 
-_COORDINATE_SYSTEM_IS_3D: frozenset = frozenset({
+_COORDINATE_SYSTEM_IS_3D: frozenset[CoordinateSystem] = frozenset({
     CoordinateSystem.CAMERA,
     CoordinateSystem.WORLD,
     CoordinateSystem.COURT,
@@ -510,7 +525,7 @@ class DistortionModel(Enum):
 
 # -- DistortionModel 캐시 (직접 할당) --
 
-_DISTORTION_MODEL_IS_FISHEYE: frozenset = frozenset({
+_DISTORTION_MODEL_IS_FISHEYE: frozenset[DistortionModel] = frozenset({
     DistortionModel.FISHEYE,
     DistortionModel.OMNIDIRECTIONAL,
 })

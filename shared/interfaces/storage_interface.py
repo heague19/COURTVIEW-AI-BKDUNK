@@ -8,15 +8,17 @@ COURTVIEW - AI 농구 분석 플랫폼
 
 작성자: SPOIN_COURTVIEW
 최종 수정: 2026-02-16
-버전: 1.1.0
+버전: 1.0.0
 """
+
+from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from enum import Enum, unique
 from pathlib import Path
-from typing import Any, AsyncIterator, BinaryIO, ClassVar, Generic, Iterator, TypeVar
+from typing import Any, AsyncIterator, BinaryIO, ClassVar, Final, Generic, Iterator, TypeVar
 
 import numpy as np
 
@@ -28,12 +30,17 @@ from shared.constants.localization import SupportedLanguage
 # =============================================================================
 @unique
 class StorageType(str, Enum):
-    """스토리지 유형."""
+    """스토리지 유형.
 
-    LOCAL = "local"  # 로컬 파일 시스템
-    S3 = "s3"  # AWS S3
-    GCS = "gcs"  # Google Cloud Storage
-    AZURE_BLOB = "azure_blob"  # Azure Blob Storage
+    Desktop 런타임: LOCAL, MEMORY만 사용.
+    Cloud 동기화(api_server/services/cloud_sync_service.py): S3 사용 가능.
+    GCS/AZURE_BLOB: 향후 확장용 (Desktop 2026-04-20 현재 미사용).
+    """
+
+    LOCAL = "local"  # 로컬 파일 시스템 (Desktop 주력)
+    S3 = "s3"  # AWS S3 (Cloud 동기화 전용)
+    GCS = "gcs"  # Google Cloud Storage (확장용, Desktop 미사용)
+    AZURE_BLOB = "azure_blob"  # Azure Blob Storage (확장용, Desktop 미사용)
     MEMORY = "memory"  # 인메모리 (테스트/캐시용)
 
     def __str__(self) -> str:
@@ -68,7 +75,7 @@ class StorageType(str, Enum):
 
 # -- StorageType 모듈 레벨 캐시 --
 
-_STORAGE_TYPE_NAME_MAP: dict[StorageType, dict[SupportedLanguage, str]] = {
+_STORAGE_TYPE_NAME_MAP: Final[dict[StorageType, dict[SupportedLanguage, str]]] = {
     StorageType.LOCAL: {
         SupportedLanguage.KO: "로컬 파일 시스템",
         SupportedLanguage.EN: "Local File System",
@@ -160,7 +167,7 @@ class StorageState(str, Enum):
 
 # -- StorageState 모듈 레벨 캐시 --
 
-_STORAGE_STATE_NAME_MAP: dict[StorageState, dict[SupportedLanguage, str]] = {
+_STORAGE_STATE_NAME_MAP: Final[dict[StorageState, dict[SupportedLanguage, str]]] = {
     StorageState.DISCONNECTED: {
         SupportedLanguage.KO: "연결 해제",
         SupportedLanguage.EN: "Disconnected",
@@ -248,7 +255,7 @@ class ContentType(str, Enum):
 
 # -- ContentType 모듈 레벨 캐시 --
 
-_CONTENT_TYPE_NAME_MAP: dict[ContentType, dict[SupportedLanguage, str]] = {
+_CONTENT_TYPE_NAME_MAP: Final[dict[ContentType, dict[SupportedLanguage, str]]] = {
     ContentType.VIDEO_MP4: {
         SupportedLanguage.KO: "비디오 (MP4)",
         SupportedLanguage.EN: "Video (MP4)",
@@ -376,7 +383,7 @@ _CONTENT_TYPE_DATA: frozenset[ContentType] = frozenset({
 # =============================================================================
 # 파일 메타데이터
 # =============================================================================
-@dataclass
+@dataclass(slots=True)
 class FileMetadata:
     """파일 메타데이터."""
 
@@ -409,7 +416,7 @@ class FileMetadata:
         return Path(self.key).name
 
 
-@dataclass
+@dataclass(slots=True)
 class UploadResult:
     """업로드 결과."""
 
@@ -454,7 +461,7 @@ class UploadResult:
         )
 
 
-@dataclass
+@dataclass(slots=True)
 class DownloadResult:
     """다운로드 결과."""
 
@@ -508,7 +515,7 @@ ConfigT = TypeVar("ConfigT")
 # =============================================================================
 # 스토리지 메트릭
 # =============================================================================
-@dataclass
+@dataclass(slots=True)
 class StorageMetrics:
     """스토리지 메트릭."""
 
@@ -741,7 +748,7 @@ class IStorage(ABC, Generic[ConfigT]):
 # =============================================================================
 # 비디오 스토리지 인터페이스
 # =============================================================================
-@dataclass
+@dataclass(slots=True)
 class VideoMetadata(FileMetadata):
     """비디오 메타데이터."""
 
@@ -900,7 +907,7 @@ class IVideoStorage(IStorage[ConfigT], Generic[ConfigT]):
 # =============================================================================
 # 캐시 인터페이스
 # =============================================================================
-@dataclass
+@dataclass(slots=True)
 class CacheEntry:
     """캐시 항목."""
 
@@ -1085,7 +1092,7 @@ class ICache(ABC, Generic[ConfigT]):
 # =============================================================================
 # 분석 결과 스토리지 인터페이스
 # =============================================================================
-@dataclass
+@dataclass(slots=True)
 class AnalysisResultEntry:
     """분석 결과 저장 항목."""
 
@@ -1255,7 +1262,7 @@ class SortOrder(str, Enum):
 
 # -- SortOrder 모듈 레벨 캐시 --
 
-_SORT_ORDER_NAME_MAP: dict[SortOrder, dict[SupportedLanguage, str]] = {
+_SORT_ORDER_NAME_MAP: Final[dict[SortOrder, dict[SupportedLanguage, str]]] = {
     SortOrder.ASC: {
         SupportedLanguage.KO: "오름차순",
         SupportedLanguage.EN: "Ascending",
@@ -1273,7 +1280,7 @@ _SORT_ORDER_NAME_MAP: dict[SortOrder, dict[SupportedLanguage, str]] = {
 }
 
 
-@dataclass
+@dataclass(slots=True)
 class SortCriteria:
     """정렬 기준."""
 
@@ -1281,7 +1288,7 @@ class SortCriteria:
     order: SortOrder = SortOrder.ASC  # 정렬 순서
 
 
-@dataclass
+@dataclass(slots=True)
 class PaginationParams:
     """페이지네이션 파라미터."""
 
@@ -1299,7 +1306,7 @@ class PaginationParams:
         return self.page_size
 
 
-@dataclass
+@dataclass(slots=True)
 class PaginatedResult(Generic[EntityT]):
     """
     페이지네이션된 결과.
@@ -1335,7 +1342,7 @@ class PaginatedResult(Generic[EntityT]):
         return len(self.items) == 0
 
 
-@dataclass
+@dataclass(slots=True)
 class FilterCriteria:
     """
     필터 조건.
@@ -1374,7 +1381,7 @@ class FilterCriteria:
             )
 
 
-@dataclass
+@dataclass(slots=True)
 class QueryOptions:
     """
     쿼리 옵션.
@@ -1417,7 +1424,7 @@ class QueryOptions:
         return self
 
 
-@dataclass
+@dataclass(slots=True)
 class RepositoryMetrics:
     """리포지토리 성능 메트릭."""
 
@@ -1818,12 +1825,21 @@ class IRepository(ABC, Generic[EntityT, IdT]):
 
 # =============================================================================
 # 특화 리포지토리 인터페이스
+#
+# [Cloud 동기화 전용 — Desktop 직접 사용 X]
+# ARCHITECTURE_DESKTOP §1.3: Desktop은 DB 없음 (JSON → 백엔드 직접 반환).
+# 아래 IUserRepository/IVideoRepository/IAnalysisRepository는 Cloud Backend (별도 프로젝트)
+# 또는 api_server/services/cloud_sync_service.py에서만 사용됨.
+# Desktop 런타임 로컬 저장은 IStorage(LOCAL) / IAnalysisResultStorage 사용.
 # =============================================================================
 class IUserRepository(IRepository[EntityT, str], Generic[EntityT]):
     """
     사용자 리포지토리 인터페이스.
 
     사용자 관련 특화 메서드를 정의합니다.
+
+    .. note::
+        Cloud Backend 전용. Desktop은 사용자 관리를 하지 않음 (B2B 렌탈 노트북).
     """
 
     @abstractmethod
@@ -2023,4 +2039,4 @@ __all__ = [
     "IStorageFactory",
 ]
 
-__version__ = "1.1.0"
+__version__ = "1.0.0"

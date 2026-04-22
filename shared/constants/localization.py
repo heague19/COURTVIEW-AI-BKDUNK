@@ -8,11 +8,22 @@ COURTVIEW - AI 농구 분석 플랫폼
       - 지원 언어 열거형
       - ISO 639-1 표준 준수
 
+사용 예시::
+
+    >>> from shared.constants.localization import SupportedLanguage
+    >>> SupportedLanguage.KO.native_name
+    '한국어'
+    >>> SupportedLanguage.from_code("en").english_name
+    'English'
+
 작성자: SPOIN_COURTVIEW
 최종 수정: 2026-02-14
 버전: 1.0.0
 """
 
+from __future__ import annotations
+
+# === 표준 라이브러리 ===
 from enum import Enum, unique
 
 
@@ -49,7 +60,7 @@ class SupportedLanguage(str, Enum):
         return _SUPPORTED_LANGUAGE_ENGLISH_NAME_MAP[self]
 
     @classmethod
-    def from_code(cls, code: str) -> "SupportedLanguage":
+    def from_code(cls, code: str) -> SupportedLanguage:
         """
         언어 코드로부터 SupportedLanguage 인스턴스 반환.
 
@@ -59,14 +70,17 @@ class SupportedLanguage(str, Enum):
         Returns:
             해당 SupportedLanguage, 없으면 KO (기본값)
         """
-        code_lower = code.lower().strip()
-        for lang in cls:
-            if lang.value == code_lower:
-                return lang
-        return cls.KO  # 기본값
+        if not isinstance(code, str) or not code:
+            return cls.KO
+        return _CODE_TO_LANG.get(code.lower().strip(), cls.KO)
 
 
-# -- SupportedLanguage 캐시 (직접 할당) --
+# -- SupportedLanguage 캐시 --
+
+# 언어 코드 → SupportedLanguage 역방향 조회 (O(1))
+_CODE_TO_LANG: dict[str, SupportedLanguage] = {
+    lang.value: lang for lang in SupportedLanguage
+}
 
 _SUPPORTED_LANGUAGE_NATIVE_NAME_MAP: dict[SupportedLanguage, str] = {
     SupportedLanguage.KO: "한국어",

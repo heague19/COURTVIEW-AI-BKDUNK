@@ -17,7 +17,7 @@ from enum import Enum, unique
 from typing import ClassVar, Final
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field, HttpUrl, field_validator
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
 
 from shared.constants.localization import SupportedLanguage
 
@@ -475,14 +475,53 @@ class MotionPhase(str, Enum):
 
 
 # =============================================================================
+# 영상 증거 참조 & 원인 요소
+# =============================================================================
+class VideoClipReference(BaseModel):
+    """피드백 증거 영상 클립 참조.
+
+    하나의 FeedbackItem에 여러 증거 클립을 첨부하여
+    전력분석원처럼 "이 장면을 보세요"를 제공합니다.
+
+    >>> clip = VideoClipReference(start_time=45.2, end_time=48.5, description="속공 실패 장면")
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    start_frame: int = Field(default=0, ge=0, description="시작 프레임")
+    end_frame: int = Field(default=0, ge=0, description="종료 프레임")
+    start_time: float = Field(default=0.0, ge=0.0, description="시작 시간 (초)")
+    end_time: float = Field(default=0.0, ge=0.0, description="종료 시간 (초)")
+    description: str = Field(default="", max_length=200, description="클립 설명")
+    camera_id: str | None = Field(default=None, description="카메라 ID (멀티뷰)")
+
+
+class CausalFactor(BaseModel):
+    """피드백 원인 요소 ("왜?" 분석).
+
+    통계적 결과에 대한 근본 원인을 구조화합니다.
+    예: FG% 하락 → factor="컨테스트 비율 증가", impact=0.8
+
+    >>> cause = CausalFactor(factor="스크린 타이밍 지연", impact=0.7)
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    factor: str = Field(..., min_length=1, max_length=100, description="원인 요인")
+    impact: float = Field(default=0.0, ge=0.0, le=1.0, description="영향도 (0~1)")
+    evidence: str = Field(default="", max_length=300, description="근거 설명")
+
+
+# =============================================================================
 # 세부 피드백 DTO
 # =============================================================================
 class FeedbackItem(BaseModel):
-    """
-    개별 피드백 항목.
+    """개별 피드백 항목.
 
     동작의 특정 부분에 대한 세부 피드백입니다.
     """
+
+    model_config = ConfigDict(frozen=True)
 
     feedback_id: UUID = Field(default_factory=uuid4, description="피드백 ID")
     category: FeedbackCategory = Field(..., description="피드백 카테고리")
@@ -511,6 +550,21 @@ class FeedbackItem(BaseModel):
     timestamp_start: float | None = Field(default=None, ge=0, description="시작 시간 (초)")
     timestamp_end: float | None = Field(default=None, ge=0, description="종료 시간 (초)")
 
+    # 영상 증거 참조 (다중 클립)
+    video_clips: list[VideoClipReference] = Field(
+        default_factory=list, description="피드백 증거 영상 클립 목록"
+    )
+
+    # 원인 분석 ("왜?")
+    causal_factors: list[CausalFactor] = Field(
+        default_factory=list, description="피드백 원인 요소 목록"
+    )
+
+    # 경기 맥락 태그 (clutch, garbage_time, scoring_run, drought 등)
+    game_context: str | None = Field(
+        default=None, max_length=50, description="경기 맥락 레이블"
+    )
+
     # 시각화 참조
     visualization_url: HttpUrl | None = Field(default=None, description="피드백 시각화 이미지 URL")
 
@@ -525,11 +579,12 @@ class FeedbackItem(BaseModel):
 
 
 class MotionScore(BaseModel):
-    """
-    동작 점수 DTO.
+    """동작 점수 DTO.
 
     개별 동작의 세부 점수 및 평가입니다.
     """
+
+    model_config = ConfigDict(frozen=True)
 
     score_id: UUID = Field(default_factory=uuid4, description="점수 ID")
     motion_type: str = Field(..., description="동작 유형 (shooting, dribbling 등)")
@@ -568,11 +623,12 @@ class MotionScore(BaseModel):
 
 
 class MotionComparison(BaseModel):
-    """
-    동작 비교 DTO.
+    """동작 비교 DTO.
 
     따라하기 훈련에서 정답 동작과 사용자 동작을 비교합니다.
     """
+
+    model_config = ConfigDict(frozen=True)
 
     comparison_id: UUID = Field(default_factory=uuid4, description="비교 ID")
 
@@ -603,11 +659,12 @@ class MotionComparison(BaseModel):
 # 피드백 요약 DTO
 # =============================================================================
 class FeedbackSummary(BaseModel):
-    """
-    피드백 요약 DTO.
+    """피드백 요약 DTO.
 
     분석 결과의 전체 피드백 요약입니다.
     """
+
+    model_config = ConfigDict(frozen=True)
 
     # -------------------------------------------------------------------------
     # 등급 임계값 설정 (configs/feedback/priorities.yaml과 동기화)
@@ -701,14 +758,20 @@ class FeedbackSummary(BaseModel):
 
 
 # =============================================================================
-# 훈련 추천 DTO
+# 훈련 추천 DTO — [앱 전용 (Desktop 미사용): TrainingRecommendation/TrainingPlan]
+# ARCHITECTURE_DESKTOP §1.2 훈련 분석은 앱 전용. Desktop은 경기 분석만 수행.
+# Phase 12 feedback_system 감사 완료 후 실사용 0건 확인되면 삭제 예정.
 # =============================================================================
 class TrainingRecommendation(BaseModel):
-    """
-    훈련 추천 DTO.
+    """훈련 추천 DTO.
 
     분석 결과를 기반으로 한 개인 맞춤 훈련 추천입니다.
+
+    .. deprecated:: 2026-04-20
+        Desktop 미사용. ARCHITECTURE_DESKTOP §1.2 훈련 분석 앱 전용. 앱/클라우드 프로그램에서만 사용.
     """
+
+    model_config = ConfigDict(frozen=True)
 
     recommendation_id: UUID = Field(default_factory=uuid4, description="추천 ID")
     task_id: UUID = Field(..., description="분석 태스크 ID")
@@ -738,11 +801,15 @@ class TrainingRecommendation(BaseModel):
 
 
 class TrainingPlan(BaseModel):
-    """
-    훈련 계획 DTO.
+    """훈련 계획 DTO.
 
     주간/월간 훈련 계획을 포함합니다.
+
+    .. deprecated:: 2026-04-20
+        Desktop 미사용. 앱 전용.
     """
+
+    model_config = ConfigDict(frozen=True)
 
     plan_id: UUID = Field(default_factory=uuid4, description="계획 ID")
     user_id: str = Field(..., description="사용자 ID")
@@ -777,11 +844,12 @@ class TrainingPlan(BaseModel):
 # 진행 추적 DTO
 # =============================================================================
 class ProgressMetric(BaseModel):
-    """
-    진행 지표 DTO.
+    """진행 지표 DTO.
 
     시간에 따른 진행 상황을 추적합니다.
     """
+
+    model_config = ConfigDict(frozen=True)
 
     metric_id: UUID = Field(default_factory=uuid4, description="지표 ID")
     user_id: str = Field(..., description="사용자 ID")
@@ -807,11 +875,12 @@ class ProgressMetric(BaseModel):
 
 
 class ProgressReport(BaseModel):
-    """
-    진행 보고서 DTO.
+    """진행 보고서 DTO.
 
     주간/월간 진행 보고서입니다.
     """
+
+    model_config = ConfigDict(frozen=True)
 
     report_id: UUID = Field(default_factory=uuid4, description="보고서 ID")
     user_id: str = Field(..., description="사용자 ID")
@@ -891,12 +960,13 @@ class FeedbackSource(str, Enum):
 # 사용자 피드백 DTO (학습 시스템용)
 # =============================================================================
 class UserFeedback(BaseModel):
-    """
-    사용자 피드백 DTO.
+    """사용자 피드백 DTO.
 
     사용자가 분석 결과에 대해 제공하는 피드백입니다.
     학습 시스템에서 모델 개선에 활용됩니다.
     """
+
+    model_config = ConfigDict(frozen=True)
 
     feedback_id: UUID = Field(default_factory=uuid4, description="피드백 ID")
     user_id: str = Field(..., description="사용자 ID")
@@ -928,11 +998,12 @@ class UserFeedback(BaseModel):
 # 피드백 효과 측정 DTO (학습 시스템용)
 # =============================================================================
 class FeedbackEffectiveness(BaseModel):
-    """
-    피드백 효과 측정 DTO.
+    """피드백 효과 측정 DTO.
 
     제공된 피드백이 사용자의 실력 향상에 얼마나 기여했는지 측정합니다.
     """
+
+    model_config = ConfigDict(frozen=True)
 
     effectiveness_id: UUID = Field(default_factory=uuid4, description="효과 측정 ID")
     user_id: str = Field(..., description="사용자 ID")
@@ -995,12 +1066,13 @@ class FeedbackEffectiveness(BaseModel):
 # 피드백 결과 DTO (학습 시스템 통합용)
 # =============================================================================
 class FeedbackResult(BaseModel):
-    """
-    피드백 결과 DTO.
+    """피드백 결과 DTO.
 
     분석 결과에 대한 전체 피드백 정보를 담습니다.
     학습 시스템에서 사용하는 통합 결과 객체입니다.
     """
+
+    model_config = ConfigDict(frozen=True)
 
     result_id: UUID = Field(default_factory=uuid4, description="결과 ID")
     analysis_id: UUID = Field(..., description="분석 ID")
@@ -1064,6 +1136,9 @@ __all__ = [
     "BodyPart",
     "MotionPhase",
     "FeedbackSource",
+    # 영상 증거 & 원인 요소
+    "VideoClipReference",
+    "CausalFactor",
     # 세부 피드백
     "FeedbackItem",
     "MotionScore",

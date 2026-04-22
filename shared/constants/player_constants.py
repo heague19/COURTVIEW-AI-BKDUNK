@@ -25,20 +25,30 @@ COURTVIEW - AI 농구 분석 플랫폼
     - shared/dto/analysis_dto.py: UserProfile DTO
     - pose_estimation/validation.py: 해부학적 검증
     - infrastructure/validation/schema_validator.py: 스키마 검증
-    - infrastructure/database/models/base_model.py: DB 모델
-    - infrastructure/database/repositories/user_repository.py: 사용자 저장소
 
 주의:
     Gender, AgeGroup, SkillLevel은 이 파일이 유일한 정의 위치(canonical source)입니다.
     다른 모듈에서 자체 정의하지 말고 반드시 이 파일에서 import하세요.
+
+사용 예시::
+
+    >>> from shared.constants.player_constants import Gender, AgeGroup, SkillLevel
+    >>> Gender.MALE.get_name()
+    '남성'
+    >>> AgeGroup.from_age(15)
+    <AgeGroup.TEEN: 'teen'>
+    >>> SkillLevel.BEGINNER.feedback_complexity
+    'simple'
 """
 
+from __future__ import annotations
+
+# === 표준 라이브러리 ===
 from enum import Enum, unique
 from typing import Final
 
+# === 프로젝트 모듈 ===
 from shared.constants.localization import SupportedLanguage
-
-__version__: str = "1.0.0"
 
 
 # =============================================================================
@@ -69,28 +79,31 @@ class Gender(str, Enum):
         Returns:
             해당 언어의 성별명
         """
-        translations: dict["Gender", dict[SupportedLanguage, str]] = {
-            Gender.MALE: {
-                SupportedLanguage.KO: "남성",
-                SupportedLanguage.EN: "Male",
-                SupportedLanguage.JA: "男性",
-                SupportedLanguage.ZH: "男性",
-                SupportedLanguage.ES: "Masculino",
-            },
-            Gender.FEMALE: {
-                SupportedLanguage.KO: "여성",
-                SupportedLanguage.EN: "Female",
-                SupportedLanguage.JA: "女性",
-                SupportedLanguage.ZH: "女性",
-                SupportedLanguage.ES: "Femenino",
-            },
-        }
-        return translations[self].get(lang, translations[self][SupportedLanguage.KO])
+        return _GENDER_NAME_MAP[self].get(lang, _GENDER_NAME_MAP[self][SupportedLanguage.KO])
 
     @property
     def to_korean(self) -> str:
         """한글 성별명."""
         return self.get_name(SupportedLanguage.KO)
+
+
+# -- Gender 캐시 --
+_GENDER_NAME_MAP: dict[Gender, dict[SupportedLanguage, str]] = {
+    Gender.MALE: {
+        SupportedLanguage.KO: "남성",
+        SupportedLanguage.EN: "Male",
+        SupportedLanguage.JA: "男性",
+        SupportedLanguage.ZH: "男性",
+        SupportedLanguage.ES: "Masculino",
+    },
+    Gender.FEMALE: {
+        SupportedLanguage.KO: "여성",
+        SupportedLanguage.EN: "Female",
+        SupportedLanguage.JA: "女性",
+        SupportedLanguage.ZH: "女性",
+        SupportedLanguage.ES: "Femenino",
+    },
+}
 
 
 # =============================================================================
@@ -121,16 +134,10 @@ class AgeGroup(str, Enum):
         Returns:
             (최소 나이, 최대 나이) 튜플
         """
-        mapping: dict["AgeGroup", tuple[int, int]] = {
-            AgeGroup.YOUTH: (6, 12),
-            AgeGroup.TEEN: (13, 18),
-            AgeGroup.ADULT: (19, 49),
-            AgeGroup.SENIOR: (50, 99),
-        }
-        return mapping[self]
+        return _AGE_GROUP_RANGE_MAP[self]
 
     @classmethod
-    def from_age(cls, age: int) -> "AgeGroup":
+    def from_age(cls, age: int) -> AgeGroup:
         """
         나이로부터 연령대 결정.
 
@@ -140,6 +147,8 @@ class AgeGroup(str, Enum):
         Returns:
             AgeGroup: 해당하는 연령대
         """
+        if not isinstance(age, int) or age < 0:
+            return cls.YOUTH
         if age < 13:
             return cls.YOUTH
         elif age < 19:
@@ -162,13 +171,7 @@ class AgeGroup(str, Enum):
         Returns:
             권장 공 크기 (5, 6, 7)
         """
-        mapping: dict["AgeGroup", int] = {
-            AgeGroup.YOUTH: 5,
-            AgeGroup.TEEN: 6,
-            AgeGroup.ADULT: 7,
-            AgeGroup.SENIOR: 7,
-        }
-        return mapping[self]
+        return _AGE_GROUP_BALL_SIZE_MAP[self]
 
     def get_name(self, lang: SupportedLanguage = SupportedLanguage.KO) -> str:
         """
@@ -180,42 +183,59 @@ class AgeGroup(str, Enum):
         Returns:
             해당 언어의 연령대명
         """
-        translations: dict["AgeGroup", dict[SupportedLanguage, str]] = {
-            AgeGroup.YOUTH: {
-                SupportedLanguage.KO: "유소년",
-                SupportedLanguage.EN: "Youth",
-                SupportedLanguage.JA: "ユース",
-                SupportedLanguage.ZH: "青少年",
-                SupportedLanguage.ES: "Juvenil",
-            },
-            AgeGroup.TEEN: {
-                SupportedLanguage.KO: "청소년",
-                SupportedLanguage.EN: "Teen",
-                SupportedLanguage.JA: "ティーン",
-                SupportedLanguage.ZH: "青年",
-                SupportedLanguage.ES: "Adolescente",
-            },
-            AgeGroup.ADULT: {
-                SupportedLanguage.KO: "성인",
-                SupportedLanguage.EN: "Adult",
-                SupportedLanguage.JA: "成人",
-                SupportedLanguage.ZH: "成人",
-                SupportedLanguage.ES: "Adulto",
-            },
-            AgeGroup.SENIOR: {
-                SupportedLanguage.KO: "시니어",
-                SupportedLanguage.EN: "Senior",
-                SupportedLanguage.JA: "シニア",
-                SupportedLanguage.ZH: "老年",
-                SupportedLanguage.ES: "Senior",
-            },
-        }
-        return translations[self].get(lang, translations[self][SupportedLanguage.KO])
+        return _AGE_GROUP_NAME_MAP[self].get(lang, _AGE_GROUP_NAME_MAP[self][SupportedLanguage.KO])
 
     @property
     def to_korean(self) -> str:
         """한글 연령대명."""
         return self.get_name(SupportedLanguage.KO)
+
+
+# -- AgeGroup 캐시 --
+_AGE_GROUP_RANGE_MAP: dict[AgeGroup, tuple[int, int]] = {
+    AgeGroup.YOUTH: (6, 12),
+    AgeGroup.TEEN: (13, 18),
+    AgeGroup.ADULT: (19, 49),
+    AgeGroup.SENIOR: (50, 99),
+}
+
+_AGE_GROUP_BALL_SIZE_MAP: dict[AgeGroup, int] = {
+    AgeGroup.YOUTH: 5,
+    AgeGroup.TEEN: 6,
+    AgeGroup.ADULT: 7,
+    AgeGroup.SENIOR: 7,
+}
+
+_AGE_GROUP_NAME_MAP: dict[AgeGroup, dict[SupportedLanguage, str]] = {
+    AgeGroup.YOUTH: {
+        SupportedLanguage.KO: "유소년",
+        SupportedLanguage.EN: "Youth",
+        SupportedLanguage.JA: "ユース",
+        SupportedLanguage.ZH: "青少年",
+        SupportedLanguage.ES: "Juvenil",
+    },
+    AgeGroup.TEEN: {
+        SupportedLanguage.KO: "청소년",
+        SupportedLanguage.EN: "Teen",
+        SupportedLanguage.JA: "ティーン",
+        SupportedLanguage.ZH: "青年",
+        SupportedLanguage.ES: "Adolescente",
+    },
+    AgeGroup.ADULT: {
+        SupportedLanguage.KO: "성인",
+        SupportedLanguage.EN: "Adult",
+        SupportedLanguage.JA: "成人",
+        SupportedLanguage.ZH: "成人",
+        SupportedLanguage.ES: "Adulto",
+    },
+    AgeGroup.SENIOR: {
+        SupportedLanguage.KO: "시니어",
+        SupportedLanguage.EN: "Senior",
+        SupportedLanguage.JA: "シニア",
+        SupportedLanguage.ZH: "老年",
+        SupportedLanguage.ES: "Senior",
+    },
+}
 
 
 # =============================================================================
@@ -247,13 +267,7 @@ class SkillLevel(str, Enum):
         Returns:
             1 (초보) ~ 4 (프로)
         """
-        mapping: dict["SkillLevel", int] = {
-            SkillLevel.BEGINNER: 1,
-            SkillLevel.INTERMEDIATE: 2,
-            SkillLevel.ADVANCED: 3,
-            SkillLevel.PROFESSIONAL: 4,
-        }
-        return mapping[self]
+        return _SKILL_LEVEL_NUMERIC_MAP[self]
 
     @property
     def feedback_complexity(self) -> str:
@@ -265,13 +279,7 @@ class SkillLevel(str, Enum):
         Returns:
             simple, detailed, technical, expert 중 하나
         """
-        mapping: dict["SkillLevel", str] = {
-            SkillLevel.BEGINNER: "simple",
-            SkillLevel.INTERMEDIATE: "detailed",
-            SkillLevel.ADVANCED: "technical",
-            SkillLevel.PROFESSIONAL: "expert",
-        }
-        return mapping[self]
+        return _SKILL_LEVEL_FEEDBACK_MAP[self]
 
     @property
     def tolerance_factor(self) -> float:
@@ -284,13 +292,7 @@ class SkillLevel(str, Enum):
         Returns:
             1.3 (초보) ~ 0.8 (프로)
         """
-        mapping: dict["SkillLevel", float] = {
-            SkillLevel.BEGINNER: 1.3,
-            SkillLevel.INTERMEDIATE: 1.1,
-            SkillLevel.ADVANCED: 0.95,
-            SkillLevel.PROFESSIONAL: 0.8,
-        }
-        return mapping[self]
+        return _SKILL_LEVEL_TOLERANCE_MAP[self]
 
     def get_name(self, lang: SupportedLanguage = SupportedLanguage.KO) -> str:
         """
@@ -302,51 +304,78 @@ class SkillLevel(str, Enum):
         Returns:
             해당 언어의 실력 수준명
         """
-        translations: dict["SkillLevel", dict[SupportedLanguage, str]] = {
-            SkillLevel.BEGINNER: {
-                SupportedLanguage.KO: "초보",
-                SupportedLanguage.EN: "Beginner",
-                SupportedLanguage.JA: "初心者",
-                SupportedLanguage.ZH: "初学者",
-                SupportedLanguage.ES: "Principiante",
-            },
-            SkillLevel.INTERMEDIATE: {
-                SupportedLanguage.KO: "중급",
-                SupportedLanguage.EN: "Intermediate",
-                SupportedLanguage.JA: "中級者",
-                SupportedLanguage.ZH: "中级",
-                SupportedLanguage.ES: "Intermedio",
-            },
-            SkillLevel.ADVANCED: {
-                SupportedLanguage.KO: "상급",
-                SupportedLanguage.EN: "Advanced",
-                SupportedLanguage.JA: "上級者",
-                SupportedLanguage.ZH: "高级",
-                SupportedLanguage.ES: "Avanzado",
-            },
-            SkillLevel.PROFESSIONAL: {
-                SupportedLanguage.KO: "프로",
-                SupportedLanguage.EN: "Professional",
-                SupportedLanguage.JA: "プロ",
-                SupportedLanguage.ZH: "专业",
-                SupportedLanguage.ES: "Profesional",
-            },
-        }
-        return translations[self].get(lang, translations[self][SupportedLanguage.KO])
+        return _SKILL_LEVEL_NAME_MAP[self].get(lang, _SKILL_LEVEL_NAME_MAP[self][SupportedLanguage.KO])
 
     @property
     def to_korean(self) -> str:
         """한글 실력 수준명."""
         return self.get_name(SupportedLanguage.KO)
 
+
+# -- SkillLevel 캐시 --
+_SKILL_LEVEL_NUMERIC_MAP: dict[SkillLevel, int] = {
+    SkillLevel.BEGINNER: 1,
+    SkillLevel.INTERMEDIATE: 2,
+    SkillLevel.ADVANCED: 3,
+    SkillLevel.PROFESSIONAL: 4,
+}
+
+_SKILL_LEVEL_FEEDBACK_MAP: dict[SkillLevel, str] = {
+    SkillLevel.BEGINNER: "simple",
+    SkillLevel.INTERMEDIATE: "detailed",
+    SkillLevel.ADVANCED: "technical",
+    SkillLevel.PROFESSIONAL: "expert",
+}
+
+_SKILL_LEVEL_TOLERANCE_MAP: dict[SkillLevel, float] = {
+    SkillLevel.BEGINNER: 1.3,
+    SkillLevel.INTERMEDIATE: 1.1,
+    SkillLevel.ADVANCED: 0.95,
+    SkillLevel.PROFESSIONAL: 0.8,
+}
+
+_SKILL_LEVEL_NAME_MAP: dict[SkillLevel, dict[SupportedLanguage, str]] = {
+    SkillLevel.BEGINNER: {
+        SupportedLanguage.KO: "초보",
+        SupportedLanguage.EN: "Beginner",
+        SupportedLanguage.JA: "初心者",
+        SupportedLanguage.ZH: "初学者",
+        SupportedLanguage.ES: "Principiante",
+    },
+    SkillLevel.INTERMEDIATE: {
+        SupportedLanguage.KO: "중급",
+        SupportedLanguage.EN: "Intermediate",
+        SupportedLanguage.JA: "中級者",
+        SupportedLanguage.ZH: "中级",
+        SupportedLanguage.ES: "Intermedio",
+    },
+    SkillLevel.ADVANCED: {
+        SupportedLanguage.KO: "상급",
+        SupportedLanguage.EN: "Advanced",
+        SupportedLanguage.JA: "上級者",
+        SupportedLanguage.ZH: "高级",
+        SupportedLanguage.ES: "Avanzado",
+    },
+    SkillLevel.PROFESSIONAL: {
+        SupportedLanguage.KO: "프로",
+        SupportedLanguage.EN: "Professional",
+        SupportedLanguage.JA: "プロ",
+        SupportedLanguage.ZH: "专业",
+        SupportedLanguage.ES: "Profesional",
+    },
+}
+
 # =============================================================================
-# YOLO 감지 클래스 ID (커스텀 학습 모델 기준)
+# YOLO 감지 클래스 ID (COURTVIEW 자체 학습 모델 기준)
 # =============================================================================
 PLAYER_CLASS_ID_PLAYER: Final[int] = 0    # 선수
 PLAYER_CLASS_ID_REFEREE: Final[int] = 1   # 심판
 PLAYER_CLASS_ID_COACH: Final[int] = 2     # 코치
 PLAYER_CLASS_ID_STAFF: Final[int] = 3     # 스태프
 PLAYER_CLASS_ID_UNKNOWN: Final[int] = 4   # 미식별
+
+# COURTVIEW 자체 모델 클래스 수
+PLAYER_MODEL_NUM_CLASSES: Final[int] = 5
 
 # 클래스 ID → 이름 매핑
 PLAYER_CLASS_NAMES: Final[dict[int, str]] = {
@@ -377,8 +406,8 @@ TEAM_CLASSIFICATION_CONFIDENCE_THRESHOLD: Final[float] = 0.7  # 팀 분류 신�
 # =============================================================================
 # 이미지 정규화 (ImageNet 표준)
 # =============================================================================
-NORMALIZE_MEAN: Final[list[float]] = [0.485, 0.456, 0.406]
-NORMALIZE_STD: Final[list[float]] = [0.229, 0.224, 0.225]
+NORMALIZE_MEAN: Final[tuple[float, ...]] = (0.485, 0.456, 0.406)
+NORMALIZE_STD: Final[tuple[float, ...]] = (0.229, 0.224, 0.225)
 
 # =============================================================================
 # 유니폼 영역 (가슴) 크롭 비율
@@ -396,12 +425,13 @@ __all__ = [
     "Gender",
     "AgeGroup",
     "SkillLevel",
-    # YOLO 클래스 ID
+    # YOLO 클래스 ID (COURTVIEW 자체 모델)
     "PLAYER_CLASS_ID_PLAYER",
     "PLAYER_CLASS_ID_REFEREE",
     "PLAYER_CLASS_ID_COACH",
     "PLAYER_CLASS_ID_STAFF",
     "PLAYER_CLASS_ID_UNKNOWN",
+    "PLAYER_MODEL_NUM_CLASSES",
     "PLAYER_CLASS_NAMES",
     # 팀 분류 밝기 임계값
     "TEAM_VALUE_DARK_THRESHOLD",
@@ -420,3 +450,5 @@ __all__ = [
     "CHEST_CROP_X_START",
     "CHEST_CROP_X_END",
 ]
+
+__version__ = "1.0.0"

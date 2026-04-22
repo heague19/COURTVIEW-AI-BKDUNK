@@ -4,187 +4,266 @@ COURTVIEW - AI 농구 분석 플랫폼
 
 모듈: core_foundation
 파일: __init__.py
-설명: 핵심 기반 모듈 초기화 - 설정, 모니터링, 레지스트리, 복원력, 보안
+설명: 핵심 기반 서비스 (Layer 0) 루트 패키지.
+      5개 서브모듈의 핵심 클래스, Enum, 데이터클래스를 re-export.
+      상수 및 콜백 타입은 각 서브모듈에서 직접 임포트.
+
+      서브모듈 구성:
+      - config/    : YAML/ENV 설정 로딩, 검증, 전역 설정, 변경 감시
+      - monitoring/ : 로깅, 에러 추적, 메트릭, 프로파일링, 헬스 체크
+      - registry/  : 서비스/모델/DI/파이프라인/규칙 레지스트리
+      - resilience/ : 서킷 브레이커, 재시도 정책
+      - security/  : 라이선스 검증, 시크릿 관리, 감사 로깅
 
 작성자: SPOIN_COURTVIEW
-최종 수정: 2026-02-16
-
-이 모듈은 다음 기능을 제공합니다:
-    - config: 설정 로딩, 스키마 검증, 핫 리로드
-    - monitoring: 에러 추적, 메트릭 수집, 성능 프로파일링, 헬스 체크
-    - registry: DI 컨테이너, 모델/서비스 레지스트리, 파이프라인 코디네이터
-    - resilience: 서킷 브레이커, 재시도 메커니즘
-    - security: 시크릿 관리, 감사 로깅
+최종 수정: 2026-03-20
+버전: 1.0.0
 """
+from __future__ import annotations
+
 
 # =============================================================================
-# config 서브모듈 임포트
+# config/ — 설정 관리
 # =============================================================================
 from core_foundation.config import (
-    # config_loader - Enum
-    ConfigFormat,
-    ConfigSource,
-    # config_loader - 데이터 클래스
-    ConfigEntry,
-    ConfigMetadata,
-    # config_loader - 클래스
-    ConfigLoader,
-    # config_loader - 함수
-    load_config,
-    get_config_value,
-    # schema_validator - Enum
-    ValidationStatus,
-    # schema_validator - 데이터 클래스
-    ValidationErrorDetail,
-    ValidationResult,
-    # schema_validator - 기본 모델
-    BaseConfigModel,
-    # schema_validator - Desktop 전용 스키마
-    LocalDatabaseConfig,
-    GPUConfig,
-    CameraConfig,
-    LocalStorageConfig,
-    # schema_validator - 공통 스키마
-    ModelConfig,
-    AnalysisConfig,
-    LoggingConfig,
-    AppConfig,
-    # schema_validator - 검증 클래스
-    SchemaValidator,
-    # schema_validator - 함수
-    validate_config,
-    get_default_config,
-    # settings - Enum
-    SettingsState,
+    # Enum
     Environment,
-    # settings - 데이터 클래스
-    SettingsMetadata,
-    # settings - 클래스
-    Settings,
-    # settings - 함수
-    get_settings,
-    initialize_settings,
-    # hot_reload - Enum
-    ChangeType,
-    ReloadStatus,
-    WatcherState,
-    LogLevel,
-    # hot_reload - 데이터 클래스
-    HotReloadConfig,
-    ConfigChangeEvent,
-    WatchedFile,
-    ReloadStatistics,
-    # hot_reload - 타입 별칭
-    ConfigChangeCallback,
-    # hot_reload - 클래스
-    HotReloadManager,
-    # hot_reload - 함수
-    create_hot_reload_manager,
-    watch_config,
-    # hot_reload - 상수
-    DEFAULT_DEBOUNCE_TIME,
-    SUPPORTED_EXTENSIONS,
-    DEFAULT_MAX_RETRIES,
-    DEFAULT_RETRY_INTERVAL,
-    DEFAULT_IGNORE_PATTERNS,
+    FileChangeType,
+    OSPlatform,
+    ValidationSeverity,
+    # 데이터 클래스
+    ConfigLoadResult,
+    ConfigSnapshot,
+    FileChangeEvent,
+    ValidationIssue,
+    ValidationResult,
+    ValidationRule,
+    # 핵심 클래스
+    AppSettings,
+    ConfigLoader,
+    ConfigValidator,
+    ConfigWatcher,
 )
 
 # =============================================================================
-# monitoring 서브모듈 임포트 (지연 로드 - 서브모듈 업데이트 진행 중)
+# monitoring/ — 모니터링
 # =============================================================================
-try:
-    from core_foundation.monitoring import *  # noqa: F403
-except ImportError as _monitoring_err:
-    import logging as _logging
-    _logging.getLogger(__name__).debug(f"monitoring 서브모듈 임포트 지연: {_monitoring_err}")
+from core_foundation.monitoring import (
+    # Enum
+    ComponentHealth,
+    ErrorSeverity,
+    LogLevel,
+    MetricType,
+    # 데이터 클래스
+    ErrorEvent,
+    ErrorSummary,
+    HealthReport,
+    Metric,
+    MetricPoint,
+    MetricSnapshot,
+    ProfileEntry,
+    ProfileSummary,
+    # 핵심 클래스
+    ComponentLogger,
+    ErrorTracker,
+    HealthChecker,
+    LogManager,
+    MetricsCollector,
+    ProfileTracker,
+    Profiler,
+    # 유틸리티
+    get_logger,
+)
 
 # =============================================================================
-# registry 서브모듈 임포트 (지연 로드 - 서브모듈 업데이트 진행 중)
+# registry/ — 레지스트리
 # =============================================================================
-try:
-    from core_foundation.registry import *  # noqa: F403
-except ImportError as _registry_err:
-    import logging as _logging
-    _logging.getLogger(__name__).debug(f"registry 서브모듈 임포트 지연: {_registry_err}")
+from core_foundation.registry import (
+    # Enum
+    ModelBackend,
+    ModelStatus,
+    Scope,
+    ServiceLifecycle,
+    StageStatus,
+    # 데이터 클래스
+    Binding,
+    ModelInfo,
+    PipelineResult,
+    RuleOverride,
+    RuleSnapshot,
+    ServiceDescriptor,
+    StageDefinition,
+    StageResult,
+    # 핵심 클래스
+    DependencyInjector,
+    ModelRegistry,
+    PipelineCoordinator,
+    RuleSetManager,
+    ServiceRegistry,
+)
 
 # =============================================================================
-# resilience 서브모듈 임포트 (지연 로드 - 서브모듈 업데이트 진행 중)
+# resilience/ — 장애 복원력
 # =============================================================================
-try:
-    from core_foundation.resilience import *  # noqa: F403
-except ImportError as _resilience_err:
-    import logging as _logging
-    _logging.getLogger(__name__).debug(f"resilience 서브모듈 임포트 지연: {_resilience_err}")
+from core_foundation.resilience import (
+    # Enum
+    BackoffStrategy,
+    CallResult,
+    CircuitState,
+    RetryOutcome,
+    # 데이터 클래스
+    AttemptRecord,
+    BreakerSnapshot,
+    RetryResult,
+    StateTransition,
+    # 핵심 클래스
+    BreakerRegistry,
+    CircuitBreaker,
+    RetryPolicy,
+    RetryPolicyRegistry,
+)
 
 # =============================================================================
-# security 서브모듈 임포트 (지연 로드 - 서브모듈 업데이트 진행 중)
+# security/ — 보안
 # =============================================================================
-try:
-    from core_foundation.security import *  # noqa: F403
-except ImportError as _security_err:
-    import logging as _logging
-    _logging.getLogger(__name__).debug(f"security 서브모듈 임포트 지연: {_security_err}")
+from core_foundation.security import (
+    # Enum
+    AuditCategory,
+    AuditSeverity,
+    LicenseStatus,
+    SecretSource,
+    # 데이터 클래스
+    AuditEvent,
+    LicenseInfo,
+    SecretEntry,
+    # 핵심 클래스
+    AuditLogger,
+    LicenseValidator,
+    SecretManager,
+    # 유틸리티
+    compute_event_hash,
+    generate_hardware_id,
+    generate_license_signature,
+    mask_secret,
+    verify_license_signature,
+)
 
-__version__ = "1.0.0"
-__author__ = "COURTVIEW AI Team"
 
+# =============================================================================
+# 모듈 Export 정의
+# =============================================================================
 __all__ = [
     # =========================================================================
-    # config 서브모듈
+    # config/ (16개)
     # =========================================================================
-    # config_loader
-    "ConfigFormat",
-    "ConfigSource",
-    "ConfigEntry",
-    "ConfigMetadata",
-    "ConfigLoader",
-    "load_config",
-    "get_config_value",
-    # schema_validator
-    "ValidationStatus",
-    "ValidationErrorDetail",
-    "ValidationResult",
-    "BaseConfigModel",
-    # Desktop 전용 스키마
-    "LocalDatabaseConfig",
-    "GPUConfig",
-    "CameraConfig",
-    "LocalStorageConfig",
-    # 공통 스키마
-    "ModelConfig",
-    "AnalysisConfig",
-    "LoggingConfig",
-    "AppConfig",
-    "SchemaValidator",
-    "validate_config",
-    "get_default_config",
-    # settings
-    "SettingsState",
+    # Enum
     "Environment",
-    "SettingsMetadata",
-    "Settings",
-    "get_settings",
-    "initialize_settings",
-    # hot_reload
-    "ChangeType",
-    "ReloadStatus",
-    "WatcherState",
+    "OSPlatform",
+    "ValidationSeverity",
+    "FileChangeType",
+    # 데이터 클래스
+    "ConfigLoadResult",
+    "ValidationIssue",
+    "ValidationResult",
+    "ValidationRule",
+    "ConfigSnapshot",
+    "FileChangeEvent",
+    # 핵심 클래스
+    "ConfigLoader",
+    "ConfigValidator",
+    "AppSettings",
+    "ConfigWatcher",
+    # =========================================================================
+    # monitoring/ (22개)
+    # =========================================================================
+    # Enum
     "LogLevel",
-    "HotReloadConfig",
-    "ConfigChangeEvent",
-    "WatchedFile",
-    "ReloadStatistics",
-    "ConfigChangeCallback",
-    "HotReloadManager",
-    "create_hot_reload_manager",
-    "watch_config",
-    "DEFAULT_DEBOUNCE_TIME",
-    "SUPPORTED_EXTENSIONS",
-    "DEFAULT_MAX_RETRIES",
-    "DEFAULT_RETRY_INTERVAL",
-    "DEFAULT_IGNORE_PATTERNS",
+    "ErrorSeverity",
+    "MetricType",
+    "ComponentHealth",
+    # 데이터 클래스
+    "ErrorEvent",
+    "ErrorSummary",
+    "MetricPoint",
+    "MetricSnapshot",
+    "Metric",
+    "ProfileEntry",
+    "ProfileSummary",
+    "HealthReport",
+    # 핵심 클래스
+    "ComponentLogger",
+    "LogManager",
+    "ErrorTracker",
+    "MetricsCollector",
+    "ProfileTracker",
+    "Profiler",
+    "HealthChecker",
+    # 유틸리티
+    "get_logger",
     # =========================================================================
-    # monitoring, registry, resilience, security 서브모듈
-    # → 각 서브모듈의 __all__에 정의된 항목이 동적으로 추가됨
+    # registry/ (19개)
     # =========================================================================
+    # Enum
+    "ServiceLifecycle",
+    "ModelStatus",
+    "ModelBackend",
+    "Scope",
+    "StageStatus",
+    # 데이터 클래스
+    "ServiceDescriptor",
+    "ModelInfo",
+    "Binding",
+    "StageResult",
+    "StageDefinition",
+    "PipelineResult",
+    "RuleOverride",
+    "RuleSnapshot",
+    # 핵심 클래스
+    "ServiceRegistry",
+    "ModelRegistry",
+    "DependencyInjector",
+    "PipelineCoordinator",
+    "RuleSetManager",
+    # =========================================================================
+    # resilience/ (14개)
+    # =========================================================================
+    # Enum
+    "CircuitState",
+    "CallResult",
+    "BackoffStrategy",
+    "RetryOutcome",
+    # 데이터 클래스
+    "StateTransition",
+    "BreakerSnapshot",
+    "AttemptRecord",
+    "RetryResult",
+    # 핵심 클래스
+    "CircuitBreaker",
+    "BreakerRegistry",
+    "RetryPolicy",
+    "RetryPolicyRegistry",
+    # =========================================================================
+    # security/ (15개)
+    # =========================================================================
+    # Enum
+    "LicenseStatus",
+    "SecretSource",
+    "AuditCategory",
+    "AuditSeverity",
+    # 데이터 클래스
+    "LicenseInfo",
+    "SecretEntry",
+    "AuditEvent",
+    # 핵심 클래스
+    "LicenseValidator",
+    "SecretManager",
+    "AuditLogger",
+    # 유틸리티
+    "generate_hardware_id",
+    "generate_license_signature",
+    "verify_license_signature",
+    "mask_secret",
+    "compute_event_hash",
 ]
+
+__version__ = "1.0.0"

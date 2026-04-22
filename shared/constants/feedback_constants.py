@@ -22,19 +22,28 @@ COURTVIEW - AI 농구 분석 플랫폼
 - 스포츠 코칭 피드백 원칙 (Positive-Constructive 비율)
 
 사용처:
-- feedback_system/generators/: 경기/전술/수비/개인/공간/라인업/심판/시각 피드백
+- feedback_system/coach/: 동작 폼 코칭 + 생체역학 피드백
+- feedback_system/analysis/: 경기/전술/수비/개인/공간/라인업/심판/시각/클러치/모멘텀 등 피드백
 - feedback_system/templates/: 템플릿 선택, 포맷팅
 - feedback_system/report/: 리포트 생성, 세션 요약, 성장 추세
 - game_analysis/film_session/: 티칭 포인트 생성
+
+사용 예시:
+    >>> from shared.constants.feedback_constants import FeedbackSeverity
+    >>> sev = FeedbackSeverity.GOOD
+    >>> sev.is_positive
+    True
+    >>> sev.get_name(SupportedLanguage.EN)
+    'Good'
 """
+
+from __future__ import annotations
+
 
 from enum import Enum, unique
 from typing import Final
 
 from shared.constants.localization import SupportedLanguage
-
-
-__version__: str = "1.0.0"
 
 
 # =============================================================================
@@ -336,7 +345,7 @@ FEEDBACK_CATEGORY_PRIORITY: Final[dict[FeedbackCategory, float]] = {
 # =============================================================================
 
 # 단일 경기 리포트 기본 섹션 순서
-SINGLE_GAME_REPORT_SECTIONS: Final[list[str]] = [
+SINGLE_GAME_REPORT_SECTIONS: Final[tuple[str, ...]] = (
     "game_summary",           # 경기 요약 (스코어, 주요 스탯)
     "team_comparison",        # 팀 비교 (기본/고급 스탯)
     "four_factors",           # Four Factors 분석
@@ -347,7 +356,7 @@ SINGLE_GAME_REPORT_SECTIONS: Final[list[str]] = [
     "game_flow",              # 경기 흐름 (모멘텀, 런)
     "lineup_analysis",        # 라인업 분석
     "coaching_points",        # 코칭 포인트 (개선/강점)
-]
+)
 
 # 리포트 섹션당 최대 항목 수
 REPORT_SECTION_MAX_ITEMS: Final[int] = 15
@@ -411,51 +420,9 @@ IMPROVEMENT_PRIORITY_TOP_N: Final[int] = 5
 
 
 # =============================================================================
-# 유틸리티 함수
-# =============================================================================
-
-def get_feedback_severity_from_percentile(percentile: float) -> FeedbackSeverity:
-    """
-    백분위로부터 피드백 심각도 결정.
-
-    Args:
-        percentile: 백분위 (0~100)
-
-    Returns:
-        FeedbackSeverity 등급
-    """
-    if percentile >= 90.0:
-        return FeedbackSeverity.EXCELLENT
-    elif percentile >= 70.0:
-        return FeedbackSeverity.GOOD
-    elif percentile >= 40.0:
-        return FeedbackSeverity.ACCEPTABLE
-    elif percentile >= 15.0:
-        return FeedbackSeverity.NEEDS_WORK
-    else:
-        return FeedbackSeverity.CRITICAL
-
-
-def estimate_film_session_duration_min(clip_count: int) -> float:
-    """
-    필름 세션 예상 소요 시간 (분).
-
-    Args:
-        clip_count: 클립 수
-
-    Returns:
-        예상 소요 시간 (분)
-    """
-    effective_clips = min(clip_count, FILM_SESSION_MAX_CLIPS)
-    return (effective_clips * FILM_SESSION_AVG_CLIP_REVIEW_SEC) / 60.0
-
-
-# =============================================================================
 # 모듈 Export 정의
 # =============================================================================
-__all__: list[str] = [
-    # 버전
-    "__version__",
+__all__ = [
     # 열거형
     "FeedbackSeverity",
     "FeedbackCategory",
@@ -493,7 +460,7 @@ __all__: list[str] = [
     "GROWTH_DECLINING_SLOPE",
     "REPEATED_MISTAKE_MIN_GAMES",
     "IMPROVEMENT_PRIORITY_TOP_N",
-    # 유틸리티 함수
-    "get_feedback_severity_from_percentile",
-    "estimate_film_session_duration_min",
 ]
+
+# 모듈 버전 정보
+__version__ = "1.0.0"

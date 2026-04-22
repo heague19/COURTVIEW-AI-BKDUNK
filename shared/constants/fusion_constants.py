@@ -15,7 +15,23 @@ COURTVIEW - AI 농구 분석 플랫폼
 참조:
 - 다중 뷰 기하학 (Multiple View Geometry) 이론 기반
 - 베이지안 센서 융합 (Bayesian Sensor Fusion) 원리 적용
+
+사용 예시:
+    >>> from shared.constants.fusion_constants import FusionStrategy, FusionQuality
+    >>> strategy = FusionStrategy.BAYESIAN
+    >>> strategy.is_probabilistic
+    True
+    >>> strategy.to_korean()
+    '베이지안 융합'
+    >>> quality = FusionQuality.from_score(0.82)
+    >>> quality
+    <FusionQuality.GOOD: ('good', 0.75, 0.9)>
+    >>> quality.is_usable
+    True
 """
+
+from __future__ import annotations
+
 
 from enum import Enum, unique
 from typing import Final
@@ -278,12 +294,12 @@ class FusionStrategy(Enum):
 
 # -- FusionStrategy 캐시 (직접 할당) --
 
-_FUSION_STRATEGY_REQUIRES_HISTORY: frozenset = frozenset({
+_FUSION_STRATEGY_REQUIRES_HISTORY: frozenset[FusionStrategy] = frozenset({
     FusionStrategy.KALMAN_FILTER,
     FusionStrategy.LEARNED,
 })
 
-_FUSION_STRATEGY_IS_PROBABILISTIC: frozenset = frozenset({
+_FUSION_STRATEGY_IS_PROBABILISTIC: frozenset[FusionStrategy] = frozenset({
     FusionStrategy.BAYESIAN,
     FusionStrategy.KALMAN_FILTER,
 })
@@ -396,7 +412,7 @@ class FusionQuality(Enum):
 
 # -- FusionQuality 캐시 (직접 할당) --
 
-_FUSION_QUALITY_IS_USABLE: frozenset = frozenset({
+_FUSION_QUALITY_IS_USABLE: frozenset[FusionQuality] = frozenset({
     FusionQuality.EXCELLENT,
     FusionQuality.GOOD,
     FusionQuality.ACCEPTABLE,

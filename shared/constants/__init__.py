@@ -18,6 +18,9 @@ COURTVIEW - AI 농구 분석 플랫폼
 버전: 1.0.0
 """
 
+from __future__ import annotations
+
+
 # =============================================================================
 # 다국어 지원
 # =============================================================================
@@ -55,7 +58,6 @@ from shared.constants.status_codes import (
     QualityLevel,
     LearningStatus,
     VALID_TASK_TRANSITIONS,
-    is_valid_transition,
 )
 
 # =============================================================================
@@ -69,7 +71,6 @@ from shared.constants.event_types import (
     AUDIT_EVENTS,
     METRIC_EVENTS,
     EVENT_PRIORITY,
-    get_event_priority,
 )
 
 # =============================================================================
@@ -366,9 +367,6 @@ from shared.constants.stats_constants import (
     FOUR_FACTORS_TOV_WEIGHT,
     FOUR_FACTORS_OREB_WEIGHT,
     FOUR_FACTORS_FT_RATE_WEIGHT,
-    # 유틸리티
-    calculate_ts_pct,
-    calculate_efg_pct,
 )
 
 # =============================================================================
@@ -401,9 +399,6 @@ from shared.constants.game_management_constants import (
     QUARTER_DURATION_SEC,
     TIMEOUTS_PER_TEAM,
     SHOT_CLOCK_FULL_SEC,
-    # 유틸리티
-    is_valid_game_transition,
-    get_bonus_status,
 )
 
 # =============================================================================
@@ -423,9 +418,6 @@ from shared.constants.referee_decision_constants import (
     # 파울 임계치 (주요)
     FLAGRANT_1_SEVERITY_SCORE,
     FLAGRANT_2_SEVERITY_SCORE,
-    # 유틸리티
-    classify_decision_confidence,
-    classify_foul_grade,
 )
 
 # =============================================================================
@@ -441,8 +433,6 @@ from shared.constants.feedback_constants import (
     FEEDBACK_MIN_DETAIL_POINTS,
     FEEDBACK_CATEGORY_PRIORITY,
     SINGLE_GAME_REPORT_SECTIONS,
-    # 유틸리티
-    get_feedback_severity_from_percentile,
 )
 
 
@@ -484,7 +474,6 @@ __all__ = [
     "QualityLevel",
     "LearningStatus",
     "VALID_TASK_TRANSITIONS",
-    "is_valid_transition",
 
     # =========================================================================
     # 이벤트 타입
@@ -496,7 +485,6 @@ __all__ = [
     "AUDIT_EVENTS",
     "METRIC_EVENTS",
     "EVENT_PRIORITY",
-    "get_event_priority",
 
     # =========================================================================
     # 카메라 상수
@@ -717,8 +705,6 @@ __all__ = [
     "FOUR_FACTORS_TOV_WEIGHT",
     "FOUR_FACTORS_OREB_WEIGHT",
     "FOUR_FACTORS_FT_RATE_WEIGHT",
-    "calculate_ts_pct",
-    "calculate_efg_pct",
 
     # =========================================================================
     # 전술 상수
@@ -742,8 +728,6 @@ __all__ = [
     "QUARTER_DURATION_SEC",
     "TIMEOUTS_PER_TEAM",
     "SHOT_CLOCK_FULL_SEC",
-    "is_valid_game_transition",
-    "get_bonus_status",
 
     # =========================================================================
     # 심판 판정 상수
@@ -757,8 +741,6 @@ __all__ = [
     "THREE_SECOND_OFFENSE_THRESHOLD_SEC",
     "FLAGRANT_1_SEVERITY_SCORE",
     "FLAGRANT_2_SEVERITY_SCORE",
-    "classify_decision_confidence",
-    "classify_foul_grade",
 
     # =========================================================================
     # 피드백 상수
@@ -770,7 +752,6 @@ __all__ = [
     "FEEDBACK_MIN_DETAIL_POINTS",
     "FEEDBACK_CATEGORY_PRIORITY",
     "SINGLE_GAME_REPORT_SECTIONS",
-    "get_feedback_severity_from_percentile",
 ]
 
 # 모듈 버전 정보

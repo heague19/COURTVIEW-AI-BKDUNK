@@ -4,1303 +4,742 @@ COURTVIEW - AI 농구 분석 플랫폼
 
 모듈: core_foundation/resilience
 파일: retry_mechanism.py
-버전: 1.0.0
-설명: 재시도 메커니즘 - 지수 백오프, 지터, 조건부 재시도
+설명: 재시도 메커니즘
+      - Exponential Backoff + Jitter
+      - 재시도 가능 예외 필터링
+      - 최대 재시도 횟수 제한
+      - 재시도 이벤트 콜백
+      - 동기 실행 (블로킹)
+      - 스레드 안전 (RLock)
 
 작성자: SPOIN_COURTVIEW
-최종 수정: 2026-03-12
-
-주요 기능:
-    - 다양한 백오프 전략 (고정, 선형, 지수)
-    - 지터를 통한 thundering herd 방지
-    - 재시도 가능 예외 기반 필터링
-    - 동기/비동기 재시도 지원
-    - 상세 재시도 결과 및 메트릭
+최종 수정: 2026-03-20
+버전: 1.0.0
 """
-
 from __future__ import annotations
 
-__version__: str = "1.0.0"
-
-# ============================================================
-# 표준 라이브러리
-# ============================================================
-
-import asyncio
-import logging
+# =============================================================================
+# 표준 라이브러리 (Standard Library)
+# =============================================================================
 import random
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from enum import Enum, auto
-from functools import wraps
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Generic, TypeVar
+from enum import Enum, unique
+from typing import Any, Callable, Final, TypeVar
 
-# ============================================================
-# shared 임포트
-# ============================================================
-from shared.exceptions.base_exception import RetryableException
-from shared.exceptions.infrastructure_exceptions import TimeoutException
 
-# ============================================================
-# utils 임포트
-# ============================================================
-from utils.time_utils import Timer
-
-# ============================================================
-# core_foundation 내부 임포트
-# ============================================================
-from core_foundation.config.loader import ConfigLoader
-
-# ============================================================
-# TYPE_CHECKING (순환 참조 방지)
-# ============================================================
-if TYPE_CHECKING:
-    from core_foundation.monitoring.metrics import MetricsCollector
-
-# ============================================================
-# 로거 설정
-# ============================================================
-logger = logging.getLogger(__name__)
-
-# ============================================================
-# 타입 변수
-# ============================================================
-T = TypeVar("T")
-ExceptionTypes = type[Exception] | tuple[type[Exception], ...]
-
-# ============================================================
+# =============================================================================
 # 상수 정의
-# ============================================================
-# 기본 설정값
-DEFAULT_MAX_ATTEMPTS: int = 3
-DEFAULT_INITIAL_DELAY: float = 1.0
-DEFAULT_MAX_DELAY: float = 30.0
-DEFAULT_EXPONENTIAL_BASE: float = 2.0
-DEFAULT_JITTER_FACTOR: float = 0.1
-DEFAULT_TIMEOUT: float = 60.0
+# =============================================================================
 
-# 최소/최대 제한
-MIN_DELAY: float = 0.001  # 1ms
-MAX_DELAY_CAP: float = 300.0  # 5분
-MIN_JITTER_FACTOR: float = 0.0
-MAX_JITTER_FACTOR: float = 1.0
+# 기본 최대 재시도 횟수
+DEFAULT_MAX_RETRIES: Final[int] = 3
+
+# 기본 초기 대기 시간 (초)
+DEFAULT_INITIAL_DELAY_SEC: Final[float] = 1.0
+
+# 기본 최대 대기 시간 (초)
+DEFAULT_MAX_DELAY_SEC: Final[float] = 60.0
+
+# 기본 백오프 배수
+DEFAULT_BACKOFF_MULTIPLIER: Final[float] = 2.0
+
+# 기본 지터 비율 (0.0 ~ 1.0, 대기 시간의 ±비율)
+DEFAULT_JITTER_RATIO: Final[float] = 0.1
+
+# 최대 등록 가능한 정책 수
+MAX_POLICIES: Final[int] = 50
+
+# 최대 이력 수 (정책당)
+MAX_ATTEMPT_HISTORY: Final[int] = 100
+
+# 최대 콜백 수 (정책당)
+MAX_CALLBACKS_PER_POLICY: Final[int] = 20
 
 
-# ============================================================
-# Enum 정의
-# ============================================================
+# =============================================================================
+# 백오프 전략 Enum
+# =============================================================================
+
+@unique
 class BackoffStrategy(Enum):
-    """
-    백오프 전략.
+    """백오프 전략.
 
-    재시도 간 대기 시간 계산 방식을 정의합니다.
+    Members:
+        EXPONENTIAL: 지수 백오프 (기본)
+        LINEAR: 선형 백오프
+        FIXED: 고정 대기
     """
 
-    CONSTANT = auto()  # 고정 대기 시간
-    LINEAR = auto()  # 선형 증가
-    EXPONENTIAL = auto()  # 지수 증가
-    DECORRELATED_JITTER = auto()  # 상관관계 없는 지터 (AWS 권장)
+    EXPONENTIAL = "exponential"
+    LINEAR = "linear"
+    FIXED = "fixed"
+
+    def to_korean(self) -> str:
+        """한글 표현."""
+        _MAP = {
+            BackoffStrategy.EXPONENTIAL: "지수 백오프",
+            BackoffStrategy.LINEAR: "선형 백오프",
+            BackoffStrategy.FIXED: "고정 대기",
+        }
+        return _MAP[self]
+
+
+# =============================================================================
+# 재시도 결과 Enum
+# =============================================================================
+
+@unique
+class RetryOutcome(Enum):
+    """재시도 결과.
+
+    Members:
+        SUCCESS: 성공 (재시도 포함)
+        EXHAUSTED: 재시도 횟수 소진
+        NON_RETRYABLE: 재시도 불가 예외
+    """
+
+    SUCCESS = "success"
+    EXHAUSTED = "exhausted"
+    NON_RETRYABLE = "non_retryable"
+
+    def to_korean(self) -> str:
+        """한글 표현."""
+        _MAP = {
+            RetryOutcome.SUCCESS: "성공",
+            RetryOutcome.EXHAUSTED: "재시도 소진",
+            RetryOutcome.NON_RETRYABLE: "재시도 불가",
+        }
+        return _MAP[self]
 
     @property
-    def korean_label(self) -> str:
-        """한글 라벨 반환."""
-        labels = {
-            BackoffStrategy.CONSTANT: "고정",
-            BackoffStrategy.LINEAR: "선형",
-            BackoffStrategy.EXPONENTIAL: "지수",
-            BackoffStrategy.DECORRELATED_JITTER: "디코릴레이티드 지터",
-        }
-        return labels.get(self, "알 수 없음")
+    def is_success(self) -> bool:
+        """성공 여부."""
+        return self == RetryOutcome.SUCCESS
 
 
-class RetryOutcome(Enum):
-    """재시도 결과."""
-
-    SUCCESS = auto()  # 성공
-    EXHAUSTED = auto()  # 재시도 횟수 소진
-    NON_RETRYABLE = auto()  # 재시도 불가 예외
-    TIMEOUT = auto()  # 타임아웃
-    CANCELLED = auto()  # 취소됨
-
-
-# ============================================================
-# 데이터 클래스
-# ============================================================
-@dataclass(slots=True)
-class RetryConfig:
-    """
-    재시도 설정.
-
-    재시도 동작을 구성하는 모든 설정을 담습니다.
-    """
-
-    # 기본 설정
-    max_attempts: int = DEFAULT_MAX_ATTEMPTS
-    backoff_strategy: BackoffStrategy = BackoffStrategy.EXPONENTIAL
-    initial_delay: float = DEFAULT_INITIAL_DELAY
-    max_delay: float = DEFAULT_MAX_DELAY
-    exponential_base: float = DEFAULT_EXPONENTIAL_BASE
-
-    # 지터 설정
-    jitter_enabled: bool = True
-    jitter_factor: float = DEFAULT_JITTER_FACTOR
-
-    # 타임아웃 설정
-    timeout: float | None = None
-    per_attempt_timeout: float | None = None
-
-    # 예외 필터링
-    retryable_exceptions: tuple[type[Exception], ...] = (
-        RetryableException,
-        ConnectionError,
-        TimeoutError,
-    )
-    non_retryable_exceptions: tuple[type[Exception], ...] = ()
-
-    # 콜백
-    on_retry: Callable[[int, Exception, float], None] | None = None
-    on_success: Callable[[int, float], None] | None = None
-    on_failure: Callable[[int, Exception], None] | None = None
-
-    # 로깅
-    log_retries: bool = True
-    log_level: int = logging.WARNING
-
-    def __post_init__(self) -> None:
-        """설정 유효성 검증."""
-        if self.max_attempts < 1:
-            raise ValueError(f"max_attempts는 1 이상이어야 합니다: {self.max_attempts}")
-
-        if self.initial_delay < MIN_DELAY:
-            raise ValueError(f"initial_delay는 {MIN_DELAY}초 이상이어야 합니다: {self.initial_delay}")
-
-        if self.max_delay < self.initial_delay:
-            raise ValueError(
-                f"max_delay({self.max_delay})는 initial_delay({self.initial_delay}) 이상이어야 합니다"
-            )
-
-        if self.max_delay > MAX_DELAY_CAP:
-            logger.warning(
-                f"max_delay({self.max_delay})가 최대값({MAX_DELAY_CAP})을 초과하여 제한됩니다"
-            )
-            self.max_delay = MAX_DELAY_CAP
-
-        if self.exponential_base < 1.0:
-            raise ValueError(f"exponential_base는 1.0 이상이어야 합니다: {self.exponential_base}")
-
-        if not MIN_JITTER_FACTOR <= self.jitter_factor <= MAX_JITTER_FACTOR:
-            raise ValueError(
-                f"jitter_factor는 {MIN_JITTER_FACTOR}~{MAX_JITTER_FACTOR} 사이여야 합니다: {self.jitter_factor}"
-            )
-
-    def to_dict(self) -> dict[str, Any]:
-        """딕셔너리로 변환."""
-        return {
-            "max_attempts": self.max_attempts,
-            "backoff_strategy": self.backoff_strategy.name,
-            "initial_delay": self.initial_delay,
-            "max_delay": self.max_delay,
-            "exponential_base": self.exponential_base,
-            "jitter_enabled": self.jitter_enabled,
-            "jitter_factor": self.jitter_factor,
-            "timeout": self.timeout,
-            "per_attempt_timeout": self.per_attempt_timeout,
-            "log_retries": self.log_retries,
-        }
-
-    @classmethod
-    def from_yaml(cls, operation: str | None = None) -> "RetryConfig":
-        """
-        YAML 설정에서 RetryConfig 생성.
-
-        Args:
-            operation: 작업명 (operations 설정에서 조회)
-
-        Returns:
-            RetryConfig 인스턴스
-        """
-        try:
-            config_loader = ConfigLoader()
-            retry_config = config_loader.get("resilience.retry", {})
-
-            defaults = retry_config.get("defaults", {})
-
-            # 작업별 설정 오버라이드
-            if operation:
-                operations = retry_config.get("operations", {})
-                if operation in operations:
-                    op_config = operations[operation]
-                    defaults = {**defaults, **op_config}
-
-            # 백오프 전략 변환
-            strategy_str = defaults.get("backoff_strategy", "exponential").upper()
-            try:
-                strategy = BackoffStrategy[strategy_str]
-            except KeyError:
-                strategy = BackoffStrategy.EXPONENTIAL
-
-            # 지터 설정
-            jitter_config = defaults.get("jitter", {})
-            jitter_enabled = jitter_config.get("enabled", True) if isinstance(jitter_config, dict) else True
-            jitter_factor = jitter_config.get("factor", DEFAULT_JITTER_FACTOR) if isinstance(jitter_config, dict) else DEFAULT_JITTER_FACTOR
-
-            return cls(
-                max_attempts=defaults.get("max_attempts", DEFAULT_MAX_ATTEMPTS),
-                backoff_strategy=strategy,
-                initial_delay=defaults.get("initial_delay", DEFAULT_INITIAL_DELAY),
-                max_delay=defaults.get("max_delay", DEFAULT_MAX_DELAY),
-                exponential_base=defaults.get("exponential_base", DEFAULT_EXPONENTIAL_BASE),
-                jitter_enabled=jitter_enabled,
-                jitter_factor=jitter_factor,
-            )
-
-        except Exception as e:
-            logger.warning(f"YAML 설정 로드 실패, 기본값 사용: {e}")
-            return cls()
-
+# =============================================================================
+# 시도 기록
+# =============================================================================
 
 @dataclass(slots=True)
-class RetryAttempt:
-    """재시도 시도 정보."""
+class AttemptRecord:
+    """개별 시도 기록.
+
+    Attributes:
+        attempt_number: 시도 번호 (1부터)
+        success: 성공 여부
+        duration_sec: 소요 시간 (초)
+        error_type: 오류 타입명 (실패 시)
+        error_message: 오류 메시지 (실패 시)
+        delay_before_sec: 이 시도 전 대기 시간
+    """
 
     attempt_number: int
-    start_time: datetime
-    end_time: datetime | None = None
-    duration_ms: float = 0.0
-    success: bool = False
-    exception: Exception | None = None
-    delay_before: float = 0.0  # 이 시도 전 대기 시간
+    success: bool
+    duration_sec: float = 0.0
+    error_type: str = ""
+    error_message: str = ""
+    delay_before_sec: float = 0.0
 
-    def to_dict(self) -> dict[str, Any]:
-        """딕셔너리로 변환."""
-        return {
-            "attempt_number": self.attempt_number,
-            "start_time": self.start_time.isoformat(),
-            "end_time": self.end_time.isoformat() if self.end_time else None,
-            "duration_ms": self.duration_ms,
-            "success": self.success,
-            "exception_type": type(self.exception).__name__ if self.exception else None,
-            "exception_message": str(self.exception) if self.exception else None,
-            "delay_before": self.delay_before,
-        }
+    def __repr__(self) -> str:
+        status = "성공" if self.success else f"실패({self.error_type})"
+        return (
+            f"AttemptRecord(#{self.attempt_number}, "
+            f"{status}, {self.duration_sec:.3f}s)"
+        )
 
+
+# =============================================================================
+# 재시도 결과
+# =============================================================================
 
 @dataclass(slots=True)
-class RetryResult(Generic[T]):
-    """
-    재시도 결과.
+class RetryResult:
+    """재시도 실행 결과.
 
-    전체 재시도 과정의 결과를 담습니다.
+    Attributes:
+        outcome: 최종 결과
+        value: 성공 시 반환값
+        total_attempts: 총 시도 횟수
+        total_duration_sec: 총 소요 시간
+        attempts: 시도 이력
+        last_error: 마지막 예외 (실패 시)
     """
 
-    # 결과
     outcome: RetryOutcome
-    success: bool
-    value: T | None = None
-    final_exception: Exception | None = None
-
-    # 시도 정보
+    value: Any = None
     total_attempts: int = 0
-    attempts: list[RetryAttempt] = field(default_factory=list)
+    total_duration_sec: float = 0.0
+    attempts: list[AttemptRecord] = field(default_factory=list)
+    last_error: Exception | None = None
 
-    # 시간 정보
-    start_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    end_time: datetime | None = None
-    total_duration_ms: float = 0.0
-    total_delay_ms: float = 0.0
+    @property
+    def is_success(self) -> bool:
+        """성공 여부."""
+        return self.outcome.is_success
 
-    def to_dict(self) -> dict[str, Any]:
-        """딕셔너리로 변환."""
-        return {
-            "outcome": self.outcome.name,
-            "success": self.success,
-            "total_attempts": self.total_attempts,
-            "start_time": self.start_time.isoformat(),
-            "end_time": self.end_time.isoformat() if self.end_time else None,
-            "total_duration_ms": self.total_duration_ms,
-            "total_delay_ms": self.total_delay_ms,
-            "final_exception_type": type(self.final_exception).__name__ if self.final_exception else None,
-            "final_exception_message": str(self.final_exception) if self.final_exception else None,
-            "attempts": [a.to_dict() for a in self.attempts],
-        }
+    @property
+    def retry_count(self) -> int:
+        """재시도 횟수 (첫 시도 제외)."""
+        return max(0, self.total_attempts - 1)
+
+    def __repr__(self) -> str:
+        return (
+            f"RetryResult({self.outcome.value}, "
+            f"attempts={self.total_attempts}, "
+            f"duration={self.total_duration_sec:.3f}s)"
+        )
 
 
-# ============================================================
-# 백오프 계산 함수
-# ============================================================
-def calculate_backoff(
-    attempt: int,
-    strategy: BackoffStrategy,
-    initial_delay: float,
-    max_delay: float,
-    exponential_base: float = DEFAULT_EXPONENTIAL_BASE,
-    jitter_enabled: bool = True,
-    jitter_factor: float = DEFAULT_JITTER_FACTOR,
-    previous_delay: float | None = None,
-) -> float:
-    """
-    백오프 대기 시간 계산.
+# =============================================================================
+# 타입 정의
+# =============================================================================
+
+T = TypeVar("T")
+
+# 재시도 이벤트 콜백: (attempt_record) -> None
+RetryEventCallback = Callable[[AttemptRecord], None]
+
+# 재시도 가능 예외 판정 함수: (exception) -> bool
+RetryableChecker = Callable[[Exception], bool]
+
+
+# =============================================================================
+# 재시도 정책
+# =============================================================================
+
+class RetryPolicy:
+    """재시도 정책.
+
+    특정 작업에 대한 재시도 전략을 정의한다.
+
+    사용 예시::
+
+        policy = RetryPolicy(
+            name="gpu_inference",
+            max_retries=3,
+            backoff=BackoffStrategy.EXPONENTIAL,
+            initial_delay_sec=0.5,
+            retryable_exceptions=[RuntimeError, TimeoutError],
+        )
+
+        result = policy.execute(lambda: gpu_model.predict(frame))
+        if result.is_success:
+            predictions = result.value
 
     Args:
-        attempt: 현재 시도 번호 (1부터 시작)
-        strategy: 백오프 전략
-        initial_delay: 초기 대기 시간 (초)
-        max_delay: 최대 대기 시간 (초)
-        exponential_base: 지수 백오프 배수
-        jitter_enabled: 지터 활성화 여부
-        jitter_factor: 지터 계수 (0.0 ~ 1.0)
-        previous_delay: 이전 대기 시간 (디코릴레이티드 지터용)
-
-    Returns:
-        계산된 대기 시간 (초)
+        name: 정책 이름
+        max_retries: 최대 재시도 횟수
+        backoff: 백오프 전략
+        initial_delay_sec: 초기 대기 시간
+        max_delay_sec: 최대 대기 시간
+        backoff_multiplier: 백오프 배수 (지수/선형)
+        jitter_ratio: 지터 비율
+        retryable_exceptions: 재시도 가능 예외 타입 리스트
+        retryable_checker: 재시도 가능 예외 판정 함수 (추가 조건)
     """
-    if attempt < 1:
-        return 0.0
 
-    # 기본 대기 시간 계산
-    if strategy == BackoffStrategy.CONSTANT:
-        base_delay = initial_delay
-
-    elif strategy == BackoffStrategy.LINEAR:
-        base_delay = initial_delay * attempt
-
-    elif strategy == BackoffStrategy.EXPONENTIAL:
-        # 지수 백오프: initial_delay * base^(attempt-1)
-        base_delay = initial_delay * (exponential_base ** (attempt - 1))
-
-    elif strategy == BackoffStrategy.DECORRELATED_JITTER:
-        # AWS 권장 디코릴레이티드 지터
-        # sleep = min(cap, random_between(base, previous_sleep * 3))
-        if previous_delay is None:
-            previous_delay = initial_delay
-        base_delay = random.uniform(initial_delay, previous_delay * 3)
-        jitter_enabled = False  # 이미 랜덤 포함
-
-    else:
-        base_delay = initial_delay
-
-    # 최대값 제한
-    delay = min(base_delay, max_delay)
-
-    # 지터 적용
-    if jitter_enabled and jitter_factor > 0:
-        # 지터 범위: delay * (1 - jitter_factor) ~ delay * (1 + jitter_factor)
-        jitter_range = delay * jitter_factor
-        delay = delay + random.uniform(-jitter_range, jitter_range)
-        # 음수 방지
-        delay = max(MIN_DELAY, delay)
-
-    return delay
-
-
-def _calculate_backoff_from_config(
-    attempt: int,
-    config: RetryConfig,
-    previous_delay: float | None = None,
-) -> float:
-    """RetryConfig 기반 백오프 계산."""
-    return calculate_backoff(
-        attempt=attempt,
-        strategy=config.backoff_strategy,
-        initial_delay=config.initial_delay,
-        max_delay=config.max_delay,
-        exponential_base=config.exponential_base,
-        jitter_enabled=config.jitter_enabled,
-        jitter_factor=config.jitter_factor,
-        previous_delay=previous_delay,
+    __slots__ = (
+        "_name",
+        "_max_retries",
+        "_backoff",
+        "_initial_delay_sec",
+        "_max_delay_sec",
+        "_backoff_multiplier",
+        "_jitter_ratio",
+        "_retryable_exceptions",
+        "_retryable_checker",
+        "_callbacks",
+        "_history",
+        "_total_executions",
+        "_total_successes",
+        "_total_exhausted",
+        "_lock",
     )
-
-
-# ============================================================
-# 예외 판별 함수
-# ============================================================
-def _is_retryable(
-    exception: Exception,
-    retryable_exceptions: tuple[type[Exception], ...],
-    non_retryable_exceptions: tuple[type[Exception], ...],
-) -> bool:
-    """
-    예외가 재시도 가능한지 판별.
-
-    Args:
-        exception: 발생한 예외
-        retryable_exceptions: 재시도 가능 예외 타입들
-        non_retryable_exceptions: 재시도 불가 예외 타입들
-
-    Returns:
-        재시도 가능 여부
-    """
-    # non_retryable 우선 체크
-    if non_retryable_exceptions and isinstance(exception, non_retryable_exceptions):
-        return False
-
-    # retryable 체크
-    if retryable_exceptions and isinstance(exception, retryable_exceptions):
-        return True
-
-    # RetryableException 하위 클래스 체크
-    if isinstance(exception, RetryableException):
-        return True
-
-    return False
-
-
-# ============================================================
-# 메인 클래스: RetryMechanism
-# ============================================================
-class RetryMechanism:
-    """
-    재시도 메커니즘.
-
-    다양한 백오프 전략과 예외 필터링을 지원하는 재시도 메커니즘입니다.
-    동기/비동기 함수 모두 지원합니다.
-
-    Example:
-        # 기본 사용
-        retry = RetryMechanism()
-        result = retry.execute(my_function, arg1, arg2)
-
-        # 커스텀 설정
-        config = RetryConfig(max_attempts=5, backoff_strategy=BackoffStrategy.LINEAR)
-        retry = RetryMechanism(config)
-
-        # 비동기 사용
-        result = await retry.execute_async(my_async_function)
-    """
 
     def __init__(
         self,
-        config: RetryConfig | None = None,
-        name: str | None = None,
-        metrics_collector: "MetricsCollector" | None = None,
+        name: str,
+        *,
+        max_retries: int = DEFAULT_MAX_RETRIES,
+        backoff: BackoffStrategy = BackoffStrategy.EXPONENTIAL,
+        initial_delay_sec: float = DEFAULT_INITIAL_DELAY_SEC,
+        max_delay_sec: float = DEFAULT_MAX_DELAY_SEC,
+        backoff_multiplier: float = DEFAULT_BACKOFF_MULTIPLIER,
+        jitter_ratio: float = DEFAULT_JITTER_RATIO,
+        retryable_exceptions: list[type[Exception]] | None = None,
+        retryable_checker: RetryableChecker | None = None,
     ) -> None:
-        """
-        RetryMechanism 초기화.
-
-        Args:
-            config: 재시도 설정
-            name: 메커니즘 이름 (메트릭/로깅용)
-            metrics_collector: 메트릭 수집기 (DI)
-        """
-        self._config = config or RetryConfig()
-        self._name = name or "default"
-        self._metrics_collector = metrics_collector
-
-        logger.debug(
-            f"RetryMechanism '{self._name}' 생성: "
-            f"max_attempts={self._config.max_attempts}, "
-            f"strategy={self._config.backoff_strategy.name}"
+        self._name = name
+        self._max_retries = max(0, max_retries)
+        self._backoff = backoff
+        self._initial_delay_sec = max(0.0, initial_delay_sec)
+        self._max_delay_sec = max(self._initial_delay_sec, max_delay_sec)
+        self._backoff_multiplier = max(1.0, backoff_multiplier)
+        self._jitter_ratio = max(0.0, min(1.0, jitter_ratio))
+        self._retryable_exceptions: tuple[type[Exception], ...] = (
+            tuple(retryable_exceptions) if retryable_exceptions else (Exception,)
         )
+        self._retryable_checker = retryable_checker
 
-    def __repr__(self) -> str:
-        """RetryMechanism 인스턴스 표현."""
-        return (
-            f"RetryMechanism(name={self._name!r}, "
-            f"max_attempts={self._config.max_attempts}, "
-            f"strategy={self._config.backoff_strategy.name})"
-        )
+        self._callbacks: list[RetryEventCallback] = []
+        self._history: deque[RetryResult] = deque(maxlen=MAX_ATTEMPT_HISTORY)
+        self._total_executions = 0
+        self._total_successes = 0
+        self._total_exhausted = 0
+        self._lock = threading.RLock()
 
-    @property
-    def config(self) -> RetryConfig:
-        """현재 설정 반환."""
-        return self._config
+    # =========================================================================
+    # 속성
+    # =========================================================================
 
     @property
     def name(self) -> str:
-        """이름 반환."""
+        """정책 이름."""
         return self._name
 
-    def execute(
-        self,
-        func: Callable[..., T],
-        *args: Any,
-        config_override: RetryConfig | None = None,
-        **kwargs: Any,
-    ) -> T:
-        """
-        동기 함수 재시도 실행.
+    @property
+    def max_retries(self) -> int:
+        """최대 재시도 횟수."""
+        return self._max_retries
+
+    @property
+    def backoff(self) -> BackoffStrategy:
+        """백오프 전략."""
+        return self._backoff
+
+    @property
+    def total_executions(self) -> int:
+        """총 실행 횟수."""
+        with self._lock:
+            return self._total_executions
+
+    @property
+    def total_successes(self) -> int:
+        """총 성공 횟수."""
+        with self._lock:
+            return self._total_successes
+
+    @property
+    def total_exhausted(self) -> int:
+        """총 재시도 소진 횟수."""
+        with self._lock:
+            return self._total_exhausted
+
+    @property
+    def success_rate(self) -> float:
+        """성공률 (0.0 ~ 1.0)."""
+        with self._lock:
+            if self._total_executions == 0:
+                return 0.0
+            return self._total_successes / self._total_executions
+
+    # =========================================================================
+    # 실행
+    # =========================================================================
+
+    def execute(self, fn: Callable[[], T]) -> RetryResult:
+        """재시도 정책에 따라 함수를 실행.
 
         Args:
-            func: 실행할 함수
-            *args: 함수 인수
-            config_override: 설정 오버라이드
-            **kwargs: 함수 키워드 인수
+            fn: 실행할 함수 (인자 없음, 반환값 있음)
 
         Returns:
-            함수 반환값
-
-        Raises:
-            마지막 예외 또는 TimeoutException
+            RetryResult
         """
-        result = self._execute_with_retry(func, args, kwargs, config_override)
+        start_time = time.monotonic()
+        attempts: list[AttemptRecord] = []
+        last_error: Exception | None = None
+        max_attempts = 1 + self._max_retries  # 첫 시도 + 재시도
 
-        if result.success:
-            return result.value  # type: ignore
-
-        if result.final_exception:
-            raise result.final_exception
-
-        raise RuntimeError("재시도 실패: 알 수 없는 오류")
-
-    def execute_with_result(
-        self,
-        func: Callable[..., T],
-        *args: Any,
-        config_override: RetryConfig | None = None,
-        **kwargs: Any,
-    ) -> RetryResult[T]:
-        """
-        동기 함수 재시도 실행 (상세 결과 반환).
-
-        Args:
-            func: 실행할 함수
-            *args: 함수 인수
-            config_override: 설정 오버라이드
-            **kwargs: 함수 키워드 인수
-
-        Returns:
-            RetryResult 객체
-        """
-        return self._execute_with_retry(func, args, kwargs, config_override)
-
-    def _execute_with_retry(
-        self,
-        func: Callable[..., T],
-        args: tuple[Any, ...],
-        kwargs: dict[str, Any],
-        config_override: RetryConfig | None,
-    ) -> RetryResult[T]:
-        """내부 재시도 실행 로직."""
-        config = config_override or self._config
-
-        result = RetryResult[T](
-            outcome=RetryOutcome.EXHAUSTED,
-            success=False,
-            start_time=datetime.now(timezone.utc),
-        )
-
-        previous_delay: float | None = None
-        total_start = time.perf_counter()
-        timeout_deadline = total_start + config.timeout if config.timeout else None
-
-        for attempt in range(1, config.max_attempts + 1):
-            # 타임아웃 체크
-            if timeout_deadline and time.perf_counter() >= timeout_deadline:
-                result.outcome = RetryOutcome.TIMEOUT
-                result.final_exception = TimeoutException(
-                    message=f"전체 타임아웃 초과: {config.timeout}초",
-                    timeout_seconds=config.timeout,
-                    operation=func.__name__,
-                )
-                break
-
-            # 재시도 대기 (첫 시도는 대기 없음)
+        for attempt_num in range(1, max_attempts + 1):
+            # 재시도 대기 (첫 시도는 즉시)
             delay = 0.0
-            if attempt > 1:
-                delay = _calculate_backoff_from_config(attempt - 1, config, previous_delay)
-                previous_delay = delay
-
-                # 타임아웃 고려한 대기 시간 조정
-                if timeout_deadline:
-                    remaining = timeout_deadline - time.perf_counter()
-                    if remaining <= 0:
-                        result.outcome = RetryOutcome.TIMEOUT
-                        result.final_exception = TimeoutException(
-                            message=f"전체 타임아웃 초과: {config.timeout}초",
-                            timeout_seconds=config.timeout,
-                            operation=func.__name__,
-                        )
-                        break
-                    delay = min(delay, remaining)
-
-                if config.log_retries:
-                    logger.log(
-                        config.log_level,
-                        f"[{self._name}] 재시도 #{attempt - 1} → #{attempt}, "
-                        f"대기: {delay:.3f}초"
-                    )
-
+            if attempt_num > 1:
+                delay = self._calculate_delay(attempt_num - 1)
                 time.sleep(delay)
-                result.total_delay_ms += delay * 1000
 
-            # 시도 정보 생성
-            attempt_info = RetryAttempt(
-                attempt_number=attempt,
-                start_time=datetime.now(timezone.utc),
-                delay_before=delay,
-            )
-
-            timer = Timer()
+            attempt_start = time.monotonic()
             try:
-                timer.start()
-                value = func(*args, **kwargs)
-                timer_result = timer.stop()
+                result_value = fn()
+                duration = time.monotonic() - attempt_start
 
-                # 성공
-                attempt_info.end_time = datetime.now(timezone.utc)
-                attempt_info.duration_ms = timer_result.elapsed_ms
-                attempt_info.success = True
-                result.attempts.append(attempt_info)
+                record = AttemptRecord(
+                    attempt_number=attempt_num,
+                    success=True,
+                    duration_sec=duration,
+                    delay_before_sec=delay,
+                )
+                attempts.append(record)
+                self._notify_callbacks(record)
 
-                result.outcome = RetryOutcome.SUCCESS
-                result.success = True
-                result.value = value
-                result.total_attempts = attempt
-
-                # 성공 콜백
-                if config.on_success:
-                    try:
-                        config.on_success(attempt, timer_result.elapsed_ms)
-                    except Exception as cb_err:
-                        logger.warning(f"on_success 콜백 오류: {cb_err}")
-
-                # 메트릭 기록
-                self._record_metrics(attempt, timer_result.elapsed_ms, True)
-
-                if attempt > 1:
-                    logger.info(
-                        f"[{self._name}] 재시도 #{attempt}에서 성공, "
-                        f"총 시간: {timer_result.elapsed_ms:.2f}ms"
-                    )
-
-                break
+                total_duration = time.monotonic() - start_time
+                result = RetryResult(
+                    outcome=RetryOutcome.SUCCESS,
+                    value=result_value,
+                    total_attempts=attempt_num,
+                    total_duration_sec=total_duration,
+                    attempts=attempts,
+                )
+                self._record_result(result)
+                return result
 
             except Exception as e:
-                if timer._running:
-                    timer_result = timer.stop()
-                    attempt_info.duration_ms = timer_result.elapsed_ms
+                duration = time.monotonic() - attempt_start
+                last_error = e
 
-                attempt_info.end_time = datetime.now(timezone.utc)
-                attempt_info.exception = e
-                result.attempts.append(attempt_info)
-                result.final_exception = e
-                result.total_attempts = attempt
+                record = AttemptRecord(
+                    attempt_number=attempt_num,
+                    success=False,
+                    duration_sec=duration,
+                    error_type=type(e).__name__,
+                    error_message=str(e)[:200],
+                    delay_before_sec=delay,
+                )
+                attempts.append(record)
+                self._notify_callbacks(record)
 
-                # 재시도 가능 여부 체크
-                if not _is_retryable(
-                    e,
-                    config.retryable_exceptions,
-                    config.non_retryable_exceptions,
-                ):
-                    result.outcome = RetryOutcome.NON_RETRYABLE
-
-                    if config.log_retries:
-                        logger.log(
-                            config.log_level,
-                            f"[{self._name}] 재시도 불가 예외 발생: {type(e).__name__}: {e}"
-                        )
-                    break
-
-                # 재시도 콜백
-                if config.on_retry and attempt < config.max_attempts:
-                    try:
-                        next_delay = _calculate_backoff_from_config(attempt, config, previous_delay)
-                        config.on_retry(attempt, e, next_delay)
-                    except Exception as cb_err:
-                        logger.warning(f"on_retry 콜백 오류: {cb_err}")
-
-                if config.log_retries:
-                    logger.log(
-                        config.log_level,
-                        f"[{self._name}] 시도 #{attempt} 실패: {type(e).__name__}: {e}"
+                # 재시도 불가 예외인지 판단
+                if not self._is_retryable(e):
+                    total_duration = time.monotonic() - start_time
+                    result = RetryResult(
+                        outcome=RetryOutcome.NON_RETRYABLE,
+                        total_attempts=attempt_num,
+                        total_duration_sec=total_duration,
+                        attempts=attempts,
+                        last_error=e,
                     )
+                    self._record_result(result)
+                    return result
 
-        # 종료 처리
-        result.end_time = datetime.now(timezone.utc)
-        result.total_duration_ms = (time.perf_counter() - total_start) * 1000
-
-        # 실패 콜백
-        if not result.success and config.on_failure and result.final_exception:
-            try:
-                config.on_failure(result.total_attempts, result.final_exception)
-            except Exception as cb_err:
-                logger.warning(f"on_failure 콜백 오류: {cb_err}")
-
-        # 메트릭 기록 (실패 시)
-        if not result.success:
-            self._record_metrics(result.total_attempts, result.total_duration_ms, False)
-
-        return result
-
-    async def execute_async(
-        self,
-        func: Callable[..., Awaitable[T]],
-        *args: Any,
-        config_override: RetryConfig | None = None,
-        **kwargs: Any,
-    ) -> T:
-        """
-        비동기 함수 재시도 실행.
-
-        Args:
-            func: 실행할 비동기 함수
-            *args: 함수 인수
-            config_override: 설정 오버라이드
-            **kwargs: 함수 키워드 인수
-
-        Returns:
-            함수 반환값
-
-        Raises:
-            마지막 예외 또는 TimeoutException
-        """
-        result = await self._execute_async_with_retry(func, args, kwargs, config_override)
-
-        if result.success:
-            return result.value  # type: ignore
-
-        if result.final_exception:
-            raise result.final_exception
-
-        raise RuntimeError("재시도 실패: 알 수 없는 오류")
-
-    async def execute_async_with_result(
-        self,
-        func: Callable[..., Awaitable[T]],
-        *args: Any,
-        config_override: RetryConfig | None = None,
-        **kwargs: Any,
-    ) -> RetryResult[T]:
-        """
-        비동기 함수 재시도 실행 (상세 결과 반환).
-
-        Args:
-            func: 실행할 비동기 함수
-            *args: 함수 인수
-            config_override: 설정 오버라이드
-            **kwargs: 함수 키워드 인수
-
-        Returns:
-            RetryResult 객체
-        """
-        return await self._execute_async_with_retry(func, args, kwargs, config_override)
-
-    async def _execute_async_with_retry(
-        self,
-        func: Callable[..., Awaitable[T]],
-        args: tuple[Any, ...],
-        kwargs: dict[str, Any],
-        config_override: RetryConfig | None,
-    ) -> RetryResult[T]:
-        """내부 비동기 재시도 실행 로직."""
-        config = config_override or self._config
-
-        result = RetryResult[T](
+        # 재시도 소진
+        total_duration = time.monotonic() - start_time
+        result = RetryResult(
             outcome=RetryOutcome.EXHAUSTED,
-            success=False,
-            start_time=datetime.now(timezone.utc),
+            total_attempts=max_attempts,
+            total_duration_sec=total_duration,
+            attempts=attempts,
+            last_error=last_error,
         )
-
-        previous_delay: float | None = None
-        total_start = time.perf_counter()
-        timeout_deadline = total_start + config.timeout if config.timeout else None
-
-        for attempt in range(1, config.max_attempts + 1):
-            # 타임아웃 체크
-            if timeout_deadline and time.perf_counter() >= timeout_deadline:
-                result.outcome = RetryOutcome.TIMEOUT
-                result.final_exception = TimeoutException(
-                    message=f"전체 타임아웃 초과: {config.timeout}초",
-                    timeout_seconds=config.timeout,
-                    operation=func.__name__,
-                )
-                break
-
-            # 재시도 대기 (첫 시도는 대기 없음)
-            delay = 0.0
-            if attempt > 1:
-                delay = _calculate_backoff_from_config(attempt - 1, config, previous_delay)
-                previous_delay = delay
-
-                # 타임아웃 고려한 대기 시간 조정
-                if timeout_deadline:
-                    remaining = timeout_deadline - time.perf_counter()
-                    if remaining <= 0:
-                        result.outcome = RetryOutcome.TIMEOUT
-                        result.final_exception = TimeoutException(
-                            message=f"전체 타임아웃 초과: {config.timeout}초",
-                            timeout_seconds=config.timeout,
-                            operation=func.__name__,
-                        )
-                        break
-                    delay = min(delay, remaining)
-
-                if config.log_retries:
-                    logger.log(
-                        config.log_level,
-                        f"[{self._name}] 비동기 재시도 #{attempt - 1} → #{attempt}, "
-                        f"대기: {delay:.3f}초"
-                    )
-
-                await asyncio.sleep(delay)
-                result.total_delay_ms += delay * 1000
-
-            # 시도 정보 생성
-            attempt_info = RetryAttempt(
-                attempt_number=attempt,
-                start_time=datetime.now(timezone.utc),
-                delay_before=delay,
-            )
-
-            start_time = time.perf_counter()
-            try:
-                # 개별 시도 타임아웃 적용
-                if config.per_attempt_timeout:
-                    value = await asyncio.wait_for(
-                        func(*args, **kwargs),
-                        timeout=config.per_attempt_timeout,
-                    )
-                else:
-                    value = await func(*args, **kwargs)
-
-                elapsed_ms = (time.perf_counter() - start_time) * 1000
-
-                # 성공
-                attempt_info.end_time = datetime.now(timezone.utc)
-                attempt_info.duration_ms = elapsed_ms
-                attempt_info.success = True
-                result.attempts.append(attempt_info)
-
-                result.outcome = RetryOutcome.SUCCESS
-                result.success = True
-                result.value = value
-                result.total_attempts = attempt
-
-                # 성공 콜백
-                if config.on_success:
-                    try:
-                        config.on_success(attempt, elapsed_ms)
-                    except Exception as cb_err:
-                        logger.warning(f"on_success 콜백 오류: {cb_err}")
-
-                # 메트릭 기록
-                self._record_metrics(attempt, elapsed_ms, True)
-
-                if attempt > 1:
-                    logger.info(
-                        f"[{self._name}] 비동기 재시도 #{attempt}에서 성공, "
-                        f"총 시간: {elapsed_ms:.2f}ms"
-                    )
-
-                break
-
-            except asyncio.TimeoutError as e:
-                elapsed_ms = (time.perf_counter() - start_time) * 1000
-                attempt_info.end_time = datetime.now(timezone.utc)
-                attempt_info.duration_ms = elapsed_ms
-
-                timeout_exc = TimeoutException(
-                    message=f"개별 시도 타임아웃: {config.per_attempt_timeout}초",
-                    timeout_seconds=config.per_attempt_timeout,
-                    operation=func.__name__,
-                )
-                attempt_info.exception = timeout_exc
-                result.attempts.append(attempt_info)
-                result.final_exception = timeout_exc
-                result.total_attempts = attempt
-
-                if config.log_retries:
-                    logger.log(
-                        config.log_level,
-                        f"[{self._name}] 시도 #{attempt} 타임아웃"
-                    )
-
-            except asyncio.CancelledError:
-                result.outcome = RetryOutcome.CANCELLED
-                result.final_exception = None
-                result.total_attempts = attempt
-                break
-
-            except Exception as e:
-                elapsed_ms = (time.perf_counter() - start_time) * 1000
-                attempt_info.end_time = datetime.now(timezone.utc)
-                attempt_info.duration_ms = elapsed_ms
-                attempt_info.exception = e
-                result.attempts.append(attempt_info)
-                result.final_exception = e
-                result.total_attempts = attempt
-
-                # 재시도 가능 여부 체크
-                if not _is_retryable(
-                    e,
-                    config.retryable_exceptions,
-                    config.non_retryable_exceptions,
-                ):
-                    result.outcome = RetryOutcome.NON_RETRYABLE
-
-                    if config.log_retries:
-                        logger.log(
-                            config.log_level,
-                            f"[{self._name}] 재시도 불가 예외 발생: {type(e).__name__}: {e}"
-                        )
-                    break
-
-                # 재시도 콜백
-                if config.on_retry and attempt < config.max_attempts:
-                    try:
-                        next_delay = _calculate_backoff_from_config(attempt, config, previous_delay)
-                        config.on_retry(attempt, e, next_delay)
-                    except Exception as cb_err:
-                        logger.warning(f"on_retry 콜백 오류: {cb_err}")
-
-                if config.log_retries:
-                    logger.log(
-                        config.log_level,
-                        f"[{self._name}] 시도 #{attempt} 실패: {type(e).__name__}: {e}"
-                    )
-
-        # 종료 처리
-        result.end_time = datetime.now(timezone.utc)
-        result.total_duration_ms = (time.perf_counter() - total_start) * 1000
-
-        # 실패 콜백
-        if not result.success and config.on_failure and result.final_exception:
-            try:
-                config.on_failure(result.total_attempts, result.final_exception)
-            except Exception as cb_err:
-                logger.warning(f"on_failure 콜백 오류: {cb_err}")
-
-        # 메트릭 기록 (실패 시)
-        if not result.success:
-            self._record_metrics(result.total_attempts, result.total_duration_ms, False)
-
+        self._record_result(result)
         return result
 
-    def _record_metrics(self, attempts: int, duration_ms: float, success: bool) -> None:
-        """메트릭 기록."""
-        if not self._metrics_collector:
-            return
+    # =========================================================================
+    # 콜백
+    # =========================================================================
 
-        try:
-            labels = {"name": self._name, "success": str(success).lower()}
+    def add_callback(self, callback: RetryEventCallback) -> bool:
+        """재시도 이벤트 콜백 등록.
 
-            # 시도 횟수 히스토그램
-            self._metrics_collector.observe(
-                "retry_attempts",
-                attempts,
-                labels=labels,
+        Args:
+            callback: (AttemptRecord) -> None
+
+        Returns:
+            등록 성공 여부
+        """
+        with self._lock:
+            if len(self._callbacks) >= MAX_CALLBACKS_PER_POLICY:
+                return False
+            self._callbacks.append(callback)
+            return True
+
+    def remove_callback(self, callback: RetryEventCallback) -> bool:
+        """재시도 이벤트 콜백 해제.
+
+        Returns:
+            해제 성공 여부
+        """
+        with self._lock:
+            try:
+                self._callbacks.remove(callback)
+                return True
+            except ValueError:
+                return False
+
+    # =========================================================================
+    # 이력
+    # =========================================================================
+
+    def get_history(self) -> list[RetryResult]:
+        """실행 이력 (방어적 복사).
+
+        Returns:
+            RetryResult 리스트
+        """
+        with self._lock:
+            return list(self._history)
+
+    # =========================================================================
+    # 내부 메서드
+    # =========================================================================
+
+    def _calculate_delay(self, retry_number: int) -> float:
+        """대기 시간 계산.
+
+        Args:
+            retry_number: 재시도 번호 (1부터)
+
+        Returns:
+            대기 시간 (초)
+        """
+        if self._backoff == BackoffStrategy.EXPONENTIAL:
+            delay = self._initial_delay_sec * (
+                self._backoff_multiplier ** (retry_number - 1)
             )
+        elif self._backoff == BackoffStrategy.LINEAR:
+            delay = self._initial_delay_sec * retry_number
+        else:  # FIXED
+            delay = self._initial_delay_sec
 
-            # 소요 시간 히스토그램
-            self._metrics_collector.observe(
-                "retry_duration_ms",
-                duration_ms,
-                labels=labels,
-            )
+        # 최대 대기 시간 제한
+        delay = min(delay, self._max_delay_sec)
 
-            # 성공/실패 카운터
-            if success:
-                self._metrics_collector.increment("retry_success_total", labels={"name": self._name})
-            else:
-                self._metrics_collector.increment("retry_failure_total", labels={"name": self._name})
+        # 지터 적용
+        if self._jitter_ratio > 0.0:
+            jitter_range = delay * self._jitter_ratio
+            delay += random.uniform(-jitter_range, jitter_range)  # noqa: S311
+            delay = max(0.0, delay)
 
-        except Exception as e:
-            logger.debug(f"메트릭 기록 오류: {e}")
+        return delay
 
+    def _is_retryable(self, error: Exception) -> bool:
+        """예외가 재시도 가능한지 판단.
 
-# ============================================================
-# 데코레이터
-# ============================================================
-def retry(
-    max_attempts: int = DEFAULT_MAX_ATTEMPTS,
-    backoff_strategy: BackoffStrategy = BackoffStrategy.EXPONENTIAL,
-    initial_delay: float = DEFAULT_INITIAL_DELAY,
-    max_delay: float = DEFAULT_MAX_DELAY,
-    exponential_base: float = DEFAULT_EXPONENTIAL_BASE,
-    jitter_enabled: bool = True,
-    jitter_factor: float = DEFAULT_JITTER_FACTOR,
-    retryable_exceptions: ExceptionTypes = (RetryableException, ConnectionError, TimeoutError),
-    non_retryable_exceptions: ExceptionTypes = (),
-    on_retry: Callable[[int, Exception, float], None] | None = None,
-    log_retries: bool = True,
-) -> Callable[[Callable[..., T]], Callable[..., T]]:
-    """
-    동기 함수 재시도 데코레이터.
+        Args:
+            error: 발생한 예외
 
-    Args:
-        max_attempts: 최대 시도 횟수
-        backoff_strategy: 백오프 전략
-        initial_delay: 초기 대기 시간 (초)
-        max_delay: 최대 대기 시간 (초)
-        exponential_base: 지수 백오프 배수
-        jitter_enabled: 지터 활성화
-        jitter_factor: 지터 계수
-        retryable_exceptions: 재시도 가능 예외
-        non_retryable_exceptions: 재시도 불가 예외
-        on_retry: 재시도 콜백
-        log_retries: 재시도 로깅 여부
+        Returns:
+            재시도 가능 여부
+        """
+        # 타입 검사
+        if not isinstance(error, self._retryable_exceptions):
+            return False
 
-    Returns:
-        데코레이터 함수
+        # 커스텀 체커
+        if self._retryable_checker is not None:
+            try:
+                return self._retryable_checker(error)
+            except Exception:
+                return False
 
-    Example:
-        @retry(max_attempts=3, backoff_strategy=BackoffStrategy.EXPONENTIAL)
-        def fetch_data():
-            return requests.get(url)
-    """
-    # 튜플로 변환
-    if isinstance(retryable_exceptions, type):
-        retryable_exceptions = (retryable_exceptions,)
-    if isinstance(non_retryable_exceptions, type):
-        non_retryable_exceptions = (non_retryable_exceptions,)
+        return True
 
-    def decorator(func: Callable[..., T]) -> Callable[..., T]:
-        config = RetryConfig(
-            max_attempts=max_attempts,
-            backoff_strategy=backoff_strategy,
-            initial_delay=initial_delay,
-            max_delay=max_delay,
-            exponential_base=exponential_base,
-            jitter_enabled=jitter_enabled,
-            jitter_factor=jitter_factor,
-            retryable_exceptions=retryable_exceptions,
-            non_retryable_exceptions=non_retryable_exceptions,
-            on_retry=on_retry,
-            log_retries=log_retries,
+    def _notify_callbacks(self, record: AttemptRecord) -> None:
+        """콜백 실행 (예외 격리).
+
+        Args:
+            record: 시도 기록
+        """
+        with self._lock:
+            callbacks = list(self._callbacks)
+
+        for callback in callbacks:
+            try:
+                callback(record)
+            except Exception:
+                pass
+
+    def _record_result(self, result: RetryResult) -> None:
+        """실행 결과 기록.
+
+        Args:
+            result: 실행 결과
+        """
+        with self._lock:
+            self._history.append(result)
+            self._total_executions += 1
+            if result.is_success:
+                self._total_successes += 1
+            elif result.outcome == RetryOutcome.EXHAUSTED:
+                self._total_exhausted += 1
+
+    def __repr__(self) -> str:
+        return (
+            f"RetryPolicy('{self._name}', "
+            f"max_retries={self._max_retries}, "
+            f"backoff={self._backoff.value})"
         )
 
-        mechanism = RetryMechanism(config=config, name=func.__name__)
 
-        @wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> T:
-            return mechanism.execute(func, *args, **kwargs)
+# =============================================================================
+# 정책 레지스트리
+# =============================================================================
 
-        # 원본 함수와 메커니즘 참조 저장
-        wrapper._retry_mechanism = mechanism  # type: ignore
-        wrapper._original_func = func  # type: ignore
+class RetryPolicyRegistry:
+    """재시도 정책 중앙 레지스트리.
 
-        return wrapper
+    사용 예시::
 
-    return decorator
+        registry = RetryPolicyRegistry.get_instance()
 
-
-def async_retry(
-    max_attempts: int = DEFAULT_MAX_ATTEMPTS,
-    backoff_strategy: BackoffStrategy = BackoffStrategy.EXPONENTIAL,
-    initial_delay: float = DEFAULT_INITIAL_DELAY,
-    max_delay: float = DEFAULT_MAX_DELAY,
-    exponential_base: float = DEFAULT_EXPONENTIAL_BASE,
-    jitter_enabled: bool = True,
-    jitter_factor: float = DEFAULT_JITTER_FACTOR,
-    retryable_exceptions: ExceptionTypes = (RetryableException, ConnectionError, TimeoutError),
-    non_retryable_exceptions: ExceptionTypes = (),
-    per_attempt_timeout: float | None = None,
-    on_retry: Callable[[int, Exception, float], None] | None = None,
-    log_retries: bool = True,
-) -> Callable[[Callable[..., Awaitable[T]]], Callable[..., Awaitable[T]]]:
-    """
-    비동기 함수 재시도 데코레이터.
-
-    Args:
-        max_attempts: 최대 시도 횟수
-        backoff_strategy: 백오프 전략
-        initial_delay: 초기 대기 시간 (초)
-        max_delay: 최대 대기 시간 (초)
-        exponential_base: 지수 백오프 배수
-        jitter_enabled: 지터 활성화
-        jitter_factor: 지터 계수
-        retryable_exceptions: 재시도 가능 예외
-        non_retryable_exceptions: 재시도 불가 예외
-        per_attempt_timeout: 개별 시도 타임아웃 (초)
-        on_retry: 재시도 콜백
-        log_retries: 재시도 로깅 여부
-
-    Returns:
-        데코레이터 함수
-
-    Example:
-        @async_retry(max_attempts=3, per_attempt_timeout=5.0)
-        async def fetch_data():
-            return await aiohttp.get(url)
-    """
-    # 튜플로 변환
-    if isinstance(retryable_exceptions, type):
-        retryable_exceptions = (retryable_exceptions,)
-    if isinstance(non_retryable_exceptions, type):
-        non_retryable_exceptions = (non_retryable_exceptions,)
-
-    def decorator(func: Callable[..., Awaitable[T]]) -> Callable[..., Awaitable[T]]:
-        config = RetryConfig(
-            max_attempts=max_attempts,
-            backoff_strategy=backoff_strategy,
-            initial_delay=initial_delay,
-            max_delay=max_delay,
-            exponential_base=exponential_base,
-            jitter_enabled=jitter_enabled,
-            jitter_factor=jitter_factor,
-            retryable_exceptions=retryable_exceptions,
-            non_retryable_exceptions=non_retryable_exceptions,
-            per_attempt_timeout=per_attempt_timeout,
-            on_retry=on_retry,
-            log_retries=log_retries,
+        # 정책 생성 및 등록
+        policy = registry.get_or_create("gpu_inference",
+            max_retries=3,
+            backoff=BackoffStrategy.EXPONENTIAL,
         )
 
-        mechanism = RetryMechanism(config=config, name=func.__name__)
-
-        @wraps(func)
-        async def wrapper(*args: Any, **kwargs: Any) -> T:
-            return await mechanism.execute_async(func, *args, **kwargs)
-
-        # 원본 함수와 메커니즘 참조 저장
-        wrapper._retry_mechanism = mechanism  # type: ignore
-        wrapper._original_func = func  # type: ignore
-
-        return wrapper
-
-    return decorator
-
-
-# ============================================================
-# 헬퍼 함수
-# ============================================================
-def create_retry_mechanism(
-    operation: str | None = None,
-    name: str | None = None,
-    **config_overrides: Any,
-) -> RetryMechanism:
+        # 정책으로 실행
+        result = policy.execute(lambda: gpu_model.predict(frame))
     """
-    YAML 설정 기반 RetryMechanism 생성.
 
-    Args:
-        operation: 작업명 (YAML operations에서 조회)
-        name: 메커니즘 이름
-        **config_overrides: 설정 오버라이드
+    _instance: type[RetryPolicyRegistry] | RetryPolicyRegistry | None = None
+    _class_lock: threading.RLock = threading.RLock()
 
-    Returns:
-        RetryMechanism 인스턴스
-    """
-    config = RetryConfig.from_yaml(operation)
+    def __init__(self) -> None:
+        self._policies: dict[str, RetryPolicy] = {}
+        self._lock = threading.RLock()
 
-    # 오버라이드 적용
-    for key, value in config_overrides.items():
-        if hasattr(config, key):
-            setattr(config, key, value)
+    # =========================================================================
+    # Singleton
+    # =========================================================================
 
-    return RetryMechanism(config=config, name=name or operation or "default")
-
-
-# ============================================================
-# 글로벌 레지스트리 (싱글톤 패턴)
-# ============================================================
-class _RetryRegistry:
-    """재시도 메커니즘 레지스트리."""
-
-    _instance: "_RetryRegistry" | None = None
-    _lock: threading.Lock = threading.Lock()
-
-    def __new__(cls) -> "_RetryRegistry":
-        """싱글톤 인스턴스 생성 (이중 검사 잠금)."""
+    @classmethod
+    def get_instance(cls) -> RetryPolicyRegistry:
+        """Singleton 인스턴스 획득."""
         if cls._instance is None:
-            with cls._lock:
+            with cls._class_lock:
                 if cls._instance is None:
-                    cls._instance = super().__new__(cls)
-                    cls._instance._mechanisms = {}
-        return cls._instance
+                    cls._instance = cls()
+        return cls._instance  # type: ignore[return-value]
+
+    @classmethod
+    def reset(cls) -> None:
+        """Singleton 초기화 (테스트용)."""
+        with cls._class_lock:
+            cls._instance = None
+
+    # =========================================================================
+    # 정책 관리
+    # =========================================================================
 
     def get_or_create(
         self,
         name: str,
-        config: RetryConfig | None = None,
-    ) -> RetryMechanism:
-        """이름으로 메커니즘 조회 또는 생성."""
-        if name not in self._mechanisms:
-            with self._lock:
-                if name not in self._mechanisms:
-                    self._mechanisms[name] = RetryMechanism(
-                        config=config or RetryConfig(),
-                        name=name,
-                    )
-        return self._mechanisms[name]
+        *,
+        max_retries: int = DEFAULT_MAX_RETRIES,
+        backoff: BackoffStrategy = BackoffStrategy.EXPONENTIAL,
+        initial_delay_sec: float = DEFAULT_INITIAL_DELAY_SEC,
+        max_delay_sec: float = DEFAULT_MAX_DELAY_SEC,
+        backoff_multiplier: float = DEFAULT_BACKOFF_MULTIPLIER,
+        jitter_ratio: float = DEFAULT_JITTER_RATIO,
+        retryable_exceptions: list[type[Exception]] | None = None,
+        retryable_checker: RetryableChecker | None = None,
+    ) -> RetryPolicy | None:
+        """정책 조회 또는 생성.
 
-    def get(self, name: str) -> RetryMechanism | None:
-        """이름으로 메커니즘 조회."""
-        return self._mechanisms.get(name)
+        Args:
+            name: 정책 이름
+            (나머지: RetryPolicy 생성자와 동일)
 
-    def register(self, name: str, mechanism: RetryMechanism) -> None:
-        """메커니즘 등록."""
+        Returns:
+            RetryPolicy 또는 한도 초과 시 None
+        """
         with self._lock:
-            self._mechanisms[name] = mechanism
+            if name in self._policies:
+                return self._policies[name]
 
-    def unregister(self, name: str) -> None:
-        """메커니즘 등록 해제."""
+            if len(self._policies) >= MAX_POLICIES:
+                return None
+
+            policy = RetryPolicy(
+                name,
+                max_retries=max_retries,
+                backoff=backoff,
+                initial_delay_sec=initial_delay_sec,
+                max_delay_sec=max_delay_sec,
+                backoff_multiplier=backoff_multiplier,
+                jitter_ratio=jitter_ratio,
+                retryable_exceptions=retryable_exceptions,
+                retryable_checker=retryable_checker,
+            )
+            self._policies[name] = policy
+            return policy
+
+    def get(self, name: str) -> RetryPolicy | None:
+        """정책 조회.
+
+        Returns:
+            RetryPolicy 또는 None
+        """
         with self._lock:
-            self._mechanisms.pop(name, None)
+            return self._policies.get(name)
 
-    def clear(self) -> None:
-        """모든 메커니즘 제거."""
+    def remove(self, name: str) -> bool:
+        """정책 제거.
+
+        Returns:
+            제거 성공 여부
+        """
         with self._lock:
-            self._mechanisms.clear()
+            if name in self._policies:
+                del self._policies[name]
+                return True
+            return False
 
-    def list_all(self) -> list[str]:
-        """모든 메커니즘 이름 반환."""
-        return list(self._mechanisms.keys())
+    def has(self, name: str) -> bool:
+        """정책 존재 여부."""
+        with self._lock:
+            return name in self._policies
 
+    # =========================================================================
+    # 관리
+    # =========================================================================
 
-# 글로벌 레지스트리 인스턴스
-_registry = _RetryRegistry()
+    @property
+    def policy_count(self) -> int:
+        """등록된 정책 수."""
+        with self._lock:
+            return len(self._policies)
 
+    @property
+    def policy_names(self) -> list[str]:
+        """등록된 정책 이름 목록."""
+        with self._lock:
+            return list(self._policies.keys())
 
-def get_retry_mechanism(name: str) -> RetryMechanism | None:
-    """
-    이름으로 RetryMechanism 조회.
+    def clear(self) -> int:
+        """전체 정책 제거.
 
-    Args:
-        name: 메커니즘 이름
+        Returns:
+            제거된 수
+        """
+        with self._lock:
+            count = len(self._policies)
+            self._policies.clear()
+            return count
 
-    Returns:
-        RetryMechanism 또는 None
-    """
-    return _registry.get(name)
-
-
-def register_retry_mechanism(name: str, mechanism: RetryMechanism) -> None:
-    """
-    RetryMechanism 등록.
-
-    Args:
-        name: 메커니즘 이름
-        mechanism: RetryMechanism 인스턴스
-    """
-    _registry.register(name, mechanism)
-
-
-# ============================================================
-# 유틸리티 함수 (테스트용)
-# ============================================================
-def _reset_registry() -> None:
-    """레지스트리 초기화 (테스트용)."""
-    _registry.clear()
+    def __repr__(self) -> str:
+        return f"RetryPolicyRegistry(policies={self.policy_count})"
 
 
-# ============================================================
-# 모듈 내보내기
-# ============================================================
+# =============================================================================
+# 모듈 Export 정의
+# =============================================================================
 __all__ = [
     # Enum
     "BackoffStrategy",
     "RetryOutcome",
-    # 상수
-    "DEFAULT_MAX_ATTEMPTS",
-    "DEFAULT_INITIAL_DELAY",
-    "DEFAULT_MAX_DELAY",
-    "DEFAULT_EXPONENTIAL_BASE",
-    "DEFAULT_JITTER_FACTOR",
     # 데이터 클래스
-    "RetryConfig",
-    "RetryAttempt",
+    "AttemptRecord",
     "RetryResult",
-    # 메인 클래스
-    "RetryMechanism",
-    # 데코레이터
-    "retry",
-    "async_retry",
-    # 함수
-    "calculate_backoff",
-    "create_retry_mechanism",
-    "get_retry_mechanism",
-    "register_retry_mechanism",
-    # 유틸리티 (테스트용)
-    "_reset_registry",
+    # 타입
+    "RetryEventCallback",
+    "RetryableChecker",
+    # 핵심 클래스
+    "RetryPolicy",
+    "RetryPolicyRegistry",
+    # 상수
+    "DEFAULT_MAX_RETRIES",
+    "DEFAULT_INITIAL_DELAY_SEC",
+    "DEFAULT_MAX_DELAY_SEC",
+    "DEFAULT_BACKOFF_MULTIPLIER",
+    "DEFAULT_JITTER_RATIO",
+    "MAX_POLICIES",
+    "MAX_ATTEMPT_HISTORY",
+    "MAX_CALLBACKS_PER_POLICY",
 ]
+
+__version__ = "1.0.0"

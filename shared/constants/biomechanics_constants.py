@@ -31,16 +31,27 @@ COURTVIEW - AI 농구 분석 플랫폼
 - biomechanics/standards/: 연령대별 표준 기준
 - motion_analysis/classification/: 동작 분류 기준값
 - feedback_system/: 동작 피드백 참조값
+
+사용 예시:
+    >>> from shared.constants.biomechanics_constants import BodySegment, MovementIntensity
+    >>> BodySegment.UPPER_ARM.is_bilateral
+    True
+    >>> BodySegment.HEAD.mass_ratio_male
+    0.0694
+    >>> MovementIntensity.SPRINTING.velocity_range_adult_male
+    (5.5, 8.5)
+    >>> MovementIntensity.RUNNING.velocity_range_adult_male
+    (3.0, 5.5)
 """
+
+from __future__ import annotations
+
 
 from enum import Enum, unique
 from typing import Final
 
 from shared.constants.localization import SupportedLanguage
 from shared.constants.player_constants import AgeGroup, Gender
-
-
-__version__: str = "1.0.0"
 
 
 # =============================================================================
@@ -841,93 +852,9 @@ AGE_ANGLE_TOLERANCE: Final[dict[AgeGroup, float]] = {
 
 
 # =============================================================================
-# 유틸리티 함수
-# =============================================================================
-
-def get_segment_mass_ratio(
-    segment: BodySegment, gender: Gender
-) -> float:
-    """
-    성별에 따른 세그먼트 질량비 반환.
-
-    Args:
-        segment: 신체 세그먼트
-        gender: 성별
-
-    Returns:
-        전체 체중 대비 질량 비율 (0.0~1.0)
-    """
-    if gender == Gender.MALE:
-        return SEGMENT_MASS_RATIO_MALE[segment]
-    return SEGMENT_MASS_RATIO_FEMALE[segment]
-
-
-def get_segment_com_proximal(
-    segment: BodySegment, gender: Gender
-) -> float:
-    """
-    성별에 따른 세그먼트 무게중심 근위 비율 반환.
-
-    Args:
-        segment: 신체 세그먼트
-        gender: 성별
-
-    Returns:
-        세그먼트 근위단 기준 무게중심 위치 비율 (0.0~1.0)
-    """
-    if gender == Gender.MALE:
-        return SEGMENT_COM_PROXIMAL_MALE[segment]
-    return SEGMENT_COM_PROXIMAL_FEMALE[segment]
-
-
-def get_velocity_thresholds(
-    intensity: MovementIntensity,
-    age_group: AgeGroup = AgeGroup.ADULT,
-    gender: Gender = Gender.MALE,
-) -> tuple[float, float]:
-    """
-    연령대/성별 보정된 이동 속도 임계치 반환.
-
-    Args:
-        intensity: 이동 강도
-        age_group: 연령대
-        gender: 성별
-
-    Returns:
-        (최소 속도 m/s, 최대 속도 m/s)
-    """
-    base = VELOCITY_THRESHOLDS_ADULT_MALE[intensity]
-    age_factor = AGE_VELOCITY_FACTOR[age_group]
-    gender_factor = GENDER_VELOCITY_FACTOR[gender]
-    combined_factor = age_factor * gender_factor
-    return (base[0] * combined_factor, base[1] * combined_factor)
-
-
-def get_adjusted_angle_range(
-    optimal_range: tuple[float, float],
-    age_group: AgeGroup = AgeGroup.ADULT,
-) -> tuple[float, float]:
-    """
-    연령대 보정된 관절 각도 적정 범위 반환.
-
-    Args:
-        optimal_range: 성인 최적 범위 (min_deg, max_deg)
-        age_group: 연령대
-
-    Returns:
-        보정된 (최소각도, 최대각도)
-    """
-    tolerance = AGE_ANGLE_TOLERANCE[age_group]
-    return (
-        max(0.0, optimal_range[0] - tolerance),
-        min(180.0, optimal_range[1] + tolerance),
-    )
-
-
-# =============================================================================
 # 모듈 Export 정의
 # =============================================================================
-__all__: list[str] = [
+__all__ = [
     # 버전
     "__version__",
     # 열거형
@@ -1010,9 +937,7 @@ __all__: list[str] = [
     "AGE_TRUNK_MASS_FACTOR",
     "AGE_LIMB_LENGTH_FACTOR",
     "AGE_ANGLE_TOLERANCE",
-    # 유틸리티 함수
-    "get_segment_mass_ratio",
-    "get_segment_com_proximal",
-    "get_velocity_thresholds",
-    "get_adjusted_angle_range",
 ]
+
+# 모듈 버전 정보
+__version__ = "1.0.0"

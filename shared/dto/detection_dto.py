@@ -14,9 +14,11 @@ COURTVIEW - AI 농구 분석 플랫폼
 버전: 1.0.0
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from enum import Enum, unique
-from typing import Any, Final, Optional
+from typing import Any, Final
 
 import numpy as np
 from numpy.typing import NDArray
@@ -36,6 +38,10 @@ class ObjectType(str, Enum):
 
     감지할 수 있는 객체의 유형을 정의합니다.
     다국어 지원을 위해 get_name(lang) 메서드를 제공합니다.
+
+    >>> obj_type = ObjectType.PLAYER
+    >>> obj_type.value
+    'player'
     """
 
     # 인물 관련
@@ -396,7 +402,7 @@ _DETECTION_SOURCE_I18N: Final[dict[DetectionSource, dict[SupportedLanguage, str]
 # 데이터 클래스
 # =============================================================================
 
-@dataclass
+@dataclass(slots=True)
 class DetectedObject:
     """
     감지된 객체.
@@ -420,18 +426,18 @@ class DetectedObject:
 
     object_id: int = 0
     object_type: ObjectType = ObjectType.UNKNOWN
-    bbox: Optional[BoundingBox] = None
+    bbox: BoundingBox | None = None
     confidence: float = 0.0
     source: DetectionSource = DetectionSource.UNKNOWN
-    position: Optional[Point2D] = None
-    position_3d: Optional[Point3D] = None
+    position: Point2D | None = None
+    position_3d: Point3D | None = None
     class_id: int = -1
-    track_id: Optional[int] = None
+    track_id: int | None = None
     attributes: dict[str, Any] = field(default_factory=dict)
-    mask: Optional[NDArray[np.uint8]] = None
-    features: Optional[NDArray[np.float32]] = None
+    mask: NDArray[np.uint8] | None = None
+    features: NDArray[np.float32] | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """초기화 후 처리."""
         # 신뢰도 범위 검증
         self.confidence = max(0.0, min(1.0, self.confidence))
@@ -468,12 +474,12 @@ class DetectedObject:
         return self.bbox.area
 
     @property
-    def team(self) -> Optional[str]:
+    def team(self) -> str | None:
         """팀 (있는 경우)."""
         return self.attributes.get("team")
 
     @property
-    def jersey_number(self) -> Optional[int]:
+    def jersey_number(self) -> int | None:
         """등번호 (있는 경우)."""
         return self.attributes.get("jersey_number")
 
@@ -500,7 +506,7 @@ class DetectedObject:
         return self.position.distance_to(other.position)
 
 
-@dataclass
+@dataclass(slots=True)
 class DetectionConfig:
     """
     감지 설정.
@@ -531,7 +537,7 @@ class DetectionConfig:
     batch_size: int = 1
     half_precision: bool = False
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """초기화 후 처리."""
         # 임계값 범위 검증
         self.confidence_threshold = max(0.0, min(1.0, self.confidence_threshold))
@@ -567,7 +573,7 @@ class DetectionConfig:
         }
 
 
-@dataclass
+@dataclass(slots=True)
 class DetectionResult:
     """
     감지 결과.
@@ -590,9 +596,9 @@ class DetectionResult:
     objects: list[DetectedObject] = field(default_factory=list)
     source: DetectionSource = DetectionSource.UNKNOWN
     processing_time_ms: float = 0.0
-    camera_id: Optional[str] = None
-    image_size: Optional[tuple[int, int]] = None
-    config: Optional[DetectionConfig] = None
+    camera_id: str | None = None
+    image_size: tuple[int, int] | None = None
+    config: DetectionConfig | None = None
 
     @property
     def num_objects(self) -> int:
@@ -618,7 +624,7 @@ class DetectionResult:
         return any(obj.is_ball for obj in self.objects)
 
     @property
-    def ball_detection(self) -> Optional[DetectedObject]:
+    def ball_detection(self) -> DetectedObject | None:
         """공 감지 결과."""
         for obj in self.objects:
             if obj.is_ball:
@@ -644,7 +650,7 @@ class DetectionResult:
         """심판 목록."""
         return self.get_objects_by_type(ObjectType.REFEREE)
 
-    def get_object_by_id(self, object_id: int) -> Optional[DetectedObject]:
+    def get_object_by_id(self, object_id: int) -> DetectedObject | None:
         """ID로 객체 조회."""
         for obj in self.objects:
             if obj.object_id == object_id:
@@ -659,11 +665,11 @@ class DetectionResult:
         """영역 내 객체 필터링."""
         return [
             obj for obj in self.objects
-            if obj.bbox is not None and bbox.contains_point(obj.position)
+            if obj.position is not None and bbox.contains(obj.position)
         ]
 
 
-@dataclass
+@dataclass(slots=True)
 class MultiViewDetectionResult:
     """
     멀티뷰 감지 결과.
@@ -699,7 +705,7 @@ class MultiViewDetectionResult:
         """전체 감지 수 (모든 뷰 합계)."""
         return sum(r.num_objects for r in self.view_results.values())
 
-    def get_view_result(self, camera_id: str) -> Optional[DetectionResult]:
+    def get_view_result(self, camera_id: str) -> DetectionResult | None:
         """카메라 ID로 뷰 결과 조회."""
         return self.view_results.get(camera_id)
 

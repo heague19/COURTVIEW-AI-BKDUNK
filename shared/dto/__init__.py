@@ -46,7 +46,7 @@ from shared.dto.video_dto import (
     AudioCodec,
     # 데이터 클래스
     VideoResolution,
-    VideoMetadata as VideoMetadataV2,  # v1 VideoMetadata와 구분
+    VideoFileMetadata,
     FrameData,
     VideoSegment,
     VideoInfo,
@@ -119,10 +119,6 @@ from shared.dto.tracking_dto import (
 # 오클루전 데이터 DTO
 # =============================================================================
 from shared.dto.occlusion_dto import (
-    # 열거형 (re-export from constants)
-    OcclusionType,
-    OcclusionSeverity,
-    ResolutionStrategy,
     # 데이터 클래스
     ViewVisibility,
     OccludedObject,
@@ -135,9 +131,6 @@ from shared.dto.occlusion_dto import (
 # Re-ID 데이터 DTO
 # =============================================================================
 from shared.dto.reid_dto import (
-    # 열거형 (re-export from constants)
-    ReIDModel,
-    MatchStatus,
     # 데이터 클래스
     ReIDFeature,
     GalleryEntry,
@@ -150,10 +143,6 @@ from shared.dto.reid_dto import (
 # 포즈/스켈레톤 DTO (v2.0.0 신규 - v2.1.0 i18n 업데이트)
 # =============================================================================
 from shared.dto.pose_dto import (
-    # 열거형 (re-export from constants - i18n 지원)
-    JointType,
-    SkeletonType,
-    PoseQuality,
     # 데이터 클래스
     Keypoint,
     JointAngle,  # get_description(lang) 메서드 추가됨
@@ -181,11 +170,8 @@ from shared.dto.detection_dto import (
 # =============================================================================
 from shared.dto.ball_dto import (
     # 열거형
-    BallState,
-    BallSize,
-    ShotType as BallShotType,  # game_dto.ShotType과 구분
     TrajectoryType,
-    ShotResult as BallShotResult,  # game_dto.ShotResult와 구분
+    BallShotResult,
     # 데이터 클래스
     BallDetection,
     BallTrajectory,
@@ -197,9 +183,7 @@ from shared.dto.ball_dto import (
 # OCR 결과 DTO (v2.0.0 신규 - i18n 업데이트)
 # =============================================================================
 from shared.dto.ocr_dto import (
-    # 다국어 지원 (re-export)
-    SupportedLanguage as OCRSupportedLanguage,  # localization에서 이미 import한 경우 별칭 사용
-    # 열거형 (i18n 지원)
+    # 열거형 (DTO 고유)
     OCRBackend,
     OCRStatus,
     # 데이터 클래스
@@ -237,7 +221,7 @@ from shared.dto.player_dto import (
     PlayerPosition,
     # 데이터 클래스
     PlayerID,
-    PlayerInfo as PlayerInfoV2,  # game_dto.PlayerInfo와 구분
+    DetailedPlayerInfo,
     IdentificationSource,
     PlayerIdentification,
     PlayerHistoryEntry,
@@ -284,6 +268,9 @@ from shared.dto.feedback_dto import (
     BodyPart,
     MotionPhase,
     FeedbackSource,
+    # 영상 증거 & 원인 요소
+    VideoClipReference,
+    CausalFactor,
     # 세부 피드백
     FeedbackItem,
     MotionScore,
@@ -306,17 +293,6 @@ from shared.dto.feedback_dto import (
 # 경기 분석 관련 DTO (기존 - v2.0.0 i18n 업데이트)
 # =============================================================================
 from shared.dto.game_dto import (
-    # 다국어 지원 (re-export)
-    SupportedLanguage as GameSupportedLanguage,  # localization에서 이미 import한 경우 별칭 사용
-    # 열거형 (8개 - 모두 i18n 지원)
-    ShotType,
-    ShotResult,
-    CourtZone,
-    PlayType,
-    EventType,
-    HighlightType,
-    ViolationType,
-    FoulType,
     # 선수/팀 정보
     PlayerInfo,
     TeamInfo,
@@ -341,20 +317,13 @@ from shared.dto.game_dto import (
     # AI 심판 - 감지 결과 DTO
     ViolationDetection,
     FoulDetection,
-    RefereeReport as GameRefereeReport,  # 이름 충돌 방지 (referee_dto.RefereeReport와 구분)
+    GameRefereeReport,
 )
 
 # =============================================================================
 # AI 심판 시스템 DTO (v2.3.0 신규 - Desktop Edition)
 # =============================================================================
 from shared.dto.referee_dto import (
-    # 규정 Enum
-    RuleSet,
-    CallType,
-    SignalType,
-    ReviewTrigger,
-    ReviewOutcome,
-    RefereeRole,
     # 판정 시스템
     RefereeCall,
     RefereePosition,
@@ -367,6 +336,7 @@ from shared.dto.referee_dto import (
     ConsistencyMetrics,
     RefereePerformance,
     # 경기 관리
+    ClockAdjustment,
     TimeoutManagement,
     SubstitutionRecord,
     GameClockManagement,
@@ -377,7 +347,7 @@ from shared.dto.referee_dto import (
     AdvantageDecision,
     UnsportsmanlikeBehavior,
     # 통합 리포트
-    RefereeReport,  # AI 심판 시스템 리포트 (game_dto의 GameRefereeReport와 구분)
+    RefereeReport,
 )
 
 # =============================================================================
@@ -395,6 +365,16 @@ from shared.dto.biomechanics_dto import (
     MotionPatternData,
     # 인체측정
     AnthropometryData,
+    # 이벤트 데이터
+    LandingImpactData,
+    ContactEventData,
+    ExplosiveEventData,
+    DirectionChangeData,
+    # 시퀀스 요약 데이터
+    TrajectoryProfileData,
+    MomentumProfileData,
+    EnergyProfileData,
+    BalanceHistoryData,
     # 종합 결과
     BiomechanicalFrame,
     BiomechanicalResult,
@@ -432,6 +412,10 @@ from shared.dto.motion_dto import (
 # 경기 관리 DTO (v4.0.0 신규 - Layer 5 Phase 1A)
 # =============================================================================
 from shared.dto.game_management_dto import (
+    # 세부 구조체
+    TimeoutRecord,
+    PlayerBoxStat,
+    TeamBoxStat,
     # 열거형
     GameState,
     BonusStatus,
@@ -462,6 +446,17 @@ from shared.dto.prediction_dto import (
 # 전술/분석 결과 DTO (v4.0.0 신규 - Layer 5 Phase 3)
 # =============================================================================
 from shared.dto.tactical_dto import (
+    # 세부 구조체
+    DetectedPlay,
+    PassConnection,
+    DriveStats,
+    OffBallMovement,
+    ClutchStats,
+    FatigueIndicators,
+    ScoringRun,
+    MomentumShift,
+    TimeoutEffectiveness,
+    ReboundPosition,
     # 열거형
     DefenseScheme,
     MomentumState,
@@ -489,13 +484,27 @@ from shared.dto.tactical_dto import (
 # 스카우팅/게임플랜 DTO (v4.0.0 신규 - Layer 5 Phase 3+4)
 # =============================================================================
 from shared.dto.scouting_dto import (
+    # 세부 구조체
+    KeyPlayerInfo,
+    DefensiveGap,
+    MatchupExploit,
+    RecentGameResult,
+    StrategyItem,
+    SwitchRule,
+    DoubleTeamTrigger,
+    KeyMatchup,
+    StrategyExecution,
+    PlanDeviation,
+    # 스카우팅
     OpponentProfile,
     TendencyReport,
     WeaknessReport,
     HeadToHeadRecord,
+    # 게임플랜
     GamePlan,
     DefensiveAssignment,
     PreGameBriefing,
+    # 전략 실행도
     GamePlanExecutionResult,
 )
 
@@ -520,6 +529,11 @@ from shared.dto.media_dto import (
 # 데이터셋 추출 DTO (v4.0.0 신규 - Layer 5 Phase 5)
 # =============================================================================
 from shared.dto.dataset_dto import (
+    # 세부 구조체
+    KeypointRecord,
+    ActionRecord,
+    EventRecord,
+    LineupRecord,
     # 열거형
     DatasetType,
     DatasetSplit,
@@ -533,6 +547,18 @@ from shared.dto.dataset_dto import (
     FrameRecord,
     PossessionRecord,
     GameDataRecord,
+    # game_analysis 고유 학습 데이터
+    EventCorrectionRecord,
+    TacticalSequenceRecord,
+    PlayerPerformanceRecord,
+    PredictionOutcomeRecord,
+    # ai_referee 자가학습용
+    DecisionRecord,
+    CorrectionPairRecord,
+    EdgeCaseRecord,
+    CalibrationRecord,
+    FoulContactRecord,
+    ViolationSequenceRecord,
     # 메타데이터/결과
     DatasetMetadata,
     ExtractionResult,
@@ -575,7 +601,7 @@ __all__ = [
     "VideoCodec",
     "AudioCodec",
     "VideoResolution",
-    "VideoMetadataV2",
+    "VideoFileMetadata",
     "FrameData",
     "VideoSegment",
     "VideoInfo",
@@ -627,9 +653,6 @@ __all__ = [
     # =========================================================================
     # 오클루전 데이터 DTO
     # =========================================================================
-    "OcclusionType",
-    "OcclusionSeverity",
-    "ResolutionStrategy",
     "ViewVisibility",
     "OccludedObject",
     "OcclusionEvent",
@@ -638,8 +661,6 @@ __all__ = [
     # =========================================================================
     # Re-ID 데이터 DTO
     # =========================================================================
-    "ReIDModel",
-    "MatchStatus",
     "ReIDFeature",
     "GalleryEntry",
     "ReIDGallery",
@@ -648,9 +669,6 @@ __all__ = [
     # =========================================================================
     # 포즈/스켈레톤 DTO (v2.0.0 - v2.1.0 i18n 업데이트)
     # =========================================================================
-    "JointType",      # i18n: get_name(lang)
-    "SkeletonType",   # i18n: get_name(lang)
-    "PoseQuality",    # i18n: get_name(lang)
     "Keypoint",
     "JointAngle",     # i18n: get_description(lang)
     "Skeleton2D",
@@ -668,9 +686,6 @@ __all__ = [
     # =========================================================================
     # 공 감지/궤적 DTO
     # =========================================================================
-    "BallState",
-    "BallSize",
-    "BallShotType",
     "TrajectoryType",
     "BallShotResult",
     "BallDetection",
@@ -680,7 +695,6 @@ __all__ = [
     # =========================================================================
     # OCR 결과 DTO (v2.0.0 - i18n 업데이트)
     # =========================================================================
-    "OCRSupportedLanguage",
     "OCRBackend",
     "OCRStatus",
     "OCRResult",
@@ -691,8 +705,8 @@ __all__ = [
     # =========================================================================
     # 3D 씬 데이터 DTO (v2.0.0 - v2.2.0 i18n 업데이트)
     # =========================================================================
-    "SceneStatus",     # i18n: get_name(lang)
-    "ObjectCategory",  # i18n: get_name(lang)
+    "SceneStatus",
+    "ObjectCategory",
     "SceneObject",
     "CourtModel",
     "HoopModel",
@@ -707,7 +721,7 @@ __all__ = [
     "PlayerRole",
     "PlayerPosition",
     "PlayerID",
-    "PlayerInfoV2",
+    "DetailedPlayerInfo",
     "IdentificationSource",
     "PlayerIdentification",
     "PlayerHistoryEntry",
@@ -740,6 +754,8 @@ __all__ = [
     "BodyPart",
     "MotionPhase",
     "FeedbackSource",
+    "VideoClipReference",
+    "CausalFactor",
     "FeedbackItem",
     "MotionScore",
     "MotionComparison",
@@ -754,14 +770,6 @@ __all__ = [
     # =========================================================================
     # 경기 DTO (기존)
     # =========================================================================
-    "ShotType",
-    "ShotResult",
-    "CourtZone",
-    "PlayType",
-    "EventType",
-    "HighlightType",
-    "ViolationType",
-    "FoulType",
     "PlayerInfo",
     "TeamInfo",
     "ShotAttempt",
@@ -779,16 +787,10 @@ __all__ = [
     "ReviewSuggestion",
     "ViolationDetection",
     "FoulDetection",
-    "GameRefereeReport",  # game_dto의 RefereeReport (별칭)
+    "GameRefereeReport",
     # =========================================================================
     # AI 심판 시스템 DTO (v2.3.0 - Desktop Edition)
     # =========================================================================
-    "RuleSet",
-    "CallType",
-    "SignalType",
-    "ReviewTrigger",
-    "ReviewOutcome",
-    "RefereeRole",
     "RefereeCall",
     "RefereePosition",
     "CallContext",
@@ -797,6 +799,7 @@ __all__ = [
     "CallAccuracy",
     "ConsistencyMetrics",
     "RefereePerformance",
+    "ClockAdjustment",
     "TimeoutManagement",
     "SubstitutionRecord",
     "GameClockManagement",
@@ -815,6 +818,14 @@ __all__ = [
     "ForceEstimate",
     "MotionPatternData",
     "AnthropometryData",
+    "LandingImpactData",
+    "ContactEventData",
+    "ExplosiveEventData",
+    "DirectionChangeData",
+    "TrajectoryProfileData",
+    "MomentumProfileData",
+    "EnergyProfileData",
+    "BalanceHistoryData",
     "BiomechanicalFrame",
     "BiomechanicalResult",
     # =========================================================================
@@ -839,6 +850,10 @@ __all__ = [
     # =========================================================================
     # 경기 관리 DTO (v4.0.0 - Layer 5 Phase 1A)
     # =========================================================================
+    # 세부 구조체
+    "TimeoutRecord",
+    "PlayerBoxStat",
+    "TeamBoxStat",
     "GameState",
     "BonusStatus",
     "CorrectionType",
@@ -861,6 +876,17 @@ __all__ = [
     # =========================================================================
     # 전술/분석 결과 DTO (v4.0.0 - Layer 5 Phase 3)
     # =========================================================================
+    # 세부 구조체
+    "DetectedPlay",
+    "PassConnection",
+    "DriveStats",
+    "OffBallMovement",
+    "ClutchStats",
+    "FatigueIndicators",
+    "ScoringRun",
+    "MomentumShift",
+    "TimeoutEffectiveness",
+    "ReboundPosition",
     "DefenseScheme",
     "MomentumState",
     "TrendDirection",
@@ -882,13 +908,27 @@ __all__ = [
     # =========================================================================
     # 스카우팅/게임플랜 DTO (v4.0.0 - Layer 5 Phase 3+4)
     # =========================================================================
+    # 세부 구조체
+    "KeyPlayerInfo",
+    "DefensiveGap",
+    "MatchupExploit",
+    "RecentGameResult",
+    "StrategyItem",
+    "SwitchRule",
+    "DoubleTeamTrigger",
+    "KeyMatchup",
+    "StrategyExecution",
+    "PlanDeviation",
+    # 스카우팅
     "OpponentProfile",
     "TendencyReport",
     "WeaknessReport",
     "HeadToHeadRecord",
+    # 게임플랜
     "GamePlan",
     "DefensiveAssignment",
     "PreGameBriefing",
+    # 전략 실행도
     "GamePlanExecutionResult",
     # =========================================================================
     # 미디어/비디오 편집 DTO (v4.0.0 - Layer 5 Phase 4)
@@ -905,6 +945,11 @@ __all__ = [
     # =========================================================================
     # 데이터셋 추출 DTO (v4.0.0 - Layer 5 Phase 5)
     # =========================================================================
+    # 세부 구조체
+    "KeypointRecord",
+    "ActionRecord",
+    "EventRecord",
+    "LineupRecord",
     "DatasetType",
     "DatasetSplit",
     "UploadStatus",
@@ -915,6 +960,16 @@ __all__ = [
     "FrameRecord",
     "PossessionRecord",
     "GameDataRecord",
+    "EventCorrectionRecord",
+    "TacticalSequenceRecord",
+    "PlayerPerformanceRecord",
+    "PredictionOutcomeRecord",
+    "DecisionRecord",
+    "CorrectionPairRecord",
+    "EdgeCaseRecord",
+    "CalibrationRecord",
+    "FoulContactRecord",
+    "ViolationSequenceRecord",
     "DatasetMetadata",
     "ExtractionResult",
     # =========================================================================

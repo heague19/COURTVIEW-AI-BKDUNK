@@ -8,7 +8,10 @@ COURTVIEW - AI 농구 분석 플랫폼
 
 작성자: SPOIN_COURTVIEW
 최종 수정: 2026-02-16
+버전: 1.0.0
 """
+
+from __future__ import annotations
 
 # =============================================================================
 # 기본 예외 클래스
@@ -210,14 +213,28 @@ from shared.exceptions.infrastructure_exceptions import (
     CodecException,
     CorruptedFileException,
     # 프레임 추출 예외 (2개)
-    FrameExtractionException as InfraFrameExtractionException,
+    InfraFrameExtractionException,
     EndOfStreamException,
     # 비디오 정규화 예외 (2개)
     NormalizationException,
-    ResolutionException as InfraResolutionException,
+    InfraResolutionException,
     # 분류/샘플링 예외 (2개)
     ClassificationException,
     SamplingException,
+    # 프레임 정렬/동기화 예외 (3개, v3.0.0)
+    AlignmentException,
+    FrameDropException,
+    SyncException,
+    # 카메라/캘리브레이션/설정 예외 (9개, v3.0.0)
+    CameraException,
+    CameraConnectionException,
+    CameraTimeoutException,
+    CalibrationException,
+    TransformationException,
+    CalibrationRequiredException,
+    InfraInsufficientDataException,
+    InfraConfigurationException,
+    InfraValidationException,
 )
 
 __all__ = [
@@ -389,6 +406,10 @@ __all__ = [
     # 분류/샘플링 예외 (2개)
     "ClassificationException",
     "SamplingException",
+    # 프레임 정렬/동기화 예외 (3개, v3.0.0)
+    "AlignmentException",
+    "FrameDropException",
+    "SyncException",
     # ==========================================================================
     # Desktop 하드웨어 예외 (22개)
     # ==========================================================================
@@ -416,6 +437,18 @@ __all__ = [
     "CameraGenlockException",
     "MultiViewCalibrationException",
     "CoordinateTransformException",
+    # ==========================================================================
+    # 인프라 카메라/캘리브레이션/설정 예외 (9개, v3.0.0)
+    # ==========================================================================
+    "CameraException",
+    "CameraConnectionException",
+    "CameraTimeoutException",
+    "CalibrationException",
+    "TransformationException",
+    "CalibrationRequiredException",
+    "InfraInsufficientDataException",
+    "InfraConfigurationException",
+    "InfraValidationException",
 ]
 
-__version__ = "1.2.0"
+__version__ = "1.0.0"

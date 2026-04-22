@@ -19,16 +19,21 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum, unique
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 from uuid import UUID, uuid4
 
 import numpy as np
 
 from shared.constants.court_constants import (
+    BACKBOARD_HEIGHT_M,
+    BACKBOARD_WIDTH_M,
     COURT_LENGTH_M,
     COURT_WIDTH_M,
+    FREE_THROW_LINE_DISTANCE_M,
     HOOP_DIAMETER_M,
     HOOP_HEIGHT_M,
+    KEY_WIDTH_M,
+    THREE_POINT_LINE_DISTANCE_M,
 )
 from shared.dto.geometry_dto import BoundingBox3D, Point3D
 
@@ -37,132 +42,28 @@ if TYPE_CHECKING:
 
 
 # =============================================================================
-# i18n 번역 맵 (5개 언어 지원)
+# i18n 모듈 레벨 캐시 (Final immutable dict)
 # =============================================================================
 
-# SceneStatus 다국어 번역
-_SCENE_STATUS_I18N_MAP: dict[str, dict["SceneStatus", str]] = {
-    "ko": {
-        # SceneStatus.COMPLETE, PARTIAL 등은 클래스 정의 후 참조
-    },
-    "en": {},
-    "ja": {},
-    "zh": {},
-    "es": {},
+_SCENE_STATUS_I18N: Final[dict[str, dict[str, str]]] = {
+    "complete": {"ko": "완전", "en": "Complete", "ja": "完全", "zh": "完整", "es": "Completo"},
+    "partial": {"ko": "부분", "en": "Partial", "ja": "部分的", "zh": "部分", "es": "Parcial"},
+    "updating": {"ko": "업데이트 중", "en": "Updating", "ja": "更新中", "zh": "更新中", "es": "Actualizando"},
+    "initializing": {"ko": "초기화 중", "en": "Initializing", "ja": "初期化中", "zh": "初始化中", "es": "Inicializando"},
+    "error": {"ko": "오류", "en": "Error", "ja": "エラー", "zh": "错误", "es": "Error"},
 }
 
-# ObjectCategory 다국어 번역
-_OBJECT_CATEGORY_I18N_MAP: dict[str, dict["ObjectCategory", str]] = {
-    "ko": {},
-    "en": {},
-    "ja": {},
-    "zh": {},
-    "es": {},
+_OBJECT_CATEGORY_I18N: Final[dict[str, dict[str, str]]] = {
+    "player": {"ko": "선수", "en": "Player", "ja": "選手", "zh": "球员", "es": "Jugador"},
+    "referee": {"ko": "심판", "en": "Referee", "ja": "審判", "zh": "裁判", "es": "Árbitro"},
+    "coach": {"ko": "코치", "en": "Coach", "ja": "コーチ", "zh": "教练", "es": "Entrenador"},
+    "ball": {"ko": "공", "en": "Ball", "ja": "ボール", "zh": "篮球", "es": "Balón"},
+    "court": {"ko": "코트", "en": "Court", "ja": "コート", "zh": "球场", "es": "Cancha"},
+    "hoop": {"ko": "골대", "en": "Hoop", "ja": "ゴール", "zh": "篮筐", "es": "Aro"},
+    "backboard": {"ko": "백보드", "en": "Backboard", "ja": "バックボード", "zh": "篮板", "es": "Tablero"},
+    "bench": {"ko": "벤치", "en": "Bench", "ja": "ベンチ", "zh": "替补席", "es": "Banco"},
+    "unknown": {"ko": "미분류", "en": "Unknown", "ja": "不明", "zh": "未知", "es": "Desconocido"},
 }
-
-
-def _init_scene_status_i18n() -> None:
-    """SceneStatus i18n 맵 초기화 (클래스 정의 후 호출)."""
-    global _SCENE_STATUS_I18N_MAP
-    _SCENE_STATUS_I18N_MAP = {
-        "ko": {
-            SceneStatus.COMPLETE: "완전",
-            SceneStatus.PARTIAL: "부분",
-            SceneStatus.UPDATING: "업데이트 중",
-            SceneStatus.INITIALIZING: "초기화 중",
-            SceneStatus.ERROR: "오류",
-        },
-        "en": {
-            SceneStatus.COMPLETE: "Complete",
-            SceneStatus.PARTIAL: "Partial",
-            SceneStatus.UPDATING: "Updating",
-            SceneStatus.INITIALIZING: "Initializing",
-            SceneStatus.ERROR: "Error",
-        },
-        "ja": {
-            SceneStatus.COMPLETE: "完全",
-            SceneStatus.PARTIAL: "部分的",
-            SceneStatus.UPDATING: "更新中",
-            SceneStatus.INITIALIZING: "初期化中",
-            SceneStatus.ERROR: "エラー",
-        },
-        "zh": {
-            SceneStatus.COMPLETE: "完整",
-            SceneStatus.PARTIAL: "部分",
-            SceneStatus.UPDATING: "更新中",
-            SceneStatus.INITIALIZING: "初始化中",
-            SceneStatus.ERROR: "错误",
-        },
-        "es": {
-            SceneStatus.COMPLETE: "Completo",
-            SceneStatus.PARTIAL: "Parcial",
-            SceneStatus.UPDATING: "Actualizando",
-            SceneStatus.INITIALIZING: "Inicializando",
-            SceneStatus.ERROR: "Error",
-        },
-    }
-
-
-def _init_object_category_i18n() -> None:
-    """ObjectCategory i18n 맵 초기화 (클래스 정의 후 호출)."""
-    global _OBJECT_CATEGORY_I18N_MAP
-    _OBJECT_CATEGORY_I18N_MAP = {
-        "ko": {
-            ObjectCategory.PLAYER: "선수",
-            ObjectCategory.REFEREE: "심판",
-            ObjectCategory.COACH: "코치",
-            ObjectCategory.BALL: "공",
-            ObjectCategory.COURT: "코트",
-            ObjectCategory.HOOP: "골대",
-            ObjectCategory.BACKBOARD: "백보드",
-            ObjectCategory.BENCH: "벤치",
-            ObjectCategory.UNKNOWN: "미분류",
-        },
-        "en": {
-            ObjectCategory.PLAYER: "Player",
-            ObjectCategory.REFEREE: "Referee",
-            ObjectCategory.COACH: "Coach",
-            ObjectCategory.BALL: "Ball",
-            ObjectCategory.COURT: "Court",
-            ObjectCategory.HOOP: "Hoop",
-            ObjectCategory.BACKBOARD: "Backboard",
-            ObjectCategory.BENCH: "Bench",
-            ObjectCategory.UNKNOWN: "Unknown",
-        },
-        "ja": {
-            ObjectCategory.PLAYER: "選手",
-            ObjectCategory.REFEREE: "審判",
-            ObjectCategory.COACH: "コーチ",
-            ObjectCategory.BALL: "ボール",
-            ObjectCategory.COURT: "コート",
-            ObjectCategory.HOOP: "ゴール",
-            ObjectCategory.BACKBOARD: "バックボード",
-            ObjectCategory.BENCH: "ベンチ",
-            ObjectCategory.UNKNOWN: "不明",
-        },
-        "zh": {
-            ObjectCategory.PLAYER: "球员",
-            ObjectCategory.REFEREE: "裁判",
-            ObjectCategory.COACH: "教练",
-            ObjectCategory.BALL: "篮球",
-            ObjectCategory.COURT: "球场",
-            ObjectCategory.HOOP: "篮筐",
-            ObjectCategory.BACKBOARD: "篮板",
-            ObjectCategory.BENCH: "替补席",
-            ObjectCategory.UNKNOWN: "未知",
-        },
-        "es": {
-            ObjectCategory.PLAYER: "Jugador",
-            ObjectCategory.REFEREE: "Árbitro",
-            ObjectCategory.COACH: "Entrenador",
-            ObjectCategory.BALL: "Balón",
-            ObjectCategory.COURT: "Cancha",
-            ObjectCategory.HOOP: "Aro",
-            ObjectCategory.BACKBOARD: "Tablero",
-            ObjectCategory.BENCH: "Banco",
-            ObjectCategory.UNKNOWN: "Desconocido",
-        },
-    }
 
 
 # =============================================================================
@@ -175,6 +76,9 @@ class SceneStatus(str, Enum):
     씬 상태 열거형.
 
     3D 씬의 현재 상태를 정의합니다.
+
+    >>> SceneStatus.COMPLETE.is_usable
+    True
     """
 
     # 완전 - 모든 객체가 추적됨
@@ -209,21 +113,9 @@ class SceneStatus(str, Enum):
         return self.get_name(SupportedLanguage.KO)
 
     def get_name(self, lang: "SupportedLanguage") -> str:
-        """
-        다국어 상태명 반환.
-
-        Args:
-            lang: 지원 언어 (SupportedLanguage)
-
-        Returns:
-            해당 언어의 상태명
-        """
-        from shared.constants.localization import SupportedLanguage
-        lang_translations = _SCENE_STATUS_I18N_MAP.get(
-            lang.value,
-            _SCENE_STATUS_I18N_MAP.get(SupportedLanguage.KO.value, {})
-        )
-        return lang_translations.get(self, self.value)
+        """다국어 상태명 반환 (모듈 레벨 캐시 참조)."""
+        entry = _SCENE_STATUS_I18N[self.value]
+        return entry.get(lang.value, entry["ko"])
 
 
 @unique
@@ -282,33 +174,16 @@ class ObjectCategory(str, Enum):
         return self.get_name(SupportedLanguage.KO)
 
     def get_name(self, lang: "SupportedLanguage") -> str:
-        """
-        다국어 카테고리명 반환.
-
-        Args:
-            lang: 지원 언어 (SupportedLanguage)
-
-        Returns:
-            해당 언어의 카테고리명
-        """
-        from shared.constants.localization import SupportedLanguage
-        lang_translations = _OBJECT_CATEGORY_I18N_MAP.get(
-            lang.value,
-            _OBJECT_CATEGORY_I18N_MAP.get(SupportedLanguage.KO.value, {})
-        )
-        return lang_translations.get(self, self.value)
-
-
-# i18n 맵 초기화 (enum 정의 후 호출)
-_init_scene_status_i18n()
-_init_object_category_i18n()
+        """다국어 카테고리명 반환 (모듈 레벨 캐시 참조)."""
+        entry = _OBJECT_CATEGORY_I18N[self.value]
+        return entry.get(lang.value, entry["ko"])
 
 
 # =============================================================================
 # 데이터 클래스
 # =============================================================================
 
-@dataclass
+@dataclass(slots=True)
 class SceneObject:
     """
     씬 내 객체.
@@ -386,7 +261,7 @@ class SceneObject:
         return self.position.distance_to(other.position)
 
 
-@dataclass
+@dataclass(slots=True)
 class CourtModel:
     """
     코트 모델.
@@ -410,12 +285,12 @@ class CourtModel:
     center: Point3D = field(default_factory=lambda: Point3D(0, 0, 0))
     orientation: float = 0.0
     half_court_line: float = 0.0
-    three_point_distance: float = 6.75
-    free_throw_distance: float = 4.6
-    key_width: float = 4.9
+    three_point_distance: float = THREE_POINT_LINE_DISTANCE_M
+    free_throw_distance: float = FREE_THROW_LINE_DISTANCE_M
+    key_width: float = KEY_WIDTH_M
     markings: dict[str, list[Point3D]] = field(default_factory=dict)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """초기화 후 처리."""
         self.half_court_line = self.length / 2
 
@@ -454,7 +329,7 @@ class CourtModel:
         return distance >= self.three_point_distance
 
 
-@dataclass
+@dataclass(slots=True)
 class HoopModel:
     """
     골대 모델.
@@ -477,8 +352,8 @@ class HoopModel:
     diameter: float = HOOP_DIAMETER_M
     orientation: float = 0.0
     backboard_position: Point3D | None = None
-    backboard_width: float = 1.8
-    backboard_height: float = 1.05
+    backboard_width: float = BACKBOARD_WIDTH_M
+    backboard_height: float = BACKBOARD_HEIGHT_M
     is_left_side: bool = True
 
     @property
@@ -498,7 +373,7 @@ class HoopModel:
         return float(np.sqrt(dx**2 + dy**2))
 
 
-@dataclass
+@dataclass(slots=True)
 class Scene3D:
     """
     3D 씬.
@@ -593,7 +468,7 @@ class Scene3D:
         )
 
 
-@dataclass
+@dataclass(slots=True)
 class SceneSnapshot:
     """
     씬 스냅샷.
@@ -623,7 +498,7 @@ class SceneSnapshot:
         return self.scene.has_ball
 
 
-@dataclass
+@dataclass(slots=True)
 class SceneTimeline:
     """
     씬 타임라인.
@@ -679,7 +554,7 @@ class SceneTimeline:
         return trajectory
 
 
-@dataclass
+@dataclass(slots=True)
 class SceneMetadata:
     """
     씬 메타데이터.

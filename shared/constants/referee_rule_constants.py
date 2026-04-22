@@ -10,11 +10,29 @@ COURTVIEW - AI 농구 분석 플랫폼
       - 리뷰 트리거, 결과, 심판 역할
       - 리그별 규칙 차이값 (쿼터 시간, 파울 퇴장 기준 등)
 
+사용 예시::
+
+    >>> from shared.constants.referee_rule_constants import (
+    ...     RuleSet, CallType, ReviewOutcome
+    ... )
+    >>> RuleSet.NBA.max_personal_fouls
+    6
+    >>> CallType.TRAVELING.is_violation
+    True
+    >>> ReviewOutcome.CALL_OVERTURNED.changed_call
+    True
+
 작성자: SPOIN_COURTVIEW
 최종 수정: 2026-02-14
 버전: 1.0.0
+
+참조:
+    - configs/referee/: 리그별 심판 규칙 YAML 설정
 """
 
+from __future__ import annotations
+
+# === 표준 라이브러리 ===
 from enum import Enum, unique
 from typing import Final
 
@@ -31,6 +49,9 @@ class RuleSet(str, Enum):
     각 리그별 규칙 차이 (쿼터 시간, 3점 라인 거리, 타임아웃 수 등)를
     property로 제공하여 리그 전환 시 자동 적용.
     """
+
+    def __str__(self) -> str:
+        return self.value
 
     FIBA = "fiba"
     NBA = "nba"
@@ -145,6 +166,9 @@ class CallType(str, Enum):
     파울(5) + 바이올레이션(5) + 특수(5).
     """
 
+    def __str__(self) -> str:
+        return self.value
+
     # 파울 관련 (5)
     PERSONAL_FOUL = "personal_foul"
     SHOOTING_FOUL = "shooting_foul"
@@ -226,6 +250,9 @@ _CALL_TYPE_KOREAN_MAP: Final[dict[CallType, str]] = {
 class SignalType(str, Enum):
     """심판 수신호 열거형 (20종). FIBA 공식 심판 수신호."""
 
+    def __str__(self) -> str:
+        return self.value
+
     # 점수 관련 (5)
     ONE_POINT = "one_point"
     TWO_POINTS = "two_points"
@@ -290,6 +317,9 @@ _SIGNAL_TYPE_KOREAN_MAP: Final[dict[SignalType, str]] = {
 class ReviewTrigger(str, Enum):
     """리뷰 발동 사유 열거형 (8종)."""
 
+    def __str__(self) -> str:
+        return self.value
+
     COACH_CHALLENGE = "coach_challenge"
     AUTOMATIC = "automatic"
     CREW_CHIEF = "crew_chief"
@@ -324,6 +354,9 @@ _REVIEW_TRIGGER_KOREAN_MAP: Final[dict[ReviewTrigger, str]] = {
 @unique
 class ReviewOutcome(str, Enum):
     """리뷰 결과 열거형 (5종)."""
+
+    def __str__(self) -> str:
+        return self.value
 
     CALL_STANDS = "call_stands"
     CALL_OVERTURNED = "call_overturned"
@@ -363,6 +396,9 @@ _REVIEW_OUTCOME_KOREAN_MAP: Final[dict[ReviewOutcome, str]] = {
 class RefereeRole(str, Enum):
     """심판 역할 열거형 (3종)."""
 
+    def __str__(self) -> str:
+        return self.value
+
     CREW_CHIEF = "crew_chief"
     REFEREE = "referee"
     UMPIRE = "umpire"
@@ -399,8 +435,8 @@ MAX_COACH_CHALLENGES_PER_GAME: Final[int] = 1
 REFEREE_COUNT_STANDARD: Final[int] = 3
 """표준 심판 수 (3인제)."""
 
-CONSISTENCY_WINDOW_FRAMES: Final[int] = 1800
-"""판정 일관성 추적 윈도우 (프레임, 약 30초 @60fps)."""
+CONSISTENCY_WINDOW_FRAMES: Final[int] = 900
+"""판정 일관성 추적 윈도우 (프레임, 약 30초 @30fps) — SPOIN 2026-04-20 SSOT 30fps 기준."""
 
 
 # =============================================================================
@@ -421,23 +457,6 @@ __all__ = [
     "MAX_COACH_CHALLENGES_PER_GAME",
     "REFEREE_COUNT_STANDARD",
     "CONSISTENCY_WINDOW_FRAMES",
-    # 캐시 (내부용이나 테스트 접근 허용)
-    "_RULE_SET_KOREAN_MAP",
-    "_RULE_SET_QUARTER_DURATION_MAP",
-    "_RULE_SET_BACKCOURT_SEC_MAP",
-    "_RULE_SET_THREE_POINT_DISTANCE_MAP",
-    "_RULE_SET_MAX_PERSONAL_FOULS_MAP",
-    "_RULE_SET_MAX_TIMEOUTS_MAP",
-    "_RULE_SET_HAS_DEFENSIVE_THREE_SEC",
-    "_CALL_TYPE_IS_FOUL",
-    "_CALL_TYPE_IS_VIOLATION",
-    "_CALL_TYPE_NO_STOP",
-    "_CALL_TYPE_KOREAN_MAP",
-    "_SIGNAL_TYPE_KOREAN_MAP",
-    "_REVIEW_TRIGGER_KOREAN_MAP",
-    "_REVIEW_OUTCOME_CHANGED",
-    "_REVIEW_OUTCOME_KOREAN_MAP",
-    "_REFEREE_ROLE_KOREAN_MAP",
 ]
 
 __version__ = "1.0.0"

@@ -14,10 +14,12 @@ COURTVIEW - AI 농구 분석 플랫폼
 버전: 1.0.0
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum, unique
-from typing import Final, Optional
+from typing import Final
 from uuid import UUID, uuid4
 
 import numpy as np
@@ -37,6 +39,14 @@ class CalibrationStatus(str, Enum):
     캘리브레이션 상태 열거형.
 
     캘리브레이션 진행 상태를 정의합니다.
+
+    사용 예시::
+
+        >>> CalibrationStatus.CALIBRATED.get_name()
+        '완료'
+        >>> CalibrationMethod.COURT_LINES.get_name()
+        '코트 라인'
+        >>> ip = IntrinsicParams(fx=1000.0, fy=1000.0, cx=960.0, cy=540.0)
     """
 
     NOT_CALIBRATED = "not_calibrated"
@@ -191,7 +201,7 @@ _CALIBRATION_METHOD_I18N: Final[dict[CalibrationMethod, dict[SupportedLanguage, 
 # 내부 파라미터
 # =============================================================================
 
-@dataclass
+@dataclass(slots=True)
 class IntrinsicParams:
     """
     카메라 내부 파라미터.
@@ -249,7 +259,7 @@ class IntrinsicParams:
         )
 
 
-@dataclass
+@dataclass(slots=True)
 class DistortionCoeffs:
     """
     렌즈 왜곡 계수.
@@ -314,7 +324,7 @@ class DistortionCoeffs:
         )
 
 
-@dataclass
+@dataclass(slots=True)
 class CameraMatrix:
     """
     카메라 행렬 (3x3).
@@ -329,7 +339,7 @@ class CameraMatrix:
         default_factory=lambda: np.eye(3, dtype=np.float64)
     )
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """초기화 후 검증."""
         if self.matrix.shape != (3, 3):
             raise ValueError("카메라 행렬은 3x3이어야 합니다")
@@ -364,7 +374,7 @@ class CameraMatrix:
 # 외부 파라미터
 # =============================================================================
 
-@dataclass
+@dataclass(slots=True)
 class RotationMatrix:
     """
     회전 행렬 (3x3).
@@ -379,7 +389,7 @@ class RotationMatrix:
         default_factory=lambda: np.eye(3, dtype=np.float64)
     )
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """초기화 후 검증."""
         if self.matrix.shape != (3, 3):
             raise ValueError("회전 행렬은 3x3이어야 합니다")
@@ -391,32 +401,8 @@ class RotationMatrix:
         ortho = np.allclose(self.matrix @ self.matrix.T, np.eye(3), atol=1e-6)
         return abs(det - 1.0) < 1e-6 and ortho
 
-    def to_rodrigues(self) -> NDArray[np.float64]:
-        """로드리게스 벡터로 변환."""
-        import cv2
-        rvec, _ = cv2.Rodrigues(self.matrix)
-        return rvec.flatten()
-
-    def to_euler_angles(self) -> tuple[float, float, float]:
-        """오일러 각도로 변환 (roll, pitch, yaw in radians)."""
-        sy = np.sqrt(self.matrix[0, 0] ** 2 + self.matrix[1, 0] ** 2)
-        singular = sy < 1e-6
-        if not singular:
-            roll = np.arctan2(self.matrix[2, 1], self.matrix[2, 2])
-            pitch = np.arctan2(-self.matrix[2, 0], sy)
-            yaw = np.arctan2(self.matrix[1, 0], self.matrix[0, 0])
-        else:
-            roll = np.arctan2(-self.matrix[1, 2], self.matrix[1, 1])
-            pitch = np.arctan2(-self.matrix[2, 0], sy)
-            yaw = 0.0
-        return (float(roll), float(pitch), float(yaw))
-
-    @classmethod
-    def from_rodrigues(cls, rvec: NDArray[np.float64]) -> "RotationMatrix":
-        """로드리게스 벡터에서 생성."""
-        import cv2
-        matrix, _ = cv2.Rodrigues(rvec.reshape(3, 1))
-        return cls(matrix)
+    # cv2/연산 로직 이관 완료: to_rodrigues, to_euler_angles, from_rodrigues
+    # → infrastructure/calibration/ 서비스 레이어
 
     @classmethod
     def identity(cls) -> "RotationMatrix":
@@ -424,7 +410,7 @@ class RotationMatrix:
         return cls(np.eye(3, dtype=np.float64))
 
 
-@dataclass
+@dataclass(slots=True)
 class TranslationVector:
     """
     이동 벡터 (3x1).
@@ -439,7 +425,7 @@ class TranslationVector:
         default_factory=lambda: np.zeros(3, dtype=np.float64)
     )
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """초기화 후 정규화."""
         self.vector = self.vector.flatten()
         if len(self.vector) != 3:
@@ -475,7 +461,7 @@ class TranslationVector:
         return cls(np.array([x, y, z], dtype=np.float64))
 
 
-@dataclass
+@dataclass(slots=True)
 class ExtrinsicParams:
     """
     카메라 외부 파라미터.
@@ -515,7 +501,7 @@ class ExtrinsicParams:
 # 기하학 행렬
 # =============================================================================
 
-@dataclass
+@dataclass(slots=True)
 class HomographyMatrix:
     """
     호모그래피 행렬 (3x3).
@@ -530,7 +516,7 @@ class HomographyMatrix:
         default_factory=lambda: np.eye(3, dtype=np.float64)
     )
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """초기화 후 검증."""
         if self.matrix.shape != (3, 3):
             raise ValueError("호모그래피 행렬은 3x3이어야 합니다")
@@ -560,7 +546,7 @@ class HomographyMatrix:
         return abs(det) > 1e-10
 
 
-@dataclass
+@dataclass(slots=True)
 class FundamentalMatrix:
     """
     기본 행렬 (3x3).
@@ -575,7 +561,7 @@ class FundamentalMatrix:
         default_factory=lambda: np.zeros((3, 3), dtype=np.float64)
     )
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """초기화 후 검증."""
         if self.matrix.shape != (3, 3):
             raise ValueError("기본 행렬은 3x3이어야 합니다")
@@ -608,7 +594,7 @@ class FundamentalMatrix:
         return self.rank == 2
 
 
-@dataclass
+@dataclass(slots=True)
 class EssentialMatrix:
     """
     본질 행렬 (3x3).
@@ -623,22 +609,12 @@ class EssentialMatrix:
         default_factory=lambda: np.zeros((3, 3), dtype=np.float64)
     )
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """초기화 후 검증."""
         if self.matrix.shape != (3, 3):
             raise ValueError("본질 행렬은 3x3이어야 합니다")
 
-    def decompose(self) -> list[tuple[RotationMatrix, TranslationVector]]:
-        """회전 행렬과 이동 벡터로 분해."""
-        import cv2
-        R1, R2, t = cv2.decomposeEssentialMat(self.matrix)
-        t = t.flatten()
-        return [
-            (RotationMatrix(R1), TranslationVector(t)),
-            (RotationMatrix(R1), TranslationVector(-t)),
-            (RotationMatrix(R2), TranslationVector(t)),
-            (RotationMatrix(R2), TranslationVector(-t)),
-        ]
+    # cv2 로직 이관 완료: decompose → infrastructure/calibration/ 서비스 레이어
 
     @property
     def is_valid(self) -> bool:
@@ -648,7 +624,7 @@ class EssentialMatrix:
         return abs(S[0] - S[1]) < 0.1 * S[0] and S[2] < 0.1 * S[0]
 
 
-@dataclass
+@dataclass(slots=True)
 class ProjectionMatrix:
     """
     투영 행렬 (3x4).
@@ -663,7 +639,7 @@ class ProjectionMatrix:
         default_factory=lambda: np.hstack([np.eye(3), np.zeros((3, 1))])
     )
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """초기화 후 검증."""
         if self.matrix.shape != (3, 4):
             raise ValueError("투영 행렬은 3x4이어야 합니다")
@@ -704,7 +680,7 @@ class ProjectionMatrix:
 # 캘리브레이션 결과
 # =============================================================================
 
-@dataclass
+@dataclass(slots=True)
 class CalibrationResult:
     """
     캘리브레이션 결과.
@@ -724,9 +700,9 @@ class CalibrationResult:
     """
 
     camera_id: UUID = field(default_factory=uuid4)
-    intrinsic: Optional[IntrinsicParams] = None
-    distortion: Optional[DistortionCoeffs] = None
-    extrinsic: Optional[ExtrinsicParams] = None
+    intrinsic: IntrinsicParams | None = None
+    distortion: DistortionCoeffs | None = None
+    extrinsic: ExtrinsicParams | None = None
     reprojection_error: float = 0.0
     status: CalibrationStatus = CalibrationStatus.NOT_CALIBRATED
     method: CalibrationMethod = CalibrationMethod.CHESSBOARD
@@ -744,14 +720,14 @@ class CalibrationResult:
         )
 
     @property
-    def camera_matrix(self) -> Optional[CameraMatrix]:
+    def camera_matrix(self) -> CameraMatrix | None:
         """카메라 행렬."""
         if self.intrinsic is None:
             return None
         return CameraMatrix(self.intrinsic.to_matrix())
 
 
-@dataclass
+@dataclass(slots=True)
 class StereoCalibration:
     """
     스테레오 캘리브레이션 결과.
@@ -772,10 +748,10 @@ class StereoCalibration:
 
     camera1_id: UUID = field(default_factory=uuid4)
     camera2_id: UUID = field(default_factory=uuid4)
-    rotation: Optional[RotationMatrix] = None
-    translation: Optional[TranslationVector] = None
-    fundamental: Optional[FundamentalMatrix] = None
-    essential: Optional[EssentialMatrix] = None
+    rotation: RotationMatrix | None = None
+    translation: TranslationVector | None = None
+    fundamental: FundamentalMatrix | None = None
+    essential: EssentialMatrix | None = None
     reprojection_error: float = 0.0
     status: CalibrationStatus = CalibrationStatus.NOT_CALIBRATED
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -798,7 +774,7 @@ class StereoCalibration:
         )
 
 
-@dataclass
+@dataclass(slots=True)
 class MultiCameraCalibration:
     """
     멀티카메라 캘리브레이션 결과.
@@ -818,7 +794,7 @@ class MultiCameraCalibration:
     setup_id: UUID = field(default_factory=uuid4)
     camera_calibrations: dict[UUID, CalibrationResult] = field(default_factory=dict)
     stereo_calibrations: list[StereoCalibration] = field(default_factory=list)
-    reference_camera_id: Optional[UUID] = None
+    reference_camera_id: UUID | None = None
     global_reprojection_error: float = 0.0
     status: CalibrationStatus = CalibrationStatus.NOT_CALIBRATED
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -835,13 +811,13 @@ class MultiCameraCalibration:
             return False
         return all(cal.is_valid for cal in self.camera_calibrations.values())
 
-    def get_calibration(self, camera_id: UUID) -> Optional[CalibrationResult]:
+    def get_calibration(self, camera_id: UUID) -> CalibrationResult | None:
         """카메라 ID로 캘리브레이션 결과 조회."""
         return self.camera_calibrations.get(camera_id)
 
     def get_stereo_calibration(
         self, camera1_id: UUID, camera2_id: UUID
-    ) -> Optional[StereoCalibration]:
+    ) -> StereoCalibration | None:
         """두 카메라 간 스테레오 캘리브레이션 조회."""
         for stereo in self.stereo_calibrations:
             if (

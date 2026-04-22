@@ -27,6 +27,8 @@ COURTVIEW - AI 농구 분석 플랫폼
     - game_analysis/report_generation/: 리포트에 예측 데이터 포함
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 
 from uuid import UUID, uuid4
@@ -38,7 +40,7 @@ from shared.constants.game_rule_constants import CourtZone
 # 승리 확률 (Win Probability)
 # =============================================================================
 
-@dataclass
+@dataclass(slots=True)
 class WinProbability:
     """
     실시간 승리 확률 데이터.
@@ -50,6 +52,10 @@ class WinProbability:
         - 클러치 상황 자동 식별 (WP 40~60%)
         - WPA(Win Probability Added): 각 플레이의 승리 기여도
         - coaching_intelligence: 타임아웃 추천 시 참조
+
+    >>> wp = WinProbability(home_wp=55.0)
+    >>> wp.is_clutch_time
+    True
     """
 
     home_wp: float = 50.0  # 홈팀 승리 확률 (0~100%)
@@ -75,7 +81,7 @@ class WinProbability:
 # 기대 점유 가치 (Expected Possession Value)
 # =============================================================================
 
-@dataclass
+@dataclass(slots=True)
 class ExpectedPossessionValue:
     """
     기대 점유 가치 (EPV) 데이터.
@@ -119,7 +125,7 @@ class ExpectedPossessionValue:
 # 슛 품질 예측 (xFG%)
 # =============================================================================
 
-@dataclass
+@dataclass(slots=True)
 class ShotQualityPrediction:
     """
     슛 품질 예측 (xFG%) 데이터.
@@ -155,7 +161,7 @@ class ShotQualityPrediction:
 # 라인업 예측
 # =============================================================================
 
-@dataclass
+@dataclass(slots=True)
 class LineupProjection:
     """
     라인업 성능 예측 데이터.
@@ -186,7 +192,7 @@ class LineupProjection:
 # 종합 예측 스냅샷
 # =============================================================================
 
-@dataclass
+@dataclass(slots=True)
 class PredictionSnapshot:
     """
     특정 시점의 종합 예측 스냅샷.

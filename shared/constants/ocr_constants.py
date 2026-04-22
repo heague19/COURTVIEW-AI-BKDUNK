@@ -17,7 +17,22 @@ COURTVIEW - AI 농구 분석 플랫폼
 - CRNN (Convolutional Recurrent Neural Network): 시퀀스 문자 인식
 - EAST/CRAFT: 텍스트 검출 알고리즘
 - 농구 유니폼 등번호 특성 (FIBA/NBA/KBL 규정)
+
+사용 예시::
+
+    >>> from shared.constants.ocr_constants import (
+    ...     OCRModel, TextDetectionModel, OCRStatus
+    ... )
+    >>> OCRModel.CRNN.supports_batch
+    True
+    >>> TextDetectionModel.CRAFT.supports_rotated
+    True
+    >>> OCRStatus.RECOGNIZED.is_successful
+    True
 """
+
+from __future__ import annotations
+
 
 from enum import Enum, unique
 from typing import Final
@@ -346,7 +361,7 @@ _OCR_MODEL_KOREAN_MAP: dict[OCRModel, str] = {
     OCRModel.CUSTOM_JERSEY: "커스텀 등번호 모델",
 }
 
-_OCR_MODEL_SUPPORTS_BATCH: frozenset = frozenset({
+_OCR_MODEL_SUPPORTS_BATCH: frozenset[OCRModel] = frozenset({
     OCRModel.CRNN,
     OCRModel.TROCR,
     OCRModel.EASY_OCR,
@@ -414,7 +429,7 @@ _TEXT_DETECTION_KOREAN_MAP: dict[TextDetectionModel, str] = {
     TextDetectionModel.CTPN: "CTPN",
 }
 
-_TEXT_DETECTION_SUPPORTS_ROTATED: frozenset = frozenset({
+_TEXT_DETECTION_SUPPORTS_ROTATED: frozenset[TextDetectionModel] = frozenset({
     TextDetectionModel.EAST,
     TextDetectionModel.CRAFT,
     TextDetectionModel.DBNET,
@@ -486,12 +501,12 @@ _OCR_STATUS_KOREAN_MAP: dict[OCRStatus, str] = {
     OCRStatus.TIMEOUT: "시간 초과",
 }
 
-_OCR_STATUS_NEEDS_RETRY: frozenset = frozenset({
+_OCR_STATUS_NEEDS_RETRY: frozenset[OCRStatus] = frozenset({
     OCRStatus.LOW_CONFIDENCE,
     OCRStatus.TIMEOUT,
 })
 
-_OCR_STATUS_IS_TERMINAL: frozenset = frozenset({
+_OCR_STATUS_IS_TERMINAL: frozenset[OCRStatus] = frozenset({
     OCRStatus.RECOGNIZED,
     OCRStatus.NOT_DETECTED,
     OCRStatus.INVALID,

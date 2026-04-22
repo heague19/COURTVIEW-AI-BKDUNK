@@ -14,12 +14,14 @@ COURTVIEW - AI 농구 분석 플랫폼
 버전: 1.0.0
 """
 
+from __future__ import annotations
+
 # =============================================================================
 # 표준 라이브러리
 # =============================================================================
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Final
 from uuid import UUID, uuid4
 
 # =============================================================================
@@ -35,10 +37,43 @@ from shared.dto.geometry_dto import BoundingBox, Point2D, Point3D
 
 
 # =============================================================================
+# i18n 모듈 레벨 캐시
+# =============================================================================
+
+_OCCLUSION_RESOLUTION_I18N: Final[dict[str, dict[str, str]]] = {
+    "ko": {
+        "success": "트랙 {track_id} 복구 성공 ({strategy}, 신뢰도: {confidence})",
+        "failure": "트랙 {track_id} 복구 실패: {error}",
+        "unknown_error": "알 수 없는 오류",
+    },
+    "en": {
+        "success": "Track {track_id} recovered ({strategy}, confidence: {confidence})",
+        "failure": "Track {track_id} recovery failed: {error}",
+        "unknown_error": "Unknown error",
+    },
+    "ja": {
+        "success": "トラック {track_id} 復元成功 ({strategy}, 信頼度: {confidence})",
+        "failure": "トラック {track_id} 復元失敗: {error}",
+        "unknown_error": "不明なエラー",
+    },
+    "zh": {
+        "success": "轨迹 {track_id} 恢复成功 ({strategy}, 置信度: {confidence})",
+        "failure": "轨迹 {track_id} 恢复失败: {error}",
+        "unknown_error": "未知错误",
+    },
+    "es": {
+        "success": "Pista {track_id} recuperada ({strategy}, confianza: {confidence})",
+        "failure": "Recuperación de pista {track_id} fallida: {error}",
+        "unknown_error": "Error desconocido",
+    },
+}
+
+
+# =============================================================================
 # 데이터 클래스
 # =============================================================================
 
-@dataclass
+@dataclass(slots=True)
 class ViewVisibility:
     """
     뷰별 가시성 정보.
@@ -53,6 +88,10 @@ class ViewVisibility:
         occluded_keypoints: 가려진 키포인트 인덱스
         confidence: 가시성 판단 신뢰도
         depth_estimate: 추정 깊이 (미터)
+
+    >>> vis = ViewVisibility(camera_id="cam_01", visibility_ratio=0.85)
+    >>> vis.is_fully_visible
+    False
     """
 
     camera_id: str
@@ -63,7 +102,7 @@ class ViewVisibility:
     confidence: float = 1.0
     depth_estimate: float | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """초기화 후 처리."""
         # 가시성 비율 범위 검증
         self.visibility_ratio = max(0.0, min(1.0, self.visibility_ratio))
@@ -99,7 +138,7 @@ class ViewVisibility:
         return self.visibility_ratio <= 0.1
 
 
-@dataclass
+@dataclass(slots=True)
 class OccludedObject:
     """
     가려진 객체 정보.
@@ -185,7 +224,7 @@ class OccludedObject:
         return max(0, current_frame - self.occluded_since_frame)
 
 
-@dataclass
+@dataclass(slots=True)
 class OcclusionEvent:
     """
     오클루전 이벤트.
@@ -266,36 +305,11 @@ class OcclusionEvent:
         """권장 해결 전략."""
         return self.occlusion_type.recommended_strategy
 
-    def mark_ended(
-        self,
-        end_frame: int,
-        end_time: datetime | None = None,
-    ) -> None:
-        """이벤트 종료 표시."""
-        self.end_frame = end_frame
-        self.end_time = end_time or datetime.now(timezone.utc)
-
-    def mark_resolved(
-        self,
-        strategy: ResolutionStrategy,
-    ) -> None:
-        """해결됨 표시."""
-        self.is_resolved = True
-        self.resolution_strategy = strategy
-
-    def add_affected_track(
-        self,
-        track_id: int,
-        occluded_object: OccludedObject | None = None,
-    ) -> None:
-        """영향받은 트랙 추가."""
-        if track_id not in self.affected_track_ids:
-            self.affected_track_ids.append(track_id)
-        if occluded_object is not None:
-            self.affected_objects.append(occluded_object)
+    # 상태 변이 로직 이관: mark_ended, mark_resolved, add_affected_track
+    # → infrastructure/occlusion/ 서비스 레이어
 
 
-@dataclass
+@dataclass(slots=True)
 class OcclusionResolution:
     """
     오클루전 복구 결과.
@@ -382,35 +396,7 @@ class OcclusionResolution:
         Returns:
             해당 언어의 복구 결과 요약
         """
-        translations: dict[SupportedLanguage, dict[str, str]] = {
-            SupportedLanguage.KO: {
-                "success": "트랙 {track_id} 복구 성공 ({strategy}, 신뢰도: {confidence})",
-                "failure": "트랙 {track_id} 복구 실패: {error}",
-                "unknown_error": "알 수 없는 오류",
-            },
-            SupportedLanguage.EN: {
-                "success": "Track {track_id} recovered ({strategy}, confidence: {confidence})",
-                "failure": "Track {track_id} recovery failed: {error}",
-                "unknown_error": "Unknown error",
-            },
-            SupportedLanguage.JA: {
-                "success": "トラック {track_id} 復元成功 ({strategy}, 信頼度: {confidence})",
-                "failure": "トラック {track_id} 復元失敗: {error}",
-                "unknown_error": "不明なエラー",
-            },
-            SupportedLanguage.ZH: {
-                "success": "轨迹 {track_id} 恢复成功 ({strategy}, 置信度: {confidence})",
-                "failure": "轨迹 {track_id} 恢复失败: {error}",
-                "unknown_error": "未知错误",
-            },
-            SupportedLanguage.ES: {
-                "success": "Pista {track_id} recuperada ({strategy}, confianza: {confidence})",
-                "failure": "Recuperación de pista {track_id} fallida: {error}",
-                "unknown_error": "Error desconocido",
-            },
-        }
-
-        msgs = translations.get(lang, translations[SupportedLanguage.KO])
+        msgs = _OCCLUSION_RESOLUTION_I18N.get(lang.value, _OCCLUSION_RESOLUTION_I18N["ko"])
 
         if self.success:
             # ResolutionStrategy도 다국어 지원 필요 시 확장 가능
@@ -431,7 +417,7 @@ class OcclusionResolution:
         return self.get_summary(SupportedLanguage.KO)
 
 
-@dataclass
+@dataclass(slots=True)
 class OcclusionAnalysisResult:
     """
     오클루전 분석 결과.
@@ -504,14 +490,6 @@ class OcclusionAnalysisResult:
 # =============================================================================
 
 __all__ = [
-    # Re-export (다국어 지원)
-    "SupportedLanguage",
-
-    # Enum (occlusion_constants에서 re-export)
-    "OcclusionType",
-    "OcclusionSeverity",
-    "ResolutionStrategy",
-
     # 데이터 클래스
     "ViewVisibility",
     "OccludedObject",

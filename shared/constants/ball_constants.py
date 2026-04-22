@@ -18,11 +18,27 @@ COURTVIEW - AI 농구 분석 플랫폼
 - FIBA 규정: 남자 Size 7, 여자 Size 6
 - NBA 규정: Spalding 공식 농구공 (둘레 749-780mm)
 - 농구공 물리학: 탄성 계수, 공기역학, 스핀 효과
+
+사용 예시:
+    >>> from shared.constants.ball_constants import BallSize, BallState, ShotType
+    >>> size = BallSize.SIZE_7
+    >>> size.diameter_m
+    0.244
+    >>> size.mass_kg
+    0.62
+    >>> BallState.SHOOTING.is_in_flight
+    True
+    >>> ShotType.THREE_POINTER.typical_release_angle
+    50.0
 """
 
+from __future__ import annotations
+
+# === 표준 라이브러리 ===
 from enum import Enum, unique
 from typing import Final
 
+# === 프로젝트 모듈 ===
 from shared.constants.localization import SupportedLanguage
 from shared.constants.player_constants import AgeGroup
 
@@ -71,11 +87,11 @@ BALL_SIZE_5_MASS_KG: Final[float] = 0.485  # 중간값 (470+500)/2
 
 
 # =============================================================================
-# 물리 법칙 상수
+# 물리 법칙 상수 — SSOT (Phase 15 H5)
 # =============================================================================
 
-# 중력 가속도 (m/s²)
-GRAVITY_ACCELERATION: Final[float] = 9.81
+# 중력 가속도 (m/s²) — ISO 표준중력 g₀ (정밀 SSOT)
+GRAVITY_ACCELERATION: Final[float] = 9.80665
 
 # 공기 밀도 (kg/m³) - 표준 대기압, 20°C
 AIR_DENSITY: Final[float] = 1.204
@@ -83,6 +99,9 @@ AIR_DENSITY: Final[float] = 1.204
 # 공기 저항 계수 (항력 계수, 구체 기준)
 # - 레이놀즈 수에 따라 0.1~0.5 범위
 AIR_RESISTANCE_COEFFICIENT: Final[float] = 0.47
+
+# 농구공 항력 계수 — 구형 물체 표준 (utils.physics_utils 와 SSOT 일치)
+BASKETBALL_DRAG_COEFFICIENT: Final[float] = 0.47
 
 # 양력 계수 (마그누스 효과)
 LIFT_COEFFICIENT: Final[float] = 0.25
@@ -546,13 +565,16 @@ _BALL_SIZE_I18N_MAP: dict[BallSize, dict[SupportedLanguage, str]] = {
 # =============================================================================
 
 @unique
-class BallState(Enum):
+class BallState(str, Enum):
     """
     공 상태 열거형.
 
     농구공의 현재 상태를 정의합니다.
     궤적 예측 및 이벤트 감지에 활용됩니다.
     """
+
+    def __str__(self) -> str:
+        return self.value
 
     # 정지 상태
     STATIONARY = "stationary"
@@ -614,18 +636,18 @@ class BallState(Enum):
 
 
 # BallState용 캐시 (frozenset으로 조회 최적화)
-_BALL_STATE_IN_FLIGHT: frozenset = frozenset({
+_BALL_STATE_IN_FLIGHT: frozenset[BallState] = frozenset({
     BallState.PASSING,
     BallState.SHOOTING,
     BallState.REBOUNDING,
 })
 
-_BALL_STATE_CONTROLLED: frozenset = frozenset({
+_BALL_STATE_CONTROLLED: frozenset[BallState] = frozenset({
     BallState.DRIBBLING,
     BallState.HELD,
 })
 
-_BALL_STATE_PHYSICS_REQUIRED: frozenset = frozenset({
+_BALL_STATE_PHYSICS_REQUIRED: frozenset[BallState] = frozenset({
     BallState.PASSING,
     BallState.SHOOTING,
     BallState.REBOUNDING,
@@ -705,13 +727,16 @@ _BALL_STATE_I18N_MAP: dict[BallState, dict[SupportedLanguage, str]] = {
 # =============================================================================
 
 @unique
-class ShotType(Enum):
+class ShotType(str, Enum):
     """
     슈팅 유형 열거형.
 
     농구 슈팅의 종류를 정의합니다.
     각 슈팅 유형별 최적 방출 각도와 속도 정보를 포함합니다.
     """
+
+    def __str__(self) -> str:
+        return self.value
 
     # 레이업
     LAYUP = "layup"
@@ -797,7 +822,7 @@ _SHOT_TYPE_VELOCITY_MAP: dict[ShotType, float] = {
     ShotType.THREE_POINTER: 9.0,
 }
 
-_SHOT_TYPE_BACKSPIN_REQUIRED: frozenset = frozenset({
+_SHOT_TYPE_BACKSPIN_REQUIRED: frozenset[ShotType] = frozenset({
     ShotType.JUMP_SHOT,
     ShotType.FREE_THROW,
     ShotType.THREE_POINTER,
@@ -904,6 +929,7 @@ __all__ = [
 
     # 물리 법칙 상수
     "AIR_DENSITY",
+    "BASKETBALL_DRAG_COEFFICIENT",
     "LIFT_COEFFICIENT",
     "MAGNUS_COEFFICIENT",
     "BASKETBALL_CROSS_SECTION_AREA",

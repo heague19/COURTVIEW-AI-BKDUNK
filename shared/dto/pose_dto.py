@@ -13,6 +13,8 @@ COURTVIEW - AI 농구 분석 플랫폼
 버전: 1.0.0
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING
@@ -37,7 +39,7 @@ from shared.dto.geometry_dto import BoundingBox, Point2D, Point3D
 # 데이터 클래스
 # =============================================================================
 
-@dataclass
+@dataclass(slots=True)
 class Keypoint:
     """
     단일 키포인트.
@@ -51,6 +53,10 @@ class Keypoint:
         confidence: 신뢰도 (0.0~1.0)
         visibility: 가시성 (0: 가림, 1: 보임, 2: 프레임 밖)
         joint_type: 관절 유형 (선택적)
+
+    >>> kp = Keypoint(x=0.5, y=0.3, confidence=0.95)
+    >>> kp.is_valid
+    True
     """
 
     x: float = 0.0
@@ -60,7 +66,7 @@ class Keypoint:
     visibility: int = 1
     joint_type: JointType | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """초기화 후 처리."""
         self.confidence = max(0.0, min(1.0, self.confidence))
 
@@ -116,7 +122,7 @@ class Keypoint:
         )
 
 
-@dataclass
+@dataclass(slots=True)
 class JointAngle:
     """
     관절 각도.
@@ -139,7 +145,7 @@ class JointAngle:
     confidence: float = 1.0
     is_valid: bool = True
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """초기화 후 처리."""
         self.confidence = max(0.0, min(1.0, self.confidence))
         # 각도 범위 정규화 (0~180)
@@ -249,7 +255,7 @@ class JointAngle:
         )
 
 
-@dataclass
+@dataclass(slots=True)
 class Skeleton2D:
     """
     2D 스켈레톤.
@@ -276,7 +282,7 @@ class Skeleton2D:
     frame_index: int = 0
     timestamp: datetime | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """초기화 후 처리."""
         # 품질 자동 계산
         if self.quality == PoseQuality.INVALID and self.keypoints:
@@ -439,7 +445,7 @@ class Skeleton2D:
         )
 
 
-@dataclass
+@dataclass(slots=True)
 class Skeleton3D:
     """
     3D 스켈레톤.
@@ -470,7 +476,7 @@ class Skeleton3D:
     camera_id: str | None = None
     is_triangulated: bool = False
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """초기화 후 처리."""
         # 품질 자동 계산
         if self.quality == PoseQuality.INVALID and self.keypoints:
@@ -629,7 +635,7 @@ class Skeleton3D:
         )
 
 
-@dataclass
+@dataclass(slots=True)
 class PoseEstimationResult:
     """
     포즈 추정 결과.
@@ -656,7 +662,7 @@ class PoseEstimationResult:
     camera_id: str | None = None
     model_name: str = "mediapipe"
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """초기화 후 처리."""
         if self.num_persons == 0:
             self.num_persons = len(self.skeletons_2d)
@@ -703,11 +709,6 @@ class PoseEstimationResult:
 # =============================================================================
 
 __all__ = [
-    # Enum (pose_constants에서 re-export)
-    "JointType",
-    "SkeletonType",
-    "PoseQuality",
-
     # 데이터 클래스
     "Keypoint",
     "JointAngle",

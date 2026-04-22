@@ -9,7 +9,20 @@ COURTVIEW - AI 농구 분석 플랫폼
 작성자: SPOIN_COURTVIEW
 최종 수정: 2026-02-14
 버전: 1.0.0
+
+사용 예시:
+    >>> from shared.constants.event_types import EventCategory, EventType
+    >>> evt = EventType.TASK_COMPLETED
+    >>> evt.category
+    <EventCategory.ANALYSIS: 'analysis'>
+    >>> evt.category.to_korean()
+    '분석'
+    >>> evt.to_korean()
+    '작업 완료됨'
 """
+
+from __future__ import annotations
+
 
 from enum import Enum, unique
 from functools import lru_cache
@@ -519,19 +532,6 @@ EVENT_PRIORITY: Final[dict[EventType, int]] = {
 }
 
 
-def get_event_priority(event_type: EventType) -> int:
-    """
-    이벤트 우선순위 반환.
-
-    Args:
-        event_type: 이벤트 타입
-
-    Returns:
-        우선순위 (0이 가장 높음, 기본값 3)
-    """
-    return EVENT_PRIORITY.get(event_type, 3)
-
-
 # =============================================================================
 # 모듈 Export 정의 (PHASE_01 정의서 준수)
 # =============================================================================
@@ -548,7 +548,6 @@ __all__ = [
     "METRIC_EVENTS",
     # 우선순위
     "EVENT_PRIORITY",
-    "get_event_priority",
 ]
 
 # 모듈 버전 정보

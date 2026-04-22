@@ -11,12 +11,14 @@ COURTVIEW - AI 농구 분석 플랫폼
 
 작성자: SPOIN_COURTVIEW
 최종 수정: 2026-02-16
-버전: 1.1.0
+버전: 1.0.0
 
 변경 이력:
     - v1.1.0: typing 모던화 (Optional → X | None), 헤더 통일
     - v1.0.0: 초기 생성 (storage_protocol, camera_protocol)
 """
+
+from __future__ import annotations
 
 # =============================================================================
 # 스토리지 프로토콜
@@ -44,4 +46,4 @@ __all__ = [
     "MultiCameraProtocol",
 ]
 
-__version__ = "1.1.0"
+__version__ = "1.0.0"

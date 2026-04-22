@@ -18,11 +18,58 @@ COURTVIEW - AI 농구 분석 플랫폼
     - court_constants.py: HOOP_HEIGHT_M, HOOP_DIAMETER_M,
       BACKBOARD_WIDTH_M, BACKBOARD_HEIGHT_M 등 물리 규격
     - configs/detection/hoop.yaml: 운영 설정 (YAML)
+
+사용 예시::
+
+    >>> from shared.constants.hoop_constants import HOOP_DETECTION_CONFIDENCE_THRESHOLD
+    >>> HOOP_DETECTION_CONFIDENCE_THRESHOLD
+    0.6
+    >>> from shared.constants.hoop_constants import HOOP_CLASS_ID_RIM
+    >>> HOOP_CLASS_ID_RIM
+    0
 """
 
+from __future__ import annotations
+
+# === 표준 라이브러리 ===
+from enum import Enum, unique
 from typing import Final
 
-__version__: str = "1.0.0"
+
+# =============================================================================
+# 득점 유형 열거형 (공통 — hoop_detector + net_analyzer 양쪽에서 사용)
+# =============================================================================
+
+@unique
+class ScoringType(Enum):
+    """
+    득점 유형 열거형.
+
+    네트 움직임 패턴 분석 결과로 판별되는 골 유형.
+    """
+
+    SWISH = "swish"
+    RIM_IN = "rim_in"
+    RIM_OUT = "rim_out"
+    UNKNOWN = "unknown"
+
+    @property
+    def is_score(self) -> bool:
+        """득점 성공 여부."""
+        return self in (ScoringType.SWISH, ScoringType.RIM_IN)
+
+    @property
+    def korean_name(self) -> str:
+        """한글 득점 유형명."""
+        return _SCORING_TYPE_KO.get(self, "미판별")
+
+
+_SCORING_TYPE_KO: Final[dict[ScoringType, str]] = {
+    ScoringType.SWISH: "스위시",
+    ScoringType.RIM_IN: "림인",
+    ScoringType.RIM_OUT: "림아웃",
+    ScoringType.UNKNOWN: "미판별",
+}
 
 # =============================================================================
 # 골대 검출 기본 파라미터
@@ -139,6 +186,8 @@ NET_COOLDOWN_FRAMES: Final[int] = 15           # 득점 판정 후 쿨다운
 # 모듈 Export 정의
 # =============================================================================
 __all__ = [
+    # 득점 유형
+    "ScoringType",
     # 골대 검출 기본 파라미터
     "HOOP_DETECTION_CONFIDENCE_THRESHOLD",
     "HOOP_DETECTION_IOU_THRESHOLD",
@@ -204,3 +253,5 @@ __all__ = [
     "NET_MIN_FRAMES_FOR_ANALYSIS",
     "NET_COOLDOWN_FRAMES",
 ]
+
+__version__ = "1.0.0"

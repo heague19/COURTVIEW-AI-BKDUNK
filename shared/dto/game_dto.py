@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
 
 from shared.constants.localization import SupportedLanguage
 
@@ -40,11 +40,16 @@ from shared.constants.game_rule_constants import (  # noqa: F401
 # 선수/팀 정보 DTO
 # =============================================================================
 class PlayerInfo(BaseModel):
-    """
-    선수 정보 DTO.
+    """선수 정보 DTO.
 
     경기 중 감지된 선수 정보입니다.
+
+    >>> player = PlayerInfo(tracking_id=7, jersey_number=23)
+    >>> player.tracking_id
+    7
     """
+
+    model_config = ConfigDict(frozen=True)
 
     player_id: str | None = Field(default=None, description="선수 ID (연동된 경우)")
     tracking_id: int = Field(..., ge=0, description="트래킹 ID (영상 내)")
@@ -66,11 +71,12 @@ class PlayerInfo(BaseModel):
 
 
 class TeamInfo(BaseModel):
-    """
-    팀 정보 DTO.
+    """팀 정보 DTO.
 
     경기에 참여한 팀 정보입니다.
     """
+
+    model_config = ConfigDict(frozen=True)
 
     team_id: str | None = Field(default=None, description="팀 ID")
     team_name: str | None = Field(default=None, description="팀명")
@@ -83,11 +89,12 @@ class TeamInfo(BaseModel):
 # 슛 관련 DTO
 # =============================================================================
 class ShotAttempt(BaseModel):
-    """
-    슛 시도 DTO.
+    """슛 시도 DTO.
 
     개별 슛 시도의 상세 정보입니다.
     """
+
+    model_config = ConfigDict(frozen=True)
 
     shot_id: UUID = Field(default_factory=uuid4, description="슛 ID")
 
@@ -125,11 +132,12 @@ class ShotAttempt(BaseModel):
 
 
 class ZoneStatistics(BaseModel):
-    """
-    구역별 슛 통계 DTO.
+    """구역별 슛 통계 DTO.
 
     특정 코트 구역의 슛 통계입니다.
     """
+
+    model_config = ConfigDict(frozen=True)
 
     zone: CourtZone = Field(..., description="코트 구역")
     attempts: int = Field(default=0, ge=0, description="슛 시도 횟수")
@@ -153,11 +161,12 @@ class ZoneStatistics(BaseModel):
 
 
 class ShotChart(BaseModel):
-    """
-    슛 차트 DTO.
+    """슛 차트 DTO.
 
     경기 전체의 슛 분석 결과입니다.
     """
+
+    model_config = ConfigDict(frozen=True)
 
     chart_id: UUID = Field(default_factory=uuid4, description="차트 ID")
     task_id: UUID = Field(..., description="분석 태스크 ID")
@@ -351,11 +360,12 @@ class ShotChart(BaseModel):
 # 경기 이벤트 DTO
 # =============================================================================
 class GameEvent(BaseModel):
-    """
-    경기 이벤트 DTO.
+    """경기 이벤트 DTO.
 
     경기 중 발생한 개별 이벤트입니다.
     """
+
+    model_config = ConfigDict(frozen=True)
 
     event_id: UUID = Field(default_factory=uuid4, description="이벤트 ID")
     event_type: EventType = Field(..., description="이벤트 유형")
@@ -389,11 +399,12 @@ class GameEvent(BaseModel):
 # 하이라이트 DTO
 # =============================================================================
 class HighlightClip(BaseModel):
-    """
-    하이라이트 클립 DTO.
+    """하이라이트 클립 DTO.
 
     개별 하이라이트 클립 정보입니다.
     """
+
+    model_config = ConfigDict(frozen=True)
 
     clip_id: UUID = Field(default_factory=uuid4, description="클립 ID")
     highlight_type: HighlightType = Field(..., description="하이라이트 유형")
@@ -435,11 +446,12 @@ class HighlightClip(BaseModel):
 
 
 class HighlightReel(BaseModel):
-    """
-    하이라이트 릴 DTO.
+    """하이라이트 릴 DTO.
 
     경기 전체의 하이라이트 모음입니다.
     """
+
+    model_config = ConfigDict(frozen=True)
 
     reel_id: UUID = Field(default_factory=uuid4, description="릴 ID")
     task_id: UUID = Field(..., description="분석 태스크 ID")
@@ -466,11 +478,12 @@ class HighlightReel(BaseModel):
 # 경기 통계 DTO
 # =============================================================================
 class PlayerStats(BaseModel):
-    """
-    선수 통계 DTO.
+    """선수 통계 DTO.
 
     경기 중 개별 선수의 통계입니다.
     """
+
+    model_config = ConfigDict(frozen=True)
 
     player_tracking_id: int = Field(..., ge=0, description="트래킹 ID")
     player_id: str | None = Field(default=None, description="선수 ID")
@@ -674,11 +687,12 @@ class PlayerStats(BaseModel):
 
 
 class TeamStats(BaseModel):
-    """
-    팀 통계 DTO.
+    """팀 통계 DTO.
 
     경기 중 팀 전체 통계입니다.
     """
+
+    model_config = ConfigDict(frozen=True)
 
     team_id: str | None = Field(default=None, description="팀 ID")
     team_name: str | None = Field(default=None, description="팀명")
@@ -950,11 +964,12 @@ class TeamStats(BaseModel):
 
 
 class GameStats(BaseModel):
-    """
-    경기 통계 DTO.
+    """경기 통계 DTO.
 
     경기 전체 통계 및 기록지입니다.
     """
+
+    model_config = ConfigDict(frozen=True)
 
     stats_id: UUID = Field(default_factory=uuid4, description="통계 ID")
     task_id: UUID = Field(..., description="분석 태스크 ID")
@@ -994,11 +1009,12 @@ class GameStats(BaseModel):
 # AI 심판 DTO
 # =============================================================================
 class ViolationEvent(BaseModel):
-    """
-    바이올레이션 이벤트 DTO.
+    """바이올레이션 이벤트 DTO.
 
     감지기에서 생성되는 바이올레이션 이벤트입니다.
     """
+
+    model_config = ConfigDict(frozen=True)
 
     event_id: str = Field(..., description="이벤트 ID")
     event_type: EventType = Field(..., description="이벤트 타입")
@@ -1014,11 +1030,12 @@ class ViolationEvent(BaseModel):
 
 
 class FoulEvent(BaseModel):
-    """
-    파울 이벤트 DTO.
+    """파울 이벤트 DTO.
 
     감지기에서 생성되는 파울 이벤트입니다.
     """
+
+    model_config = ConfigDict(frozen=True)
 
     event_id: str = Field(..., description="이벤트 ID")
     event_type: EventType = Field(..., description="이벤트 타입")
@@ -1036,11 +1053,12 @@ class FoulEvent(BaseModel):
 
 
 class RefereeDecision(BaseModel):
-    """
-    심판 판정 DTO.
+    """심판 판정 DTO.
 
     AI 심판의 판정 결과입니다.
     """
+
+    model_config = ConfigDict(frozen=True)
 
     decision_id: str = Field(..., description="판정 ID")
     frame_number: int = Field(..., ge=0, description="프레임 번호")
@@ -1054,11 +1072,12 @@ class RefereeDecision(BaseModel):
 
 
 class ReviewSuggestion(BaseModel):
-    """
-    리뷰 제안 DTO.
+    """리뷰 제안 DTO.
 
     리뷰가 필요한 상황에 대한 제안입니다.
     """
+
+    model_config = ConfigDict(frozen=True)
 
     suggestion_id: str = Field(..., description="제안 ID")
     frame_number: int = Field(..., ge=0, description="프레임 번호")
@@ -1071,11 +1090,12 @@ class ReviewSuggestion(BaseModel):
 
 
 class ViolationDetection(BaseModel):
-    """
-    바이올레이션 감지 DTO.
+    """바이올레이션 감지 DTO.
 
     감지된 개별 바이올레이션 정보입니다.
     """
+
+    model_config = ConfigDict(frozen=True)
 
     detection_id: UUID = Field(default_factory=uuid4, description="감지 ID")
     violation_type: ViolationType = Field(..., description="바이올레이션 유형")
@@ -1105,11 +1125,12 @@ class ViolationDetection(BaseModel):
 
 
 class FoulDetection(BaseModel):
-    """
-    파울 감지 DTO.
+    """파울 감지 DTO.
 
     감지된 개별 파울 정보입니다.
     """
+
+    model_config = ConfigDict(frozen=True)
 
     detection_id: UUID = Field(default_factory=uuid4, description="감지 ID")
     foul_type: FoulType = Field(..., description="파울 유형")
@@ -1142,12 +1163,13 @@ class FoulDetection(BaseModel):
     clip_url: HttpUrl | None = Field(default=None, description="클립 URL")
 
 
-class RefereeReport(BaseModel):
-    """
-    AI 심판 보고서 DTO.
+class GameRefereeReport(BaseModel):
+    """AI 심판 보고서 DTO.
 
     경기 전체의 심판 분석 결과입니다.
     """
+
+    model_config = ConfigDict(frozen=True)
 
     report_id: UUID = Field(default_factory=uuid4, description="보고서 ID")
     task_id: UUID = Field(..., description="분석 태스크 ID")
@@ -1185,14 +1207,9 @@ class RefereeReport(BaseModel):
 # 경기 DTO 모듈 익스포트
 # =============================================================================
 __all__ = [
-    "ShotType",
-    "ShotResult",
-    "CourtZone",
-    "PlayType",
-    "EventType",
-    "HighlightType",
-    "ViolationType",
-    "FoulType",
+    # 상수 Enum은 shared.constants에서 직접 임포트 권장
+    # (ShotType, ShotResult, CourtZone, PlayType, EventType,
+    #  HighlightType, ViolationType, FoulType은 re-export 제거)
     "PlayerInfo",
     "TeamInfo",
     "ShotAttempt",
@@ -1210,7 +1227,7 @@ __all__ = [
     "ReviewSuggestion",
     "ViolationDetection",
     "FoulDetection",
-    "RefereeReport",
+    "GameRefereeReport",
 ]
 
 __version__ = "1.0.0"

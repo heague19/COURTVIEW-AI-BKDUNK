@@ -250,6 +250,9 @@ class VideoFormat(str, Enum):
     비디오 포맷 열거형.
 
     지원되는 비디오 파일 형식입니다.
+
+    >>> VideoFormat.MP4.mime_type
+    'video/mp4'
     """
 
     MP4 = "mp4"
@@ -310,11 +313,12 @@ class VideoType(str, Enum):
     비디오의 용도/유형을 나타냅니다.
     """
 
-    TRAINING = "training"      # 훈련 영상
+    # [앱 전용 (Desktop 미사용): TRAINING/DRILL/REFERENCE — ARCHITECTURE_DESKTOP §1.2 훈련 분석 앱 전용]
+    TRAINING = "training"      # 훈련 영상 (앱 전용)
     GAME = "game"              # 경기 영상
     HIGHLIGHT = "highlight"    # 하이라이트 영상
-    DRILL = "drill"            # 드릴 영상
-    REFERENCE = "reference"    # 참조 영상 (따라하기용)
+    DRILL = "drill"            # 드릴 영상 (앱 전용)
+    REFERENCE = "reference"    # 참조 영상 (따라하기용, 앱 전용)
     RAW = "raw"                # 원본 영상
     PROCESSED = "processed"    # 처리된 영상
 
@@ -471,7 +475,7 @@ class AudioCodec(str, Enum):
 # 데이터 클래스
 # =============================================================================
 
-@dataclass
+@dataclass(slots=True)
 class VideoResolution:
     """
     비디오 해상도.
@@ -520,8 +524,8 @@ class VideoResolution:
         return f"{self.width}x{self.height}"
 
 
-@dataclass
-class VideoMetadata:
+@dataclass(slots=True)
+class VideoFileMetadata:
     """
     비디오 메타데이터.
 
@@ -549,7 +553,7 @@ class VideoMetadata:
     file_size: int | None = None
     creation_time: datetime | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """초기화 후 처리."""
         # total_frames가 없으면 계산
         if self.total_frames is None and self.fps > 0:
@@ -588,7 +592,7 @@ class VideoMetadata:
         return int(time_seconds * self.fps)
 
 
-@dataclass
+@dataclass(slots=True)
 class FrameData:
     """
     프레임 데이터.
@@ -640,25 +644,10 @@ class FrameData:
             and self.image.size > 0
         )
 
-    def to_rgb(self) -> NDArray[np.uint8]:
-        """RGB 형식으로 변환."""
-        if self.image is None or self.channels != 3:
-            return self.image
-        # BGR -> RGB
-        import cv2
-        return cv2.cvtColor(self.image, cv2.COLOR_BGR2RGB)
-
-    def to_grayscale(self) -> NDArray[np.uint8]:
-        """그레이스케일로 변환."""
-        if self.image is None:
-            return self.image
-        if self.channels == 1:
-            return self.image
-        import cv2
-        return cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY)
+    # cv2 변환 로직 이관 완료: to_rgb, to_grayscale → utils/ 또는 infrastructure/preprocessing/
 
 
-@dataclass
+@dataclass(slots=True)
 class VideoSegment:
     """
     비디오 세그먼트.
@@ -718,7 +707,7 @@ class VideoSegment:
         )
 
 
-@dataclass
+@dataclass(slots=True)
 class VideoInfo:
     """
     비디오 전체 정보.
@@ -737,13 +726,13 @@ class VideoInfo:
 
     video_id: UUID = field(default_factory=uuid4)
     file_path: Path | None = None
-    metadata: VideoMetadata | None = None
+    metadata: VideoFileMetadata | None = None
     video_type: VideoType = VideoType.RAW
     format: VideoFormat | None = None
     segments: list[VideoSegment] = field(default_factory=list)
     tags: list[str] = field(default_factory=list)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """초기화 후 처리."""
         # 파일 경로에서 포맷 추론
         if self.file_path is not None and self.format is None:
@@ -756,9 +745,7 @@ class VideoInfo:
             return None
         return self.file_path.name
 
-    def add_segment(self, segment: VideoSegment) -> None:
-        """세그먼트 추가."""
-        self.segments.append(segment)
+    # 상태 변이 로직 이관: add_segment → infrastructure/video/ 서비스 레이어
 
     def get_segments_at(self, time_seconds: float) -> list[VideoSegment]:
         """특정 시간의 세그먼트 조회."""
@@ -779,7 +766,7 @@ __all__ = [
 
     # 데이터 클래스
     "VideoResolution",
-    "VideoMetadata",
+    "VideoFileMetadata",
     "FrameData",
     "VideoSegment",
     "VideoInfo",

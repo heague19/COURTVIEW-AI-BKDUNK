@@ -52,6 +52,10 @@ class VideoSource(str, Enum):
     비디오 소스 타입.
 
     로컬 AI 서버가 분석할 영상의 입력 경로 유형.
+
+    >>> src = VideoSource.LOCAL_FILE
+    >>> src.value
+    'local_file'
     """
 
     LOCAL_FILE = "local_file"        # 로컬 파일 시스템 경로 (주 사용)

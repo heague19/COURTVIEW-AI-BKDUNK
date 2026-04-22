@@ -26,6 +26,8 @@ COURTVIEW - AI 농구 분석 플랫폼
     - game_analysis/report_generation/: 리포트에 클립 참조 첨부
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum, unique
@@ -39,7 +41,13 @@ from uuid import UUID, uuid4
 
 @unique
 class ExportFormat(str, Enum):
-    """비디오 내보내기 형식."""
+    """
+    비디오 내보내기 형식.
+
+    >>> fmt = ExportFormat.MP4
+    >>> fmt.value
+    'mp4'
+    """
 
     MP4 = "mp4"
     MOV = "mov"
@@ -73,7 +81,7 @@ class AnnotationType(str, Enum):
 # 데이터 클래스
 # =============================================================================
 
-@dataclass
+@dataclass(slots=True)
 class Annotation:
     """
     시각 오버레이 주석.
@@ -100,7 +108,7 @@ class Annotation:
     opacity: float = 1.0  # 불투명도 (0~1)
 
 
-@dataclass
+@dataclass(slots=True)
 class VideoClip:
     """
     편집된 비디오 클립.
@@ -129,7 +137,7 @@ class VideoClip:
             self.duration_seconds = self.end_time - self.start_time
 
 
-@dataclass
+@dataclass(slots=True)
 class MultiAngleClip:
     """
     멀티앵글 동기화 클립.
@@ -152,7 +160,7 @@ class MultiAngleClip:
         return 1 + len(self.angle_clips) if self.primary_clip else len(self.angle_clips)
 
 
-@dataclass
+@dataclass(slots=True)
 class CoachingPoint:
     """
     코칭 포인트.
@@ -175,7 +183,7 @@ class CoachingPoint:
     reference_play: str | None = None
 
 
-@dataclass
+@dataclass(slots=True)
 class PlayerClipPackage:
     """
     선수별 클립 패키지.
@@ -202,7 +210,7 @@ class PlayerClipPackage:
         return len(self.offensive_clips) + len(self.defensive_clips) + len(self.special_clips)
 
 
-@dataclass
+@dataclass(slots=True)
 class FilmSessionData:
     """
     필름 세션 데이터.
@@ -228,7 +236,7 @@ class FilmSessionData:
     )
 
 
-@dataclass
+@dataclass(slots=True)
 class ExportConfig:
     """
     비디오 내보내기 설정.

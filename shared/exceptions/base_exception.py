@@ -15,17 +15,24 @@ COURTVIEW - AI 농구 분석 플랫폼
 버전: 1.0.0
 """
 
+from __future__ import annotations
+
 # =============================================================================
 # 표준 라이브러리 (Standard Library)
 # =============================================================================
-from typing import Any
 import traceback
+from typing import Any
 from datetime import datetime, timezone
 
 # =============================================================================
 # 프로젝트 내부 모듈
 # =============================================================================
-from shared.constants.error_codes import ErrorCode
+from shared.constants.error_codes import (
+    CRITICAL_SEVERITY_DEFAULT,
+    CRITICAL_SEVERITY_MAX,
+    CRITICAL_SEVERITY_MIN,
+    ErrorCode,
+)
 
 
 __all__ = [
@@ -305,7 +312,7 @@ class CriticalException(CourtViewException):
         context: dict[str, Any] | None = None,
         cause: Exception | None = None,
         alert_required: bool = True,
-        severity: int = 5,
+        severity: int = CRITICAL_SEVERITY_DEFAULT,
     ) -> None:
         """
         심각한 예외 초기화.
@@ -317,11 +324,13 @@ class CriticalException(CourtViewException):
             context: 컨텍스트
             cause: 원인 예외
             alert_required: 알림 발송 필요 여부
-            severity: 심각도 (1-5)
+            severity: 심각도 (CRITICAL_SEVERITY_MIN ~ CRITICAL_SEVERITY_MAX)
         """
         super().__init__(error_code, message, details, context, cause)
         self.alert_required = alert_required
-        self.severity = min(max(severity, 1), 5)  # 1-5 범위로 제한
+        self.severity = min(
+            max(severity, CRITICAL_SEVERITY_MIN), CRITICAL_SEVERITY_MAX
+        )  # 허용 범위로 클램핑
 
     def to_dict(self, include_traceback: bool = False) -> dict[str, Any]:
         """딕셔너리로 변환."""

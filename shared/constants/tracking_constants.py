@@ -13,6 +13,9 @@ COURTVIEW - AI 농구 분석 플랫폼
 버전: 1.0.0
 """
 
+from __future__ import annotations
+
+
 from enum import Enum, unique
 from typing import Final
 
@@ -227,6 +230,18 @@ class TrackState(Enum):
     트랙 상태 열거형.
 
     트랙의 생명주기 상태를 정의합니다.
+
+    사용 예시::
+
+        >>> state = TrackState.TRACKED
+        >>> state.is_active
+        True
+        >>> state.to_korean()
+        '추적 중'
+        >>> TrackingTarget.BALL.default_max_age
+        15
+        >>> TrackingAlgorithm.DEEPSORT.uses_appearance
+        True
     """
 
     # 잠정 - 아직 확정되지 않은 새 트랙
@@ -274,18 +289,18 @@ class TrackState(Enum):
 
 # -- TrackState 캐시 (직접 할당) --
 
-_TRACK_STATE_IS_ACTIVE: frozenset = frozenset({
+_TRACK_STATE_IS_ACTIVE: frozenset[TrackState] = frozenset({
     TrackState.CONFIRMED,
     TrackState.TRACKED,
 })
 
-_TRACK_STATE_IS_VISIBLE: frozenset = frozenset({
+_TRACK_STATE_IS_VISIBLE: frozenset[TrackState] = frozenset({
     TrackState.CONFIRMED,
     TrackState.TRACKED,
     TrackState.TENTATIVE,
 })
 
-_TRACK_STATE_CAN_ASSOCIATE: frozenset = frozenset({
+_TRACK_STATE_CAN_ASSOCIATE: frozenset[TrackState] = frozenset({
     TrackState.TENTATIVE,
     TrackState.CONFIRMED,
     TrackState.TRACKED,
@@ -293,7 +308,7 @@ _TRACK_STATE_CAN_ASSOCIATE: frozenset = frozenset({
     TrackState.OCCLUDED,
 })
 
-_TRACK_STATE_NEEDS_PREDICTION: frozenset = frozenset({
+_TRACK_STATE_NEEDS_PREDICTION: frozenset[TrackState] = frozenset({
     TrackState.LOST,
     TrackState.OCCLUDED,
 })
@@ -354,13 +369,13 @@ class TrackingTarget(Enum):
 
 # -- TrackingTarget 캐시 (직접 할당) --
 
-_TRACKING_TARGET_IS_PERSON: frozenset = frozenset({
+_TRACKING_TARGET_IS_PERSON: frozenset[TrackingTarget] = frozenset({
     TrackingTarget.PLAYER,
     TrackingTarget.REFEREE,
     TrackingTarget.COACH,
 })
 
-_TRACKING_TARGET_IS_DYNAMIC: frozenset = frozenset({
+_TRACKING_TARGET_IS_DYNAMIC: frozenset[TrackingTarget] = frozenset({
     TrackingTarget.PLAYER,
     TrackingTarget.BALL,
     TrackingTarget.REFEREE,
@@ -437,13 +452,13 @@ class TrackingAlgorithm(Enum):
 
 # -- TrackingAlgorithm 캐시 (직접 할당) --
 
-_TRACKING_ALGORITHM_USES_APPEARANCE: frozenset = frozenset({
+_TRACKING_ALGORITHM_USES_APPEARANCE: frozenset[TrackingAlgorithm] = frozenset({
     TrackingAlgorithm.DEEPSORT,
     TrackingAlgorithm.BOTSORT,
     TrackingAlgorithm.STRONGSORT,
 })
 
-_TRACKING_ALGORITHM_USES_MOTION_COMPENSATION: frozenset = frozenset({
+_TRACKING_ALGORITHM_USES_MOTION_COMPENSATION: frozenset[TrackingAlgorithm] = frozenset({
     TrackingAlgorithm.BOTSORT,
     TrackingAlgorithm.OCSORT,
 })

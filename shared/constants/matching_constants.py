@@ -17,7 +17,22 @@ COURTVIEW - AI 농구 분석 플랫폼
 - 에피폴라 기하학 (Epipolar Geometry): 다중 뷰 간 대응점 관계
 - 헝가리안 알고리즘 (Hungarian Algorithm): 최적 이분 매칭
 - 농구 경기에서 선수/공/심판 객체 간 대응 매칭
+
+사용 예시::
+
+    >>> from shared.constants.matching_constants import (
+    ...     MatchingStrategy, MatchingStatus, MatchingTargetType
+    ... )
+    >>> MatchingStrategy.HUNGARIAN.is_optimal
+    True
+    >>> MatchingStatus.AMBIGUOUS.needs_resolution
+    True
+    >>> MatchingTargetType.PLAYER.to_korean()
+    '선수'
 """
+
+from __future__ import annotations
+
 
 from enum import Enum, unique
 from typing import Final
@@ -311,12 +326,12 @@ class MatchingStrategy(Enum):
 
 # -- MatchingStrategy 캐시 (직접 할당) --
 
-_MATCHING_STRATEGY_IS_OPTIMAL: frozenset = frozenset({
+_MATCHING_STRATEGY_IS_OPTIMAL: frozenset[MatchingStrategy] = frozenset({
     MatchingStrategy.HUNGARIAN,
     MatchingStrategy.AUCTION,
 })
 
-_MATCHING_STRATEGY_SUPPORTS_PARTIAL: frozenset = frozenset({
+_MATCHING_STRATEGY_SUPPORTS_PARTIAL: frozenset[MatchingStrategy] = frozenset({
     MatchingStrategy.GREEDY,
     MatchingStrategy.HIERARCHICAL,
     MatchingStrategy.FUSION,
@@ -398,12 +413,12 @@ class MatchingStatus(Enum):
 
 # -- MatchingStatus 캐시 (직접 할당) --
 
-_MATCHING_STATUS_NEEDS_RESOLUTION: frozenset = frozenset({
+_MATCHING_STATUS_NEEDS_RESOLUTION: frozenset[MatchingStatus] = frozenset({
     MatchingStatus.AMBIGUOUS,
     MatchingStatus.CONFLICTED,
 })
 
-_MATCHING_STATUS_CAN_RETRY: frozenset = frozenset({
+_MATCHING_STATUS_CAN_RETRY: frozenset[MatchingStatus] = frozenset({
     MatchingStatus.BELOW_THRESHOLD,
     MatchingStatus.TEMPORAL_INCONSISTENT,
 })

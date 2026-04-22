@@ -8,10 +8,21 @@ COURTVIEW - AI 농구 분석 플랫폼
       - 선수 외관 특징 추출, 갤러리 관리, 매칭 파라미터
       - 오클루전/프레임 아웃 후 동일 인물 재식별을 위한 설정
 
+사용 예시::
+
+    >>> from shared.constants.reid_constants import ReIDModel, MatchStatus
+    >>> ReIDModel.OSNET.is_lightweight
+    True
+    >>> MatchStatus.MATCHED.is_successful
+    True
+
 작성자: SPOIN_COURTVIEW
 최종 수정: 2026-02-14
 버전: 1.0.0
 """
+
+from __future__ import annotations
+
 
 from enum import Enum, unique
 from typing import Final
@@ -313,7 +324,7 @@ _REID_MODEL_INPUT_SIZE_MAP: dict[ReIDModel, tuple[int, int]] = {
     ReIDModel.CUSTOM: REID_INPUT_SIZE,
 }
 
-_REID_MODEL_IS_LIGHTWEIGHT: frozenset = frozenset({
+_REID_MODEL_IS_LIGHTWEIGHT: frozenset[ReIDModel] = frozenset({
     ReIDModel.OSNET,
     ReIDModel.OSNET_AIN,
 })
@@ -380,17 +391,17 @@ class MatchStatus(Enum):
 
 # -- MatchStatus 캐시 (직접 할당) --
 
-_MATCH_STATUS_IS_SUCCESSFUL: frozenset = frozenset({
+_MATCH_STATUS_IS_SUCCESSFUL: frozenset[MatchStatus] = frozenset({
     MatchStatus.MATCHED,
     MatchStatus.NEW,
 })
 
-_MATCH_STATUS_NEEDS_CONFIRMATION: frozenset = frozenset({
+_MATCH_STATUS_NEEDS_CONFIRMATION: frozenset[MatchStatus] = frozenset({
     MatchStatus.AMBIGUOUS,
     MatchStatus.LOW_QUALITY,
 })
 
-_MATCH_STATUS_SHOULD_RETRY: frozenset = frozenset({
+_MATCH_STATUS_SHOULD_RETRY: frozenset[MatchStatus] = frozenset({
     MatchStatus.LOW_QUALITY,
     MatchStatus.FAILED,
 })
