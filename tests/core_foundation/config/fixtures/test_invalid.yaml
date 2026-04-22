@@ -1,4 +1,0 @@
-invalid: yaml: content:
-  - broken
-    nested: [unclosed
-  key: "missing

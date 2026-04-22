@@ -1,0 +1,138 @@
+# =============================================================================
+# COURTVIEW_DESK - Linux 환경 설정 (linux.yaml)
+#
+# Linux (Ubuntu/Debian/RHEL) 고유 설정.
+# base_config.yaml 위에 병합 적용.
+# Docker 배포 시 이 설정 적용.
+#
+# 참조:
+#   - configs/base/base_config.yaml: 기본 설정 (base)
+#   - configs/desktop/performance.yaml: 성능 설정
+#   - CLAUDE.md #9: Docker + AWS EC2 배포
+#
+# 작성자: SPOIN_COURTVIEW
+# 최종 수정: 2026-03-20
+# 버전: 1.0.0
+# =============================================================================
+
+# 환경 메타데이터
+environment:
+  name: "linux"
+  description: "Linux (Ubuntu/Debian/RHEL) 프로덕션 환경"
+  platform: "linux"
+  base_config: "base_config.yaml"
+
+# -----------------------------------------------------------------------------
+# 시스템
+# -----------------------------------------------------------------------------
+system:
+  log_level: "INFO"
+  log_format: "json"
+
+  paths:
+    separator: "/"
+    temp_dir: "/tmp/courtview"
+    log_dir: "/var/log/courtview"
+    data_dir: "/opt/courtview/data"
+    config_dir: "/etc/courtview"
+
+# -----------------------------------------------------------------------------
+# GPU (Linux CUDA)
+# 가장 완전한 CUDA/TensorRT 지원
+# -----------------------------------------------------------------------------
+gpu:
+  cuda:
+    library_path: "/usr/local/cuda/lib64"
+    trt_library_path: "/usr/lib/x86_64-linux-gnu"
+  tensorrt:
+    enabled: true
+    cache_dir: "/opt/courtview/tensorrt_engines"
+    precision: "fp16"
+
+# -----------------------------------------------------------------------------
+# 비디오 디코딩
+# Linux NVDEC/VAAPI 하드웨어 디코딩
+# -----------------------------------------------------------------------------
+video:
+  decode:
+    hardware_decode: true
+    decoder_backend: "nvdec"               # nvdec (NVIDIA), vaapi (Intel/AMD)
+    fallback_backend: "ffmpeg"
+    pixel_format: "nv12"
+
+# -----------------------------------------------------------------------------
+# 카메라
+# Linux V4L2 / GStreamer
+# -----------------------------------------------------------------------------
+camera:
+  capture_backend: "v4l2"                  # Video4Linux2
+  usb_backend: "v4l2"
+  network_backend: "ffmpeg"                # RTSP → FFmpeg/GStreamer
+  gstreamer:
+    enabled: true                          # GStreamer 파이프라인 지원
+    pipeline_template: "v4l2src device={device} ! video/x-raw,width={width},height={height},framerate={fps}/1 ! videoconvert ! appsink"
+
+# -----------------------------------------------------------------------------
+# 프로세스 관리
+# -----------------------------------------------------------------------------
+process:
+  nice_level: -10                          # 프로세스 우선순위 (root 필요)
+  io_scheduler: "deadline"                 # I/O 스케줄러
+
+  # cgroup 리소스 제한 (Docker/systemd)
+  cgroup:
+    cpu_shares: 1024                       # CPU 가중치
+    memory_limit_mb: 0                     # 0 = 무제한
+
+  # NUMA 설정 (멀티소켓 서버)
+  numa:
+    enabled: false
+    preferred_node: 0
+
+# -----------------------------------------------------------------------------
+# Docker 배포 설정
+# -----------------------------------------------------------------------------
+docker:
+  # NVIDIA Container Toolkit (nvidia-docker2)
+  gpu_runtime: "nvidia"
+  gpu_capabilities: ["gpu", "utility", "compute"]
+  shm_size: "8g"                           # 공유 메모리 크기
+
+  # 볼륨 마운트 (호스트 경로)
+  volumes:
+    data: "/opt/courtview/data"
+    videos: "/opt/courtview/videos"
+    models: "/opt/courtview/weights"
+    config: "/etc/courtview"
+    logs: "/var/log/courtview"
+    tensorrt_cache: "/opt/courtview/tensorrt_engines"
+
+  # 환경 변수
+  env:
+    NVIDIA_VISIBLE_DEVICES: "all"
+    NVIDIA_DRIVER_CAPABILITIES: "compute,utility"
+    CUDA_VISIBLE_DEVICES: "0"
+    TZ: "Asia/Seoul"
+
+# -----------------------------------------------------------------------------
+# 네트워크
+# -----------------------------------------------------------------------------
+network:
+  api_server:
+    host: "0.0.0.0"
+    port: 8000
+  websocket:
+    host: "0.0.0.0"
+    port: 8001
+
+# -----------------------------------------------------------------------------
+# systemd 서비스 설정 참고
+# (실제 서비스 파일은 deploy/ 디렉토리에 별도 관리)
+# -----------------------------------------------------------------------------
+service:
+  name: "courtview-desk"
+  user: "courtview"
+  group: "courtview"
+  restart: "on-failure"
+  restart_sec: 5
+  watchdog_sec: 60

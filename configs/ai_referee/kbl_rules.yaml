@@ -1,0 +1,103 @@
+# =============================================================================
+# COURTVIEW_DESK - KBL 심판 규정 (kbl_rules.yaml)
+#
+# KBL (한국프로농구) 경기 운영 규칙 2024-25 기반.
+# FIBA 기준 준용 + KBL 고유 규칙 정의.
+#
+# 참조:
+#   - KBL 경기 운영 규칙 2024-25
+#   - FIBA Official Basketball Rules 2024 (기본 준용)
+#   - shared/constants/referee_rule_constants.py: RuleSet.KBL
+#
+# 작성자: SPOIN_COURTVIEW
+# 최종 수정: 2026-03-20
+# 버전: 1.0.0
+# =============================================================================
+
+rule_set: "kbl"
+description: "KBL 경기 운영 규칙 2024-25"
+base_rules: "fiba_rules.yaml"              # FIBA 기준 준용
+
+# -----------------------------------------------------------------------------
+# 경기 시간 규칙
+# -----------------------------------------------------------------------------
+game_time:
+  quarter_duration_sec: 600                 # 10분 × 4쿼터 (FIBA 동일)
+  overtime_duration_sec: 300                # 연장전 5분
+  halftime_break_sec: 900                   # 하프타임 15분
+  period_break_sec: 120                     # 쿼터 간 2분
+  shot_clock_sec: 24
+  shot_clock_reset_oreb_sec: 14
+  backcourt_sec: 8
+  free_throw_sec: 5
+  throw_in_sec: 5
+
+# -----------------------------------------------------------------------------
+# 코트 규격 (FIBA 동일)
+# -----------------------------------------------------------------------------
+court:
+  three_point_distance_m: 6.75              # FIBA 3점 라인
+  restricted_area_arc_m: 1.25
+
+# -----------------------------------------------------------------------------
+# 파울 규칙 (FIBA 동일)
+# -----------------------------------------------------------------------------
+fouls:
+  max_personal_fouls: 5                     # FIBA 동일
+  team_foul_bonus_threshold: 4
+  technical_foul_ejection: 2
+  unsportsmanlike_foul_ejection: 2
+
+  free_throws:
+    bonus_free_throws: 2
+    shooting_foul_2pt: 2
+    shooting_foul_3pt: 3
+    technical_free_throws: 1
+    unsportsmanlike_free_throws: 2
+
+# -----------------------------------------------------------------------------
+# 타임아웃 규칙
+# -----------------------------------------------------------------------------
+timeouts:
+  total_per_game: 5                         # FIBA 동일
+  first_half_max: 2
+  second_half_max: 3
+  overtime_additional: 1
+  duration_sec: 60
+  carryover: false
+  tv_timeout: true                          # KBL TV 타임아웃 존재
+
+# -----------------------------------------------------------------------------
+# KBL 고유 규칙
+# -----------------------------------------------------------------------------
+kbl_specific:
+  # 비디오 판독 (IRS)
+  video_review:
+    enabled: true
+    situations:
+      - "shot_clock_expiry"
+      - "end_of_period"
+      - "2pt_or_3pt"
+      - "goaltending"
+      - "unsportsmanlike_foul"
+      - "out_of_bounds"                     # KBL 추가 항목
+    coach_challenge: false                  # FIBA 준용 (코치 챌린지 없음)
+
+  # 교체 규칙
+  substitution:
+    dead_ball_only: true                    # 데드볼 시에만 교체
+    free_substitution: false                # 자유 교체 불가
+
+  # 외국인 선수 규정
+  foreign_player:
+    max_on_court: 2                         # 코트 위 최대 외국인 2명
+    total_roster: 2                         # 로스터 외국인 2명
+
+  # 교대 점유 화살표 (FIBA 준용)
+  alternating_possession:
+    enabled: true
+
+  # 3초 규칙 (FIBA 준용)
+  three_second_rule:
+    offensive_three_sec: true
+    defensive_three_sec: false              # 수비 3초 미적용

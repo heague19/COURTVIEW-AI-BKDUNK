@@ -1,0 +1,116 @@
+# =============================================================================
+# COURTVIEW_DESK - YOLO11l-Pose 설정 (yolov8.yaml, 파일명은 유지)
+#
+# Stage 1: 상시 17 키포인트 추정 (COCO 포맷).
+# TensorRT FP16 최적화 기준.
+# VRAM 예산: ~500MB (YOLO11 l: YOLOv8 x 대비 ~40% 경량)
+#
+# 학술 근거:
+#   - YOLO11: Ultralytics (2024). https://docs.ultralytics.com/models/yolo11
+#   - COCO 키포인트: Lin, T.Y. et al. (2014). "Microsoft COCO: Common Objects
+#     in Context." ECCV. (17 키포인트 정의, OKS 시그마값)
+#   - OKS 시그마: COCO Keypoint Evaluation — official sigma values per joint
+#
+# 작성자: SPOIN_COURTVIEW
+# 최종 수정: 2026-04-21
+# 버전: 2.0.0 (YOLO11 전환)
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# 모델 기본
+# -----------------------------------------------------------------------------
+model:
+  name: "yolo11l-pose"
+  variant: "l"                         # n, s, m, l, x — YOLO11 l 사용
+  input_size: 640
+  keypoint_count: 17                   # COCO 17 키포인트 (YOLO11 도 동일)
+  precision: "fp16"
+  vram_estimate_mb: 500
+
+# -----------------------------------------------------------------------------
+# 추론 파라미터
+# -----------------------------------------------------------------------------
+# TODO: 추론 파라미터(confidence 0.5, keypoint 0.3)는 초기 설계값,
+#       실제 포즈 추정 정확도 평가 후 OKS/AP 분석으로 캘리브레이션 필요
+inference:
+  confidence_threshold: 0.5
+  nms_iou_threshold: 0.45
+  max_detections: 20
+  batch_size: 8
+  keypoint_confidence_threshold: 0.3   # 개별 키포인트 신뢰도
+
+# -----------------------------------------------------------------------------
+# COCO 17 키포인트 정의
+# -----------------------------------------------------------------------------
+keypoints:
+  - {id: 0,  name: "nose"}
+  - {id: 1,  name: "left_eye"}
+  - {id: 2,  name: "right_eye"}
+  - {id: 3,  name: "left_ear"}
+  - {id: 4,  name: "right_ear"}
+  - {id: 5,  name: "left_shoulder"}
+  - {id: 6,  name: "right_shoulder"}
+  - {id: 7,  name: "left_elbow"}
+  - {id: 8,  name: "right_elbow"}
+  - {id: 9,  name: "left_wrist"}
+  - {id: 10, name: "right_wrist"}
+  - {id: 11, name: "left_hip"}
+  - {id: 12, name: "right_hip"}
+  - {id: 13, name: "left_knee"}
+  - {id: 14, name: "right_knee"}
+  - {id: 15, name: "left_ankle"}
+  - {id: 16, name: "right_ankle"}
+
+# -----------------------------------------------------------------------------
+# 스켈레톤 연결 (시각화/검증용)
+# -----------------------------------------------------------------------------
+skeleton:
+  - [0, 1]    # nose - left_eye
+  - [0, 2]    # nose - right_eye
+  - [1, 3]    # left_eye - left_ear
+  - [2, 4]    # right_eye - right_ear
+  - [5, 6]    # left_shoulder - right_shoulder
+  - [5, 7]    # left_shoulder - left_elbow
+  - [7, 9]    # left_elbow - left_wrist
+  - [6, 8]    # right_shoulder - right_elbow
+  - [8, 10]   # right_elbow - right_wrist
+  - [5, 11]   # left_shoulder - left_hip
+  - [6, 12]   # right_shoulder - right_hip
+  - [11, 12]  # left_hip - right_hip
+  - [11, 13]  # left_hip - left_knee
+  - [13, 15]  # left_knee - left_ankle
+  - [12, 14]  # right_hip - right_knee
+  - [14, 16]  # right_knee - right_ankle
+
+# -----------------------------------------------------------------------------
+# 전처리
+# -----------------------------------------------------------------------------
+preprocessing:
+  normalize_mean: [0.0, 0.0, 0.0]      # YOLOv8 기본 (0~1 정규화만)
+  normalize_std: [1.0, 1.0, 1.0]
+  letterbox_color: [114, 114, 114]
+  auto_stride: 32
+
+# -----------------------------------------------------------------------------
+# 후처리
+# -----------------------------------------------------------------------------
+postprocessing:
+  flip_test: false                     # TTA 좌우 반전 테스트
+  oks_sigma:                           # OKS 시그마 (COCO 공식값, Lin et al. 2014)
+    - 0.026   # nose
+    - 0.025   # left_eye
+    - 0.025   # right_eye
+    - 0.035   # left_ear
+    - 0.035   # right_ear
+    - 0.079   # left_shoulder
+    - 0.079   # right_shoulder
+    - 0.072   # left_elbow
+    - 0.072   # right_elbow
+    - 0.062   # left_wrist
+    - 0.062   # right_wrist
+    - 0.107   # left_hip
+    - 0.107   # right_hip
+    - 0.087   # left_knee
+    - 0.087   # right_knee
+    - 0.089   # left_ankle
+    - 0.089   # right_ankle

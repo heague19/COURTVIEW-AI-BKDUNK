@@ -1,0 +1,240 @@
+# =============================================================================
+# COURTVIEW_DESK - 전술 피드백 설정 (tactical_feedback.yaml)
+#
+# 공격/수비 전술 분석 결과 → 코칭 피드백 변환 파라미터.
+# 세트 플레이, 픽앤롤, 스페이싱, 전환 공수, 매치업 피드백 기준.
+#
+# 참조:
+#   - shared/constants/tactical_constants.py: SetPlayType (14종),
+#     SpacingQuality (5단계), TransitionPhase (3종)
+#   - shared/constants/feedback_constants.py: FeedbackSeverity (5단계)
+#   - configs/game_analysis/tactical_analysis.yaml: 전술 분석 파라미터
+#   - feedback_system/analysis/tactical_feedback.py
+#   - feedback_system/analysis/defensive_feedback.py
+#
+# 작성자: SPOIN_COURTVIEW
+# 최종 수정: 2026-03-20
+# 버전: 1.0.0
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# 공격 전술 피드백 기준
+# -----------------------------------------------------------------------------
+offensive:
+  # 세트 플레이 실행 평가
+  set_play:
+    # 성공률 기준 (심각도 매핑)
+    # TODO: 세트 플레이 성공률 기준(65/50/35/20%)은 초기 설계값,
+    #       실제 경기 세트 플레이 성공률 분포 데이터로 캘리브레이션 필요
+    execution_rate:
+      excellent_min: 0.65                  # 65%+ → EXCELLENT
+      good_min: 0.50                       # 50~64% → GOOD
+      acceptable_min: 0.35                 # 35~49% → ACCEPTABLE
+      needs_work_min: 0.20                 # 20~34% → NEEDS_WORK
+      # 20% 미만 → CRITICAL
+
+    # 피드백 포인트 (최소 10개)
+    feedback_points:
+      - "play_recognition_accuracy"        # 플레이 인식 정확도
+      - "screen_timing"                    # 스크린 타이밍
+      - "cutter_timing"                    # 커터 타이밍
+      - "ball_movement_speed"              # 볼 무빙 속도
+      - "spacing_maintenance"              # 스페이싱 유지
+      - "read_and_react"                   # 리드 앤 리액트
+      - "decoy_effectiveness"              # 디코이 효과
+      - "entry_pass_quality"               # 엔트리 패스 품질
+      - "finish_quality"                   # 마무리 품질
+      - "secondary_option_execution"       # 2차 옵션 실행
+
+  # 픽앤롤 효율 평가
+  pick_and_roll:
+    # PPP (Points Per Possession) 기준
+    ppp_thresholds:
+      excellent_min: 1.10                  # PPP 1.10+ → EXCELLENT
+      good_min: 0.95                       # 0.95~1.09 → GOOD
+      acceptable_min: 0.80                 # 0.80~0.94 → ACCEPTABLE
+      needs_work_min: 0.65                 # 0.65~0.79 → NEEDS_WORK
+
+    feedback_points:
+      - "screen_angle"                     # 스크린 각도 (45~135° 적정)
+      - "screen_contact_quality"           # 스크린 접촉 품질
+      - "ball_handler_read"                # 볼핸들러 리드
+      - "roll_pop_decision"                # 롤/팝 판단
+      - "spacing_after_screen"             # 스크린 후 스페이싱
+      - "defense_coverage_read"            # 수비 커버리지 판독
+      - "slip_screen_timing"               # 슬립 스크린 타이밍
+      - "reject_screen_option"             # 스크린 리젝트 옵션
+      - "short_roll_awareness"             # 숏롤 인식
+      - "weak_side_movement"               # 약사이드 움직임
+
+  # 스페이싱 평가
+  spacing:
+    # 평균 선수 간 거리 기준 (미터)
+    quality_thresholds:
+      excellent_m: 5.0                     # 5.0m+ → EXCELLENT
+      good_m: 4.5                          # 4.5~4.9m → GOOD
+      acceptable_m: 3.5                    # 3.5~4.4m → ACCEPTABLE
+      needs_work_m: 2.5                    # 2.5~3.4m → NEEDS_WORK
+      # 2.5m 미만 → CRITICAL (COLLAPSED)
+
+    feedback_points:
+      - "floor_balance"                    # 코트 균형
+      - "corner_occupation"                # 코너 점유
+      - "three_point_spacing"              # 3점 라인 스페이싱
+      - "paint_clearing"                   # 페인트 비우기
+      - "ball_side_strong_side"            # 볼사이드/스트롱사이드 배분
+      - "weak_side_presence"               # 약사이드 존재감
+      - "post_spacing_support"             # 포스트업 스페이싱 지원
+      - "driving_lane_creation"            # 드라이빙 레인 생성
+      - "relocation_after_pass"            # 패스 후 재배치
+      - "gravity_player_utilization"       # 그래비티 선수 활용
+
+  # 전환 공격 평가
+  transition:
+    # 전환 공격 득점 효율
+    scoring_rate:
+      excellent_min: 1.30                  # PPP 1.30+ → EXCELLENT
+      good_min: 1.10                       # 1.10~1.29 → GOOD
+      acceptable_min: 0.90                 # 0.90~1.09 → ACCEPTABLE
+      needs_work_min: 0.70                 # 0.70~0.89 → NEEDS_WORK
+
+    # 전환 시간 기준 (초)
+    primary_transition_max_sec: 5.0        # 1차 전환 (속공)
+    secondary_transition_max_sec: 8.0      # 2차 전환 (얼리 오펜스)
+
+    feedback_points:
+      - "outlet_pass_speed"                # 아웃렛 패스 속도
+      - "lane_filling"                     # 레인 채우기 (3레인)
+      - "rim_running"                      # 림 러닝
+      - "trailing_player_awareness"        # 트레일링 선수 인식
+      - "decision_making_speed"            # 판단 속도 (슛 vs 패스 vs 풀업)
+      - "fast_break_finishing"             # 속공 마무리
+      - "numbers_advantage_usage"          # 숫자 우위 활용
+      - "early_offense_execution"          # 얼리 오펜스 실행
+      - "secondary_break_setup"            # 2차 브레이크 세팅
+      - "transition_pull_up_selection"     # 전환 풀업 슛 선택
+
+# -----------------------------------------------------------------------------
+# 수비 전술 피드백 기준
+# -----------------------------------------------------------------------------
+defensive:
+  # 매치업 평가
+  matchup:
+    # 수비 PPP 허용 기준 (낮을수록 좋음)
+    ppp_allowed:
+      excellent_max: 0.80                  # PPP ≤0.80 → EXCELLENT
+      good_max: 0.90                       # 0.81~0.90 → GOOD
+      acceptable_max: 1.05                 # 0.91~1.05 → ACCEPTABLE
+      needs_work_max: 1.20                 # 1.06~1.20 → NEEDS_WORK
+      # 1.20 초과 → CRITICAL
+
+    feedback_points:
+      - "on_ball_pressure"                 # 온볼 압박
+      - "lateral_quickness"                # 측면 이동 민첩성
+      - "shot_contest_rate"                # 슛 컨테스트 비율
+      - "contest_quality"                  # 컨테스트 품질
+      - "ball_screen_navigation"           # 볼 스크린 네비게이션
+      - "post_defense_technique"           # 포스트업 수비 기법
+      - "isolation_defense"                # 아이솔레이션 수비
+      - "recovery_speed"                   # 수비 복귀 속도
+      - "communication"                    # 커뮤니케이션
+      - "switch_discipline"                # 스위치 규율
+
+  # 팀 수비 평가
+  team_defense:
+    # DRtg 기준
+    drtg_thresholds:
+      excellent_max: 100.0                 # DRtg ≤100 → EXCELLENT
+      good_max: 105.0                      # 101~105 → GOOD
+      acceptable_max: 110.0                # 106~110 → ACCEPTABLE
+      needs_work_max: 115.0                # 111~115 → NEEDS_WORK
+
+    feedback_points:
+      - "help_defense_rotation"            # 헬프 디펜스 로테이션
+      - "closeout_technique"               # 클로즈아웃 기법
+      - "paint_protection"                 # 페인트 보호
+      - "perimeter_containment"            # 외곽 봉쇄
+      - "transition_defense_effort"        # 전환 수비 노력
+      - "rebounding_boxing_out"            # 리바운드 박스아웃
+      - "weak_side_awareness"              # 약사이드 인식
+      - "screen_navigation_scheme"         # 스크린 네비게이션 전략
+      - "defensive_communication"          # 수비 커뮤니케이션
+      - "fouling_discipline"               # 파울 규율
+
+  # 클로즈아웃 평가
+  closeout:
+    # 클로즈아웃 시간 기준 (초)
+    time_thresholds:
+      excellent_max_sec: 0.6               # 0.6초 이하 → EXCELLENT
+      good_max_sec: 0.8                    # 0.7~0.8초 → GOOD
+      acceptable_max_sec: 1.0              # 0.9~1.0초 → ACCEPTABLE
+      needs_work_max_sec: 1.2              # 1.1~1.2초 → NEEDS_WORK
+
+  # 헬프 디펜스 평가
+  help_defense:
+    # 트리거 거리 (미터)
+    trigger_distance_m: 2.5                # 볼핸들러-바스켓 2.5m 이내 시 도움
+    rotation_speed_max_sec: 1.5            # 로테이션 완료 시간
+
+# -----------------------------------------------------------------------------
+# 개인 전술 피드백 기준
+# -----------------------------------------------------------------------------
+individual:
+  # 슈팅 효율 피드백
+  shooting:
+    # eFG% 기준
+    efg_thresholds:
+      excellent_min: 0.58                  # 58%+ → EXCELLENT
+      good_min: 0.52                       # 52~57% → GOOD
+      acceptable_min: 0.46                 # 46~51% → ACCEPTABLE
+      needs_work_min: 0.40                 # 40~45% → NEEDS_WORK
+
+    feedback_points:
+      - "shot_selection"                   # 슛 셀렉션
+      - "catch_and_shoot_efficiency"       # 캐치앤슛 효율
+      - "pull_up_efficiency"               # 풀업 효율
+      - "paint_finishing"                  # 페인트 피니싱
+      - "free_throw_consistency"           # 자유투 일관성
+      - "three_point_volume"               # 3점 볼륨
+      - "mid_range_efficiency"             # 미드레인지 효율
+      - "contested_shot_making"            # 컨테스트 슛 메이킹
+      - "shot_creation_ability"            # 슛 생성 능력
+      - "shot_quality_average"             # 평균 슛 품질
+
+  # 플레이메이킹 피드백
+  playmaking:
+    # AST/TO 비율 기준
+    ast_to_ratio:
+      excellent_min: 3.0                   # 3.0+ → EXCELLENT
+      good_min: 2.0                        # 2.0~2.9 → GOOD
+      acceptable_min: 1.5                  # 1.5~1.9 → ACCEPTABLE
+      needs_work_min: 1.0                  # 1.0~1.4 → NEEDS_WORK
+
+    feedback_points:
+      - "pass_accuracy"                    # 패스 정확도
+      - "court_vision"                     # 코트 비전
+      - "pick_and_roll_reads"              # 픽앤롤 리드
+      - "drive_and_kick"                   # 드라이브 앤 킥
+      - "entry_pass_execution"             # 엔트리 패스 실행
+      - "hockey_assist_creation"           # 호키 어시스트 생성
+      - "turnover_avoidance"               # 턴오버 회피
+      - "live_ball_turnover_rate"          # 라이브볼 턴오버 비율
+      - "assist_opportunity_conversion"    # 어시스트 기회 전환율
+      - "potential_assist_rate"            # 잠재 어시스트 비율
+
+# -----------------------------------------------------------------------------
+# 피드백 생성 옵션
+# -----------------------------------------------------------------------------
+generation:
+  # 피드백 우선순위 정렬 기준
+  sort_by: "severity_then_impact"          # severity_then_impact | impact_first | category_order
+
+  # 중복 제거
+  dedup_threshold: 0.85                    # 유사도 85% 이상 → 중복으로 판단
+
+  # 비교 대상 (리그 평균 대비)
+  comparison_baseline: "league_average"    # league_average | team_history | player_history
+
+  # 변동 강조
+  highlight_significant_change: true       # 유의미한 변동 강조
+  significant_change_threshold: 0.10       # 10% 이상 변동 시 강조

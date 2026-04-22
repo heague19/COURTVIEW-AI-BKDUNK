@@ -1,0 +1,140 @@
+# =============================================================================
+# COURTVIEW_DESK - NBA 심판 규정 (nba_rules.yaml)
+#
+# NBA Official Rulebook 2024-25 기반.
+# FIBA 기반과의 차이점 위주로 정의.
+#
+# 참조:
+#   - NBA Official Rulebook 2024-25
+#   - shared/constants/referee_rule_constants.py: RuleSet.NBA
+#   - shared/constants/game_management_constants.py: NBA 전용 규칙
+#
+# 작성자: SPOIN_COURTVIEW
+# 최종 수정: 2026-03-20
+# 버전: 1.0.0
+# =============================================================================
+
+rule_set: "nba"
+description: "NBA Official Rulebook 2024-25"
+base_rules: "fiba_rules.yaml"              # FIBA 기반, 아래 항목만 오버라이드
+
+# -----------------------------------------------------------------------------
+# 경기 시간 규칙 (FIBA 대비 차이점)
+# -----------------------------------------------------------------------------
+game_time:
+  quarter_duration_sec: 720                 # 12분 × 4쿼터
+  overtime_duration_sec: 300                # 연장전 5분 (FIBA 동일)
+  halftime_break_sec: 900                   # 15분 (TV 방송 시 18분)
+  period_break_sec: 130                     # 쿼터 간 2분 10초
+  shot_clock_sec: 24
+  shot_clock_reset_oreb_sec: 14             # 2018-19부터 14초 (이전 24초)
+  backcourt_sec: 8
+  free_throw_sec: 10                        # 자유투 10초 (FIBA 5초)
+  throw_in_sec: 5
+
+# -----------------------------------------------------------------------------
+# 코트 규격
+# -----------------------------------------------------------------------------
+court:
+  three_point_distance_m: 7.24              # 3점 라인 7.24m (23ft 9in)
+  three_point_corner_m: 6.71               # 코너 3점 6.71m (22ft)
+  restricted_area_arc_m: 1.22               # 제한 구역 아크 4ft (1.22m)
+
+# -----------------------------------------------------------------------------
+# 파울 규칙
+# -----------------------------------------------------------------------------
+fouls:
+  max_personal_fouls: 6                     # 개인 파울 퇴장 6개 (FIBA 5개)
+  team_foul_bonus_threshold: 4              # 쿼터당 4개 후 보너스
+  team_foul_penalty_threshold: 4            # 쿼터 4번째 → 보너스 (5번째부터 FT)
+  technical_foul_ejection: 2                # 테크니컬 2개 → 퇴장
+
+  # 자유투 부여
+  free_throws:
+    bonus_free_throws: 2                    # 보너스 → 2구
+    shooting_foul_2pt: 2
+    shooting_foul_3pt: 3
+    technical_free_throws: 1                # 테크니컬 → 1구 (점유 유지)
+    flagrant_1_free_throws: 2               # 플래그런트 1 → 2구 + 점유
+    flagrant_2_free_throws: 2               # 플래그런트 2 → 2구 + 점유 + 퇴장
+
+# -----------------------------------------------------------------------------
+# 타임아웃 규칙
+# -----------------------------------------------------------------------------
+timeouts:
+  total_per_game: 7                         # 경기당 총 7개
+  duration_sec: 75                          # 타임아웃 75초 (FIBA 60초)
+  overtime_additional: 2                    # 연장전 추가 2개
+  mandatory_tv_timeouts: true               # TV 강제 타임아웃 (2Q, 4Q)
+  advance_ball_timeout: true                # 타임아웃 후 프론트코트 진출 가능
+
+# -----------------------------------------------------------------------------
+# 3초 규칙 (NBA 전용: 수비 3초)
+# -----------------------------------------------------------------------------
+three_second_rule:
+  offensive_three_sec: true
+  defensive_three_sec: true                 # NBA 수비 3초 적용
+  defensive_three_sec_penalty: "technical"  # 위반 시 테크니컬 FT 1구 + 점유
+  grace_period_sec: 0.5
+
+# -----------------------------------------------------------------------------
+# 트래블링 규칙 (NBA 해석)
+# -----------------------------------------------------------------------------
+traveling:
+  gather_step:
+    enabled: true
+    max_steps_after_gather: 2               # 게더 후 최대 2보 (zero step 포함)
+    zero_step_enabled: true                 # 제로 스텝 적용
+  pivot_foot:
+    lift_threshold_m: 0.05
+    slide_threshold_m: 0.20                 # NBA는 약간 더 관대
+
+# -----------------------------------------------------------------------------
+# NBA 고유 규칙
+# -----------------------------------------------------------------------------
+nba_specific:
+  # 플래그런트 파울 (FIBA의 비신사적 파울과 대응)
+  flagrant_fouls:
+    flagrant_1:
+      description: "불필요한 접촉 (Unnecessary Contact)"
+      free_throws: 2
+      possession_retained: true
+      ejection: false
+    flagrant_2:
+      description: "불필요하고 과도한 접촉 (Unnecessary and Excessive)"
+      free_throws: 2
+      possession_retained: true
+      ejection: true                        # 즉시 퇴장
+
+  # 코치 챌린지
+  coach_challenge:
+    enabled: true
+    challenges_per_game: 1                  # 경기당 1회
+    successful_challenge_retain: true       # 성공 시 챌린지 유지 (2024-25부터 미적용)
+    reviewable_plays:
+      - "personal_foul"                     # 개인 파울
+      - "offensive_foul"                    # 공격 파울
+      - "out_of_bounds"                     # 아웃
+      - "goaltending"                       # 골텐딩
+
+  # 클리어 패스 파울 (Clear Path Foul)
+  clear_path_foul:
+    enabled: true
+    free_throws: 2
+    possession_retained: true
+    criteria:
+      - "no_defender_between_ball_and_basket"
+      - "fast_break_opportunity"
+
+  # 리플레이 센터
+  replay_center:
+    enabled: true
+    automatic_triggers:
+      - "last_2_minutes_4q"                 # 4Q 마지막 2분
+      - "overtime"                          # 연장전 전체
+      - "flagrant_foul_review"
+      - "out_of_bounds_last_2_min"
+
+  # 점프볼 (교대 점유 없음)
+  alternating_possession:
+    enabled: false                          # NBA는 점프볼 사용

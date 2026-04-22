@@ -1,0 +1,142 @@
+# =============================================================================
+# COURTVIEW_DESK - 하드웨어 동기화 설정 (hardware_sync.yaml)
+#
+# 멀티카메라 하드웨어 동기화 및 장치 관리 파라미터.
+# Genlock, PTP, NTP, 소프트웨어 동기화 지원.
+#
+# 참조:
+#   - configs/base/camera_config.yaml: 카메라 기본 설정
+#   - shared/constants/camera_constants.py: 카메라 제한값
+#   - shared/constants/video_constants.py: 동기화 상수
+#   - infrastructure/multi_camera/: 카메라 매니저, 동기화 모듈
+#
+# 작성자: SPOIN_COURTVIEW
+# 최종 수정: 2026-03-20
+# 버전: 1.0.0
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# 동기화 방식 (우선순위 순)
+# -----------------------------------------------------------------------------
+sync_method:
+  # 동기화 방식 자동 선택
+  auto_select: true                        # 가용한 최고 정밀도 방식 자동 선택
+
+  # 우선순위 순서
+  priority:
+    - "genlock"                            # 1. Genlock (하드웨어, ±1μs)
+    - "ptp"                                # 2. PTP/IEEE 1588 (네트워크, ±1ms)
+    - "ntp"                                # 3. NTP (네트워크, ±10ms)
+    - "software"                           # 4. 소프트웨어 (타임스탬프 기반)
+
+  # 각 방식별 설정
+  genlock:
+    enabled: true
+    master_camera_id: 0                    # 마스터 카메라 ID
+    signal_type: "tri_level"               # tri_level, bi_level
+    expected_jitter_us: 1.0                # 예상 지터 (μs)
+
+  ptp:
+    enabled: true
+    domain: 0                              # PTP 도메인
+    profile: "default"                     # default, gPTP (802.1AS)
+    expected_accuracy_ms: 1.0              # 예상 정밀도 (ms)
+
+  ntp:
+    enabled: true
+    server: "pool.ntp.org"
+    sync_interval_sec: 60                  # NTP 동기화 주기 (초)
+    expected_accuracy_ms: 10.0             # 예상 정밀도 (ms)
+
+  software:
+    enabled: true                          # 항상 가용 (폴백)
+    method: "timestamp_matching"           # timestamp_matching, audio_sync
+    expected_accuracy_ms: 33.33            # 1프레임 @ 30fps
+
+# -----------------------------------------------------------------------------
+# 프레임 동기화 파라미터
+# -----------------------------------------------------------------------------
+frame_sync:
+  # 동기화 허용 오차 (밀리초)
+  tolerance_ms: 33.33                      # 1프레임 @ 30fps
+  hardware_jitter_ms: 1.0                  # Genlock 지터 허용
+  software_jitter_ms: 5.0                  # 소프트웨어 동기화 지터 허용
+
+  # 드리프트 관리
+  drift:
+    threshold_ms: 50.0                     # 드리프트 감지 임계치
+    max_before_reset_ms: 100.0             # 리셋 트리거 임계치
+    correction_method: "interpolation"     # interpolation, drop, duplicate
+    check_interval_frames: 300             # 드리프트 검사 주기 (프레임)
+
+  # 프레임 타임스탬프
+  timestamp_precision_us: 1000             # 타임스탬프 정밀도 (μs)
+  clock_source: "monotonic"                # monotonic, realtime, ptp
+
+# -----------------------------------------------------------------------------
+# 카메라 장치 관리
+# -----------------------------------------------------------------------------
+device_management:
+  # 자동 감지
+  auto_discover: true                      # 카메라 자동 감지
+  discover_interval_sec: 10                # 감지 주기 (초)
+  supported_protocols:
+    - "usb"                                # USB 카메라
+    - "rtsp"                               # RTSP 네트워크 카메라
+    - "gige"                               # GigE Vision 카메라
+    - "v4l2"                               # Video4Linux2
+
+  # 연결 관리
+  connection:
+    timeout_sec: 30                        # 연결 타임아웃 (초)
+    reconnect_timeout_sec: 10              # 재연결 타임아웃 (초)
+    max_reconnect_attempts: 5              # 최대 재연결 시도 횟수
+    reconnect_backoff_sec: 2.0             # 재연결 백오프 (초)
+    health_check_interval_sec: 5           # 헬스체크 주기 (초)
+    frame_receive_timeout_sec: 2.0         # 프레임 수신 타임아웃 (초)
+
+  # 장치 상태 모니터링
+  monitoring:
+    fps_check_interval_sec: 5              # FPS 확인 주기
+    fps_drop_warning_threshold: 0.80       # FPS 80% 미만 시 경고
+    frame_drop_warning_threshold: 0.05     # 프레임 드롭 5% 초과 시 경고
+    temperature_warning_celsius: 70        # 온도 경고 (USB 카메라)
+
+# -----------------------------------------------------------------------------
+# 멀티카메라 캘리브레이션 동기화
+# -----------------------------------------------------------------------------
+calibration_sync:
+  # 캘리브레이션 데이터 공유
+  shared_intrinsics: true                  # 동일 모델 카메라 내부 파라미터 공유
+  extrinsic_update_interval_sec: 3600      # 외부 파라미터 갱신 주기 (1시간)
+
+  # 교차 검증
+  cross_validation:
+    enabled: true                          # 카메라 간 교차 검증
+    reprojection_error_max_px: 5.0         # 최대 재투영 오차 (픽셀)
+    validation_interval_frames: 1800       # 검증 주기 (1분 @ 30fps)
+
+# -----------------------------------------------------------------------------
+# 오디오 동기화 (보조)
+# 경기 휘슬, 버저 등 오디오 이벤트 기반 보조 동기화
+# -----------------------------------------------------------------------------
+audio_sync:
+  enabled: false                           # 오디오 동기화 (보조, 선택적)
+  sample_rate_hz: 44100                    # 오디오 샘플레이트
+  sync_tolerance_ms: 40.0                  # 오디오 동기화 허용 오차
+  event_detection:
+    whistle_detection: true                # 휘슬 감지
+    buzzer_detection: true                 # 버저 감지
+    clap_detection: false                  # 박수 감지 (캘리브레이션 보조)
+
+# -----------------------------------------------------------------------------
+# 동기화 품질 보고
+# -----------------------------------------------------------------------------
+quality_report:
+  enabled: true
+  report_interval_sec: 60                  # 보고 주기 (초)
+  metrics:
+    - "sync_accuracy_ms"                   # 동기화 정밀도
+    - "frame_drop_rate"                    # 프레임 드롭률
+    - "drift_accumulated_ms"               # 누적 드리프트
+    - "camera_health_status"               # 카메라 상태

@@ -1,0 +1,103 @@
+# =============================================================================
+# COURTVIEW_DESK - 오프라인 모드 설정 (offline.yaml)
+#
+# 네트워크 미연결 시 오프라인 분석 모드 파라미터.
+# COURTVIEW_DESK는 로컬 GPU 기반이므로 기본적으로 오프라인 가능.
+# 백엔드(Cloud) 연결 불가 시의 동작 정의.
+#
+# 참조:
+#   - configs/base/base_config.yaml: 시스템 기본값
+#   - ARCHITECTURE_DESKTOP.md: 3-프로젝트 통신 흐름
+#
+# 작성자: SPOIN_COURTVIEW
+# 최종 수정: 2026-03-20
+# 버전: 1.0.0
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# 오프라인 모드 기본 설정
+# -----------------------------------------------------------------------------
+mode:
+  auto_detect: true                        # 네트워크 상태 자동 감지
+  health_check_url: "/api/health"          # 백엔드 헬스체크 URL (상대 경로)
+  health_check_interval_sec: 30            # 헬스체크 주기 (초)
+  health_check_timeout_sec: 5              # 헬스체크 타임아웃 (초)
+  offline_after_failures: 3                # 연속 실패 N회 → 오프라인 전환
+
+# -----------------------------------------------------------------------------
+# 오프라인 가능 기능
+# 네트워크 없이 100% 동작하는 기능
+# -----------------------------------------------------------------------------
+available_offline:
+  video_analysis: true                     # 영상 분석 (핵심 기능)
+  motion_analysis: true                    # 동작 분석
+  game_analysis: true                      # 경기 분석
+  ai_referee: true                         # AI 심판
+  feedback_generation: true                # 피드백 생성
+  highlight_generation: true               # 하이라이트 생성
+  shot_location: true                      # 슛 로케이션
+  report_generation: true                  # 리포트 생성 (JSON/HTML/Text)
+  video_editing: true                      # 비디오 편집
+
+# -----------------------------------------------------------------------------
+# 오프라인 불가 기능 (백엔드 연결 필요)
+# -----------------------------------------------------------------------------
+requires_online:
+  cloud_sync: true                         # 결과 데이터 클라우드 동기화
+  league_average_comparison: true          # 리그 평균 비교 (클라우드 데이터)
+  player_ranking: true                     # 선수 랭킹 (전체 사용자 기반)
+  team_trend_cross_reference: true         # 타팀 교차 분석
+  model_update: true                       # 모델 업데이트 다운로드
+  license_online_validation: true          # 온라인 라이선스 검증
+
+# -----------------------------------------------------------------------------
+# 로컬 결과 저장 (오프라인 캐시)
+# 온라인 복구 시 자동 동기화
+# -----------------------------------------------------------------------------
+local_cache:
+  enabled: true                            # 로컬 캐시 활성화
+  cache_dir: "courtview_data/offline_cache"
+  max_cache_size_mb: 5120                  # 최대 5GB
+  max_pending_syncs: 100                   # 대기 동기화 최대 수
+
+  # 저장 항목
+  save_items:
+    analysis_results: true                 # 분석 결과 JSON
+    game_records: true                     # 경기 기록
+    highlight_clips: true                  # 하이라이트 클립
+    reports: true                          # 리포트
+    feedback: true                         # 피드백
+
+  # 캐시 만료
+  expiry:
+    analysis_results_days: 30              # 분석 결과 30일 보관
+    game_records_days: 90                  # 경기 기록 90일 보관
+    highlight_clips_days: 14               # 하이라이트 14일 보관
+    reports_days: 60                       # 리포트 60일 보관
+
+# -----------------------------------------------------------------------------
+# 온라인 복구 시 동기화
+# -----------------------------------------------------------------------------
+sync_on_reconnect:
+  enabled: true                            # 자동 동기화 활성화
+  priority_order:                          # 동기화 우선순위
+    - "game_records"                       # 1. 경기 기록 (가장 중요)
+    - "analysis_results"                   # 2. 분석 결과
+    - "reports"                            # 3. 리포트
+    - "feedback"                           # 4. 피드백
+    - "highlight_clips"                    # 5. 하이라이트 (용량 큼)
+
+  # 동기화 제한
+  max_concurrent_uploads: 2                # 동시 업로드 수
+  upload_chunk_size_mb: 10                 # 업로드 청크 크기 (MB)
+  retry_on_failure: true                   # 실패 시 재시도
+  max_retries: 3                           # 최대 재시도 횟수
+  retry_delay_sec: 30                      # 재시도 대기 (초)
+
+# -----------------------------------------------------------------------------
+# 라이선스 오프라인 유예
+# -----------------------------------------------------------------------------
+license:
+  offline_grace_period_days: 30            # 오프라인 유예 기간 (일)
+  offline_warning_at_days: 7               # 유예 만료 7일 전 경고
+  feature_degradation: false               # 유예 기간 중 기능 제한 없음

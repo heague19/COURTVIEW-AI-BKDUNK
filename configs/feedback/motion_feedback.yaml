@@ -1,0 +1,354 @@
+# =============================================================================
+# COURTVIEW_DESK - 훈련 동작 피드백 설정 (motion_feedback.yaml)
+#
+# 슈팅/드리블 폼 평가 및 따라하기 비교 피드백 변환 파라미터.
+# 동작 단계별 피드백 기준, 신체 부위별 가중치, 연령대별 조정.
+#
+# 참조:
+#   - shared/dto/feedback_dto.py: FeedbackItem, MotionScore, MotionComparison,
+#     TrainingRecommendation, BodyPart (22부위), MotionPhase (15단계)
+#   - shared/dto/motion_dto.py: ShootingMotion, DribblingMotion
+#   - shared/constants/feedback_constants.py: FeedbackSeverity (5단계),
+#     FEEDBACK_MIN_DETAIL_POINTS (10)
+#   - configs/analysis/shooting_criteria.yaml: 슈팅 폼 채점 기준
+#   - configs/analysis/dribble_criteria.yaml: 드리블 폼 채점 기준
+#   - feedback_system/coach/motion_feedback.py
+#
+# 작성자: SPOIN_COURTVIEW
+# 최종 수정: 2026-03-25
+# 버전: 1.0.0
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# 피드백 품질 기준 (CLAUDE.md #15: 세부 동작별 최소 10개 이상 피드백)
+# -----------------------------------------------------------------------------
+quality:
+  min_detail_points: 10                    # 세부 동작별 최소 피드백 수
+  max_detail_points: 20                    # 세부 동작별 최대 피드백 수
+  min_positive_ratio: 0.60                 # 긍정 피드백 최소 60%
+  max_positive_ratio: 0.85                 # 긍정 피드백 최대 85%
+  target_positive_ratio: 0.75             # 목표 비율 75%
+
+# -----------------------------------------------------------------------------
+# 슈팅 폼 평가 피드백 기준
+# -----------------------------------------------------------------------------
+shooting:
+  # 종합 점수 → 심각도 매핑
+  score_severity:
+    excellent_min: 85.0                    # 85+ → EXCELLENT
+    good_min: 70.0                         # 70~84 → GOOD
+    acceptable_min: 55.0                   # 55~69 → ACCEPTABLE
+    needs_work_min: 40.0                   # 40~54 → NEEDS_WORK
+    # 40 미만 → CRITICAL
+
+  # 단계별 피드백 포인트 (MotionPhase 매핑)
+  phases:
+    preparation:                           # SHOOTING_PREPARATION
+      weight: 0.15                         # 종합 점수 반영 비중
+      feedback_points:
+        - "stance_width"                   # 발 너비 (어깨 너비)
+        - "knee_bend_angle"                # 무릎 굽힘 각도
+        - "ball_position"                  # 공 위치 (가슴~턱)
+        - "elbow_alignment"                # 팔꿈치 정렬 (수직)
+        - "shoulder_relaxation"            # 어깨 이완
+        - "weight_distribution"            # 체중 분배 (앞꿈치)
+        - "feet_alignment"                 # 발 정렬 (타겟 방향)
+        - "hip_alignment"                  # 골반 정렬
+        - "head_position"                  # 머리 위치 (안정)
+        - "grip_position"                  # 그립 위치 (패드)
+
+    lift:                                  # SHOOTING_LIFT
+      weight: 0.15
+      feedback_points:
+        - "lift_path"                      # 공 들어올리는 경로 (직선)
+        - "elbow_tuck"                     # 팔꿈치 안쪽 유지
+        - "guide_hand_position"            # 가이드 핸드 위치
+        - "ball_above_eye_level"           # 공 눈높이 이상
+        - "wrist_cock_angle"              # 손목 꺾임 각도
+        - "lift_speed"                     # 들어올리는 속도 (일정)
+        - "elbow_angle_at_set"            # 세트 포인트 팔꿈치 각도 (90°)
+        - "shoulder_rotation"              # 어깨 회전 최소화
+        - "body_lean"                      # 몸통 기울기
+        - "balance_during_lift"            # 리프트 중 균형
+
+    release:                               # SHOOTING_RELEASE
+      weight: 0.30
+      feedback_points:
+        - "release_angle"                  # 릴리스 각도 (45~55°)
+        - "release_height"                 # 릴리스 높이
+        - "wrist_snap"                     # 손목 스냅
+        - "finger_release_point"           # 검지/중지 릴리스 포인트
+        - "elbow_extension"                # 팔꿈치 완전 신전
+        - "guide_hand_separation"          # 가이드 핸드 분리 시점
+        - "release_timing"                 # 점프 정점 대비 릴리스 타이밍
+        - "ball_spin"                      # 공 회전 (백스핀)
+        - "arc_height"                     # 아치 높이
+        - "release_consistency"            # 릴리스 일관성
+
+    follow_through:                        # SHOOTING_FOLLOW_THROUGH
+      weight: 0.20
+      feedback_points:
+        - "wrist_finish_position"          # 손목 마무리 위치 (구스넥)
+        - "finger_direction"               # 손가락 림 방향
+        - "arm_extension_hold"             # 팔 신전 유지 시간
+        - "guide_hand_stability"           # 가이드 핸드 안정성
+        - "body_alignment_at_finish"       # 마무리 시 몸통 정렬
+        - "landing_position"               # 착지 위치 (출발점 근처)
+        - "landing_balance"                # 착지 균형
+        - "head_stability"                 # 머리 안정성 (림 주시)
+        - "shoulder_follow"                # 어깨 자연스러운 따라감
+        - "overall_fluidity"               # 전체 동작 유연성
+
+  # 신체 부위별 피드백 가중치
+  body_part_weights:
+    right_wrist: 0.20                      # 슈팅 핸드 손목
+    right_elbow: 0.18                      # 슈팅 팔꿈치
+    right_shoulder: 0.12                   # 슈팅 어깨
+    left_hand: 0.08                        # 가이드 핸드
+    right_knee: 0.10                       # 무릎 (파워)
+    hip: 0.08                              # 골반
+    spine: 0.06                            # 척추
+    left_knee: 0.06                        # 반대쪽 무릎
+    right_ankle: 0.06                      # 발목
+    head: 0.06                             # 머리
+
+  # 핵심 각도 기준 (이상값 ± 허용 범위)
+  key_angles:
+    elbow_at_set:                          # 세트 포인트 팔꿈치
+      ideal_deg: 90.0
+      tolerance_deg: 10.0
+    release_angle:                         # 릴리스 각도
+      ideal_deg: 52.0
+      tolerance_deg: 7.0
+    knee_bend:                             # 무릎 굽힘
+      ideal_deg: 135.0
+      tolerance_deg: 15.0
+    wrist_cock:                            # 손목 꺾임
+      ideal_deg: 70.0
+      tolerance_deg: 10.0
+
+# -----------------------------------------------------------------------------
+# 드리블 폼 평가 피드백 기준
+# -----------------------------------------------------------------------------
+dribble:
+  # 종합 점수 → 심각도 매핑
+  score_severity:
+    excellent_min: 85.0
+    good_min: 70.0
+    acceptable_min: 55.0
+    needs_work_min: 40.0
+
+  # 단계별 피드백 포인트
+  phases:
+    stance:                                # DRIBBLE_STANCE
+      weight: 0.20
+      feedback_points:
+        - "stance_width"                   # 발 너비 (어깨보다 넓게)
+        - "knee_bend_depth"                # 무릎 굽힘 깊이
+        - "back_straight"                  # 허리 곧게
+        - "head_up"                        # 고개 들기 (코트 비전)
+        - "weight_on_balls"                # 앞꿈치 체중
+        - "off_hand_position"              # 비드리블 손 위치 (보호)
+        - "center_of_gravity"              # 무게중심 높이
+        - "hip_flexibility"                # 골반 유연성
+        - "shoulder_relaxation"            # 어깨 이완
+        - "ready_position"                 # 준비 자세 완성도
+
+    push:                                  # DRIBBLE_PUSH
+      weight: 0.30
+      feedback_points:
+        - "push_angle"                     # 밀기 각도 (수직~45°)
+        - "fingertip_control"              # 손가락 끝 컨트롤
+        - "palm_off_ball"                  # 손바닥 볼 이격
+        - "push_force_consistency"         # 밀기 힘 일관성
+        - "wrist_flexibility"              # 손목 유연성
+        - "elbow_close_to_body"            # 팔꿈치 몸통 근접
+        - "bounce_height"                  # 바운스 높이 (무릎 이하)
+        - "ball_speed"                     # 공 속도
+        - "push_rhythm"                    # 밀기 리듬
+        - "directional_control"            # 방향 제어
+
+    bounce:                                # DRIBBLE_BOUNCE
+      weight: 0.25
+      feedback_points:
+        - "bounce_height_consistency"      # 바운스 높이 일관성
+        - "ball_contact_point"             # 공 접촉 지점 (상단)
+        - "bounce_frequency"               # 바운스 빈도
+        - "lateral_movement"               # 좌우 이동 시 바운스
+        - "crossover_speed"                # 크로스오버 속도
+        - "behind_back_control"            # 비하인드 백 컨트롤
+        - "between_legs_control"           # 비트윈 더 레그 컨트롤
+        - "spin_move_balance"              # 스핀무브 균형
+        - "hesitation_timing"              # 헤지테이션 타이밍
+        - "ball_protection"                # 공 보호
+
+    control:                               # DRIBBLE_CONTROL
+      weight: 0.25
+      feedback_points:
+        - "ball_security"                  # 공 안정성
+        - "dribble_under_pressure"         # 압박 시 드리블
+        - "change_of_pace"                 # 속도 변화
+        - "change_of_direction"            # 방향 전환
+        - "head_up_percentage"             # 고개 든 비율
+        - "off_hand_usage"                 # 양손 사용 비율
+        - "space_creation"                 # 공간 생성
+        - "transition_to_pass"             # 패스 전환 매끄러움
+        - "transition_to_shot"             # 슈팅 전환 매끄러움
+        - "overall_fluidity"               # 전체 유연성
+
+  # 신체 부위별 피드백 가중치
+  body_part_weights:
+    right_hand: 0.20                       # 주 드리블 핸드
+    left_hand: 0.15                        # 보조 핸드
+    right_wrist: 0.10                      # 주 손목
+    left_wrist: 0.08                       # 보조 손목
+    right_knee: 0.10                       # 주 무릎
+    left_knee: 0.10                        # 보조 무릎
+    hip: 0.10                              # 골반
+    spine: 0.07                            # 척추
+    head: 0.05                             # 머리 (시선)
+    right_ankle: 0.05                      # 발목
+
+# -----------------------------------------------------------------------------
+# 따라하기 비교 피드백 기준
+# -----------------------------------------------------------------------------
+comparison:
+  # 유사도 → 심각도 매핑 (%)
+  similarity_severity:
+    excellent_min: 90.0                    # 90%+ → EXCELLENT
+    good_min: 75.0                         # 75~89% → GOOD
+    acceptable_min: 60.0                   # 60~74% → ACCEPTABLE
+    needs_work_min: 40.0                   # 40~59% → NEEDS_WORK
+    # 40% 미만 → CRITICAL
+
+  # DTW 정규화 임계치 (거리 → 유사도 변환)
+  dtw_normalization:
+    max_distance: 100.0                    # 이 값 이상이면 유사도 0%
+    perfect_threshold: 5.0                 # 이 값 이하면 유사도 100%
+
+  # 관절별 유사도 가중치 (어떤 관절 차이가 더 중요한가)
+  joint_weights:
+    shooting:                              # 슈팅 따라하기
+      right_wrist: 0.20
+      right_elbow: 0.18
+      right_shoulder: 0.12
+      left_hand: 0.08
+      right_knee: 0.10
+      hip: 0.08
+      spine: 0.06
+      left_knee: 0.06
+      right_ankle: 0.06
+      head: 0.06
+
+    dribble:                               # 드리블 따라하기
+      right_hand: 0.18
+      left_hand: 0.15
+      right_wrist: 0.10
+      left_wrist: 0.08
+      right_knee: 0.10
+      left_knee: 0.10
+      hip: 0.10
+      spine: 0.07
+      head: 0.07
+      right_ankle: 0.05
+
+  # 단계별 유사도 임계치 (이 이하면 해당 단계 피드백 생성)
+  phase_feedback_threshold: 0.70           # 70% 미만이면 해당 단계 피드백
+
+  # 타이밍 차이 피드백
+  timing:
+    acceptable_diff_sec: 0.3               # 0.3초 이내 → 타이밍 양호
+    warning_diff_sec: 0.8                  # 0.8초 초과 → 타이밍 경고
+
+# -----------------------------------------------------------------------------
+# 훈련 추천 생성 기준
+# -----------------------------------------------------------------------------
+training_recommendation:
+  # 약점 기반 추천
+  weakness_threshold: 60.0                 # 60점 미만 카테고리 → 훈련 추천 대상
+  max_recommendations: 5                   # 최대 추천 수
+
+  # 난이도 자동 매핑
+  difficulty_mapping:
+    score_above_70: "easy"                 # 70+ → 쉬운 복습
+    score_50_to_70: "medium"               # 50~69 → 중간
+    score_30_to_50: "hard"                 # 30~49 → 어려운 교정
+    score_below_30: "expert"               # 30 미만 → 전문가 도움
+
+  # 추천 우선순위 (FeedbackCategory 매핑)
+  category_priority:
+    - "release"                            # 1순위: 릴리스 (슈팅 핵심)
+    - "balance"                            # 2순위: 균형
+    - "posture"                            # 3순위: 자세
+    - "timing"                             # 4순위: 타이밍
+    - "power"                              # 5순위: 파워
+    - "coordination"                       # 6순위: 협응력
+    - "footwork"                           # 7순위: 풋워크
+    - "follow_through"                     # 8순위: 팔로우 스루
+
+  # 예상 소요 시간 (분)
+  duration_by_difficulty:
+    easy: 10
+    medium: 15
+    hard: 20
+    expert: 30
+
+# -----------------------------------------------------------------------------
+# 연령대별 피드백 조정
+# -----------------------------------------------------------------------------
+age_group_adjustments:
+  youth:                                   # 유소년 (U-12)
+    language_complexity: "simple"
+    positive_ratio_boost: 0.10             # 긍정 비율 +10%
+    max_improvement_items: 3               # 최대 3개 개선 포인트
+    focus_on_fundamentals: true            # 기본기 강조
+    skip_advanced_metrics: true            # 고급 지표 제외
+    angle_tolerance_multiplier: 1.5        # 각도 허용 범위 1.5배
+
+  teen:                                    # 청소년 (U-18)
+    language_complexity: "moderate"
+    positive_ratio_boost: 0.05
+    max_improvement_items: 5
+    focus_on_fundamentals: false
+    skip_advanced_metrics: false
+    angle_tolerance_multiplier: 1.2
+
+  adult:                                   # 성인
+    language_complexity: "full"
+    positive_ratio_boost: 0.0
+    max_improvement_items: 10
+    focus_on_fundamentals: false
+    skip_advanced_metrics: false
+    angle_tolerance_multiplier: 1.0
+
+  senior:                                  # 시니어
+    language_complexity: "moderate"
+    positive_ratio_boost: 0.05
+    max_improvement_items: 5
+    focus_on_fundamentals: false
+    skip_advanced_metrics: false
+    angle_tolerance_multiplier: 1.3
+    injury_risk_emphasis: true             # 부상 위험 강조
+
+# -----------------------------------------------------------------------------
+# 왼손잡이/오른손잡이 대칭 매핑
+# -----------------------------------------------------------------------------
+handedness:
+  # 왼손잡이의 경우 신체 부위 좌우 반전
+  left_handed_mirror:
+    right_wrist: "left_wrist"
+    left_wrist: "right_wrist"
+    right_elbow: "left_elbow"
+    left_elbow: "right_elbow"
+    right_shoulder: "left_shoulder"
+    left_shoulder: "right_shoulder"
+    right_hand: "left_hand"
+    left_hand: "right_hand"
+    right_knee: "left_knee"
+    left_knee: "right_knee"
+    right_hip: "left_hip"
+    left_hip: "right_hip"
+    right_ankle: "left_ankle"
+    left_ankle: "right_ankle"
+    right_foot: "left_foot"
+    left_foot: "right_foot"

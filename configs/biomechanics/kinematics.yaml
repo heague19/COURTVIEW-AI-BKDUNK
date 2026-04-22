@@ -1,0 +1,136 @@
+# =============================================================================
+# COURTVIEW_DESK - 운동학 설정 (kinematics.yaml)
+#
+# 관절 각도, 속도, 가속도, 궤적, 체방향, 동작 패턴 분석 파라미터.
+# SI 단위 (m, rad, s).
+#
+# 학술 근거:
+#   - 관절 가동범위(ROM): AAOS (American Academy of Orthopaedic Surgeons)
+#     "Joint Motion: Method of Measuring and Recording" (1965, revised)
+#   - Butterworth 필터: Winter, D.A. (2009). "Biomechanics and Motor
+#     Control of Human Movement", 4th ed. Wiley. pp.70-73
+#     (운동학 데이터 6Hz 컷오프, 4차 Butterworth 권장)
+#   - 프레임 간 각도 변화 상한: Camomilla, V. et al. (2017).
+#     "Human movement analysis with stereophotogrammetry"
+#     J. Biomechanics, 60, 49-60
+#
+# 작성자: SPOIN_COURTVIEW
+# 최종 수정: 2026-03-20
+# 버전: 1.0.0
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# 관절 각도 분석
+# 출처: AAOS 표준 관절 가동범위 (정상 성인 기준)
+# 참고: Norkin, C.C. & White, D.J. (2016). "Measurement of Joint Motion:
+#        A Guide to Goniometry", 5th ed. F.A. Davis.
+# -----------------------------------------------------------------------------
+joint_angle:
+  # 관절 각도 범위 (도, degree)
+  # 출처: AAOS 표준 + Norkin & White (2016) Table values
+  ranges:
+    shoulder_flexion: [0, 180]           # AAOS: 0-180°
+    shoulder_abduction: [0, 180]         # AAOS: 0-180°
+    elbow_flexion: [0, 145]              # AAOS: 0-145° (Norkin: 0-150°)
+    wrist_flexion: [-70, 80]             # 배굴(extension) -70° ~ 장굴(flexion) 80°
+    hip_flexion: [0, 125]                # AAOS: 0-125° (Norkin: 0-120°)
+    knee_flexion: [0, 140]               # AAOS: 0-135° (능동), 실측 140° 허용
+    ankle_dorsiflexion: [-50, 20]        # 저굴(plantar) -50° ~ 배굴(dorsi) 20°
+
+  # 스무딩
+  # 출처: Winter (2009) Ch.3 — 운동학 데이터 6Hz 컷오프, 4차 Butterworth
+  smoothing_window: 5                    # 프레임 수 (이동평균)
+  butterworth_cutoff_hz: 6.0             # Winter (2009): 운동학 데이터 권장 6Hz
+  butterworth_order: 4                   # Winter (2009): 4차 권장
+
+  # 해부학적 검증
+  anatomical_validation: true
+  max_frame_to_frame_change_deg: 30.0    # 프레임 간 최대 각도 변화
+  # TODO: 실제 포즈 추정 노이즈 수준에 따라 캘리브레이션 필요
+
+# -----------------------------------------------------------------------------
+# 속도 분석
+# 출처: Winter (2009) Ch.3 — 중심차분법 (central difference method)
+# -----------------------------------------------------------------------------
+velocity:
+  method: "central_difference"           # Winter (2009) 권장
+  smoothing_window: 3
+  max_joint_velocity_ms: 20.0            # 관절 최대 속도 (m/s)
+  max_body_velocity_ms: 10.0             # 신체 중심 최대 속도
+  # 참고: NBA 선수 최대 전력질주 ~8.5 m/s (Second Spectrum 트래킹 데이터)
+  # max_body 10.0은 안전 마진 포함
+
+# -----------------------------------------------------------------------------
+# 가속도 분석
+# 출처: Winter (2009) Ch.3 — 중심차분법, 스무딩 후 미분
+# -----------------------------------------------------------------------------
+acceleration:
+  method: "central_difference"
+  smoothing_window: 5
+  max_acceleration_ms2: 50.0             # 최대 가속도 (m/s²)
+  # 참고: 점프 이착지 시 순간 가속도 ~30-50 m/s² 관측 (McNitt-Gray, 1993)
+
+# -----------------------------------------------------------------------------
+# 궤적 분석
+# -----------------------------------------------------------------------------
+trajectory:
+  min_trajectory_length: 5               # 최소 프레임 수
+  max_trajectory_gap: 3                  # 최대 보간 허용 프레임
+  interpolation_method: "cubic_spline"
+  outlier_detection: true
+  outlier_z_threshold: 3.0               # z-score 기준
+
+# -----------------------------------------------------------------------------
+# 체방향 (Body Orientation)
+# -----------------------------------------------------------------------------
+body_orientation:
+  # 좌우 어깨-엉덩이 평면 기반
+  reference_joints:
+    upper: ["left_shoulder", "right_shoulder"]
+    lower: ["left_hip", "right_hip"]
+  heading_smoothing_window: 5
+  lean_angle_threshold_deg: 15.0         # 기울기 경고 임계값
+  # TODO: 농구 동작별 적정 기울기 임계값 실데이터 캘리브레이션 필요
+
+# -----------------------------------------------------------------------------
+# 연령/성별 보정 계수
+# TODO: 아래 값은 일반적 성장 발달 경향에 기반한 초기 추정값.
+#       정밀 캘리브레이션을 위해 다음 자료 참조 필요:
+#       - Malina, R.M., Bouchard, C. & Bar-Or, O. (2004).
+#         "Growth, Maturation, and Physical Activity", 2nd ed. Human Kinetics.
+#       - 질병관리청 국민건강영양조사 (KNHANES) 체력 측정 데이터
+#       실제 사용자 데이터 축적 후 회귀분석으로 보정 예정.
+# -----------------------------------------------------------------------------
+age_gender_factors:
+  youth_male:
+    velocity_scale: 0.75                 # 추정값 — 캘리브레이션 필요
+    acceleration_scale: 0.70             # 추정값
+    range_of_motion_scale: 1.05          # 유소년은 유연성 높음 (일반적 경향)
+  youth_female:
+    velocity_scale: 0.70                 # 추정값
+    acceleration_scale: 0.65             # 추정값
+    range_of_motion_scale: 1.10          # 추정값
+  teen_male:
+    velocity_scale: 0.90                 # 추정값
+    acceleration_scale: 0.85             # 추정값
+    range_of_motion_scale: 1.02          # 추정값
+  teen_female:
+    velocity_scale: 0.85                 # 추정값
+    acceleration_scale: 0.80             # 추정값
+    range_of_motion_scale: 1.05          # 추정값
+  adult_male:
+    velocity_scale: 1.0                  # 기준값
+    acceleration_scale: 1.0              # 기준값
+    range_of_motion_scale: 1.0           # 기준값
+  adult_female:
+    velocity_scale: 0.90                 # 추정값
+    acceleration_scale: 0.88             # 추정값
+    range_of_motion_scale: 1.03          # 추정값
+  senior_male:
+    velocity_scale: 0.75                 # 추정값
+    acceleration_scale: 0.70             # 추정값
+    range_of_motion_scale: 0.90          # 추정값 — 노화에 따른 유연성 감소
+  senior_female:
+    velocity_scale: 0.70                 # 추정값
+    acceleration_scale: 0.65             # 추정값
+    range_of_motion_scale: 0.88          # 추정값

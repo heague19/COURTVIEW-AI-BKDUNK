@@ -1,0 +1,98 @@
+# =============================================================================
+# COURTVIEW_DESK - 기본 설정 (base_config.yaml)
+#
+# 시스템 전역 기본 설정.
+# 모든 환경(local, windows, macos, linux)에서 공통 적용.
+# 환경별 오버라이드는 configs/environments/ 참조.
+#
+# 작성자: SPOIN_COURTVIEW
+# 최종 수정: 2026-03-20
+# 버전: 1.0.0
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# 시스템 일반
+# -----------------------------------------------------------------------------
+system:
+  name: "COURTVIEW_DESK"
+  version: "1.0.0"
+  language: "ko"
+  timezone: "Asia/Seoul"
+  log_level: "INFO"
+  log_format: "json"
+  max_workers: 4
+
+# -----------------------------------------------------------------------------
+# 비디오 입력 기본값
+# -----------------------------------------------------------------------------
+video:
+  resolution:
+    default: [1920, 1080]
+    min: [480, 360]
+    max: [3840, 2160]
+    analysis_normalized: [1920, 1080]
+
+  frame_rate:
+    default: 30
+    min: 15
+    max: 120
+    motion_analysis: 60
+    game_analysis: 30
+
+  file:
+    max_size_bytes: 2147483648          # 2GB
+    training_max_size_bytes: 524288000  # 500MB
+    game_max_size_bytes: 2147483648     # 2GB
+    supported_extensions:
+      - ".mp4"
+      - ".mov"
+      - ".avi"
+      - ".mkv"
+      - ".webm"
+    # H.265 = HEVC (동일 코덱) — HEVC 공식 명칭으로 통일
+    supported_codecs:
+      - "h264"
+      - "hevc"                            # H.265 동의어 (통일)
+      - "vp8"
+      - "vp9"
+      - "av1"
+
+  duration:
+    training_min_sec: 3.0
+    training_max_sec: 300.0
+    game_min_sec: 60.0
+    game_max_sec: 10800.0              # 3시간
+
+  bitrate:
+    min_bps: 500000                    # 500 Kbps
+    max_bps: 50000000                  # 50 Mbps
+    recommended_1080p_bps: 5000000     # 5 Mbps
+
+# -----------------------------------------------------------------------------
+# 분석 파이프라인 기본값
+# -----------------------------------------------------------------------------
+pipeline:
+  batch_size: 8
+  prefetch_frames: 16
+  max_concurrent_analyses: 2
+  result_format: "json"
+  enable_profiling: false
+
+# -----------------------------------------------------------------------------
+# 스토리지 기본값
+# -----------------------------------------------------------------------------
+storage:
+  root_dir: "courtview_data"
+  video_subdir: "videos"
+  frames_subdir: "frames"
+  results_subdir: "results"
+  max_disk_usage_percent: 90
+  min_free_space_bytes: 104857600      # 100MB
+
+# -----------------------------------------------------------------------------
+# 연령/성별 기본값
+# -----------------------------------------------------------------------------
+user:
+  default_age_group: "adult"           # youth, teen, adult, senior
+  default_gender: "male"               # male, female
+  default_skill_level: "intermediate"  # beginner, intermediate, advanced, professional

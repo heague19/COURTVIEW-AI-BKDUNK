@@ -1,0 +1,250 @@
+# =============================================================================
+# COURTVIEW_DESK - 경기 피드백 설정 (game_feedback.yaml)
+#
+# 경기 분석 결과 → 코칭 피드백 변환 파라미터.
+# 피드백 심각도 매핑, 카테고리별 가중치, 리포트 구성.
+#
+# 참조:
+#   - shared/constants/feedback_constants.py: FeedbackSeverity (5단계),
+#     FeedbackCategory (8종), ReportType (6종), SINGLE_GAME_REPORT_SECTIONS
+#   - shared/constants/stats_constants.py: PerformanceRating, Four Factors
+#   - feedback_system/analysis/game_feedback.py
+#   - feedback_system/report/game_report_generator.py
+#
+# 작성자: SPOIN_COURTVIEW
+# 최종 수정: 2026-03-20
+# 버전: 1.0.0
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# 피드백 품질 기준 (CLAUDE.md #15: 최소 10개 이상 세부 피드백)
+# -----------------------------------------------------------------------------
+quality:
+  min_detail_points: 10                    # 세부 동작별 최소 피드백 수
+  max_detail_points: 25                    # 세부 동작별 최대 피드백 수
+  min_length_chars: 100                    # 피드백 최소 길이 (문자)
+  max_length_chars: 2000                   # 피드백 최대 길이 (문자)
+
+  # 긍정/건설적 비율 (코칭 과학 권장 3:1~5:1)
+  # 참고: Fredrickson, B.L. (2001). "The role of positive emotions in positive
+  #        psychology." Am. Psychologist, 56(3). (긍정:건설적 비율 3:1 권장)
+  # TODO: 긍정 비율 목표(75%)는 코칭 과학 기반 초기값,
+  #       사용자 만족도 데이터 축적 후 캘리브레이션 필요
+  positive_ratio:
+    min: 0.60                              # 긍정 피드백 최소 60%
+    max: 0.85                              # 긍정 피드백 최대 85%
+    target: 0.75                           # 목표 비율 75%
+
+# -----------------------------------------------------------------------------
+# 피드백 심각도 매핑 (백분위 → FeedbackSeverity)
+# -----------------------------------------------------------------------------
+severity_mapping:
+  # 백분위 경계 (상위 → 하위)
+  thresholds:
+    excellent_min_percentile: 90.0         # 90+ → EXCELLENT
+    good_min_percentile: 70.0              # 70~89 → GOOD
+    acceptable_min_percentile: 40.0        # 40~69 → ACCEPTABLE
+    needs_work_min_percentile: 15.0        # 15~39 → NEEDS_WORK
+    # 15 미만 → CRITICAL
+
+  # 심각도별 우선순위 가중치 (높을수록 먼저 표시)
+  priority_weights:
+    critical: 1.0
+    needs_work: 0.8
+    acceptable: 0.4
+    good: 0.3
+    excellent: 0.2
+
+# -----------------------------------------------------------------------------
+# 카테고리별 피드백 설정
+# 8개 FeedbackCategory 각각의 생성 파라미터
+# -----------------------------------------------------------------------------
+categories:
+  game_overall:
+    enabled: true
+    priority: 1.0                          # 최우선
+    max_items: 15                          # 섹션당 최대 항목
+    sections:
+      - "game_summary"                     # 경기 요약 (스코어, 주요 스탯)
+      - "team_comparison"                  # 팀 비교
+      - "four_factors"                     # Four Factors 분석
+      - "key_players"                      # 핵심 선수
+      - "shot_chart"                       # 슛 차트
+      - "play_type_breakdown"              # 플레이 유형별 분석
+      - "defensive_analysis"               # 수비 분석
+      - "game_flow"                        # 경기 흐름
+      - "lineup_analysis"                  # 라인업 분석
+      - "coaching_points"                  # 코칭 포인트
+
+  tactical:
+    enabled: true
+    priority: 0.9
+    max_items: 15
+    focus_areas:
+      - "set_play_execution"               # 세트 플레이 성공률
+      - "pick_and_roll_efficiency"          # 픽앤롤 효율
+      - "spacing_quality"                   # 스페이싱 품질
+      - "transition_attack"                 # 전환 공격
+      - "possession_quality"               # 점유 품질
+
+  defensive:
+    enabled: true
+    priority: 0.9
+    max_items: 15
+    focus_areas:
+      - "matchup_effectiveness"            # 매치업 효율
+      - "help_defense_timing"              # 헬프 디펜스 타이밍
+      - "closeout_quality"                 # 클로즈아웃 품질
+      - "paint_protection"                 # 페인트 보호
+      - "transition_defense"               # 전환 수비
+
+  individual:
+    enabled: true
+    priority: 0.85
+    max_items: 15
+    focus_areas:
+      - "shooting_efficiency"              # 슈팅 효율
+      - "playmaking"                       # 플레이메이킹
+      - "defensive_impact"                 # 수비 임팩트
+      - "rebounding"                       # 리바운딩
+      - "usage_efficiency"                 # USG% 효율
+
+  spatial:
+    enabled: true
+    priority: 0.7
+    max_items: 10
+    focus_areas:
+      - "court_utilization"                # 코트 활용도
+      - "shot_zone_distribution"           # 슛 구역 분포
+      - "spacing_balance"                  # 스페이싱 균형
+      - "movement_patterns"                # 이동 패턴
+
+  lineup:
+    enabled: true
+    priority: 0.75
+    max_items: 10
+    focus_areas:
+      - "best_lineups"                     # 최고 라인업
+      - "worst_lineups"                    # 최저 라인업
+      - "lineup_chemistry"                 # 라인업 케미스트리
+      - "rotation_efficiency"              # 로테이션 효율
+
+  referee:
+    enabled: true
+    priority: 0.6
+    max_items: 10
+    focus_areas:
+      - "call_summary"                     # 판정 요약
+      - "foul_distribution"                # 파울 분포
+      - "controversial_calls"              # 논쟁적 판정
+      - "consistency_score"                # 일관성 점수
+
+  visual:
+    enabled: true
+    priority: 0.5
+    max_items: 5
+    output_types:
+      - "shot_chart_overlay"               # 슛 차트 오버레이
+      - "heatmap"                          # 히트맵
+      - "movement_trail"                   # 이동 경로
+      - "play_diagram"                     # 플레이 다이어그램
+
+# -----------------------------------------------------------------------------
+# 리포트 설정
+# -----------------------------------------------------------------------------
+report:
+  # 단일 경기 리포트
+  single_game:
+    key_players_count: 5                   # 핵심 선수 표시 수
+    top_n_default: 5                       # "Top N" 기본값
+    include_shot_chart: true
+    include_game_flow_chart: true
+    include_lineup_table: true
+
+  # 세션 요약 (당일 복수 경기)
+  session_summary:
+    max_games: 10                          # 최대 포함 경기 수
+    aggregate_stats: true                  # 합산 스탯 포함
+
+  # 선수 성장 추세
+  player_progress:
+    min_games: 5                           # 추세 분석 최소 경기 수
+    improving_slope: 0.02                  # 성장 판정 기울기 임계치
+    declining_slope: -0.02                 # 하락 판정 기울기 임계치
+    repeated_mistake_min_games: 3          # 반복 실수 감지 최소 연속 경기
+    improvement_priority_top_n: 5          # "이번 주 Top N" 개선 항목
+
+  # 리포트 출력 형식
+  output_formats:
+    - "json"                               # JSON (API 반환용)
+    - "html"                               # HTML (시각화)
+    - "text"                               # 텍스트 (콘솔/로그)
+    - "pdf"                                # PDF (다운로드)
+
+# -----------------------------------------------------------------------------
+# 시각 피드백 파라미터
+# -----------------------------------------------------------------------------
+visual_feedback:
+  # 히트맵
+  heatmap:
+    grid_x: 50                             # 격자 수 (가로)
+    grid_y: 47                             # 격자 수 (세로)
+    resolution_m: 0.3                      # 격자당 해상도 (미터)
+
+  # 코트 다이어그램
+  court_diagram:
+    width_px: 940
+    height_px: 500
+
+  # 슛 차트 마커
+  shot_chart:
+    marker_size_made: 8                    # 성공 마커 크기 (px)
+    marker_size_missed: 6                  # 실패 마커 크기 (px)
+
+  # 오버레이
+  overlay:
+    opacity_default: 0.6
+    opacity_highlight: 0.8
+    annotation_arrow_width_px: 2
+
+  # 시계열 차트
+  time_series:
+    min_data_points: 5
+
+# -----------------------------------------------------------------------------
+# 연령대별 피드백 조정
+# -----------------------------------------------------------------------------
+age_group_adjustments:
+  youth:                                   # 유소년 (U-12)
+    language_complexity: "simple"           # 쉬운 용어 사용
+    positive_ratio_boost: 0.10             # 긍정 비율 +10%
+    max_improvement_items: 3               # 개선 항목 최대 3개
+    include_advanced_stats: false           # 고급 스탯 제외
+
+  teen:                                    # 청소년 (U-18)
+    language_complexity: "moderate"
+    positive_ratio_boost: 0.05
+    max_improvement_items: 5
+    include_advanced_stats: true
+
+  adult:                                   # 성인
+    language_complexity: "full"
+    positive_ratio_boost: 0.0
+    max_improvement_items: 10
+    include_advanced_stats: true
+
+  senior:                                  # 시니어
+    language_complexity: "moderate"
+    positive_ratio_boost: 0.05
+    max_improvement_items: 5
+    include_advanced_stats: true
+    injury_risk_emphasis: true             # 부상 위험 강조
+
+# -----------------------------------------------------------------------------
+# 필름 세션 피드백
+# -----------------------------------------------------------------------------
+film_session:
+  avg_clip_review_sec: 45                  # 클립당 평균 리뷰 시간
+  max_clips: 50                            # 최대 클립 수
+  teaching_points_per_clip: 3              # 클립당 교육 포인트 수
+  auto_pause_on_key_moment: true           # 핵심 순간 자동 일시정지

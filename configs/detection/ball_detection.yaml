@@ -1,0 +1,124 @@
+# =============================================================================
+# COURTVIEW_DESK - 공 감지 설정 (ball_detection.yaml)
+#
+# 패턴 Primary + YOLO Accelerator 하이브리드 공 감지 파라미터.
+# FIBA/KBL/NBA/NBL 규격 농구공 기준.
+#
+# 학술 근거:
+#   - 공 물리 규격: FIBA Equipment Rules (2024) — 공식 공 사양
+#   - 항력 계수: Achenbach, E. (1972). "Experiments on the flow past spheres
+#     at very high Reynolds numbers." J. Fluid Mechanics, 54(3), 565-575.
+#     (구체 Cd ≈ 0.47)
+#   - 반발 계수: Cross, R. (1999). "The bounce of a ball." Am. J. Physics,
+#     67(3), 222-227. (농구공 COR ≈ 0.82-0.87)
+#
+# 참조 상수:
+#   - shared/constants/ball_constants.py: 공 물리 상수
+#
+# 작성자: SPOIN_COURTVIEW
+# 최종 수정: 2026-03-20
+# 버전: 1.0.0
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# 감지 모델
+# -----------------------------------------------------------------------------
+# TODO: 감지 모델 파라미터(confidence 0.5, NMS IoU 0.45)는 초기 설계값,
+#       실제 감지 성능 평가 후 precision-recall 분석으로 캘리브레이션 필요
+model:
+  input_size: 640
+  confidence_threshold: 0.5
+  high_confidence_threshold: 0.8
+  nms_iou_threshold: 0.45
+  max_detections: 5
+
+# -----------------------------------------------------------------------------
+# 공 물리 규격 (미터)
+# -----------------------------------------------------------------------------
+ball_spec:
+  # 출처: FIBA Equipment Rules (2024) — Official Game Ball Specifications
+  # Size 7 (남자 성인/고등학생)
+  size_7:
+    diameter_m: 0.244                       # FIBA: 둘레 749-780mm → 지름 ~238-248mm
+    circumference_m: 0.765                  # FIBA: 749-780mm 중간값
+    mass_kg: 0.62                           # FIBA: 567-650g 중간값
+  # Size 6 (여자/남자 중학생)
+  size_6:
+    diameter_m: 0.232                       # FIBA: 둘레 724-737mm → 지름 ~230-235mm
+    circumference_m: 0.730                  # FIBA: 724-737mm 중간값
+    mass_kg: 0.54                           # FIBA: 510-567g 중간값 (ball_constants.py 기준)
+  # Size 5 (유소년/초등학생)
+  size_5:
+    diameter_m: 0.223                       # 둘레 690-710mm → 지름 ~220-226mm
+    circumference_m: 0.700                  # 690-710mm 중간값
+    mass_kg: 0.485                          # 470-500g 중간값 (ball_constants.py 기준)
+
+# -----------------------------------------------------------------------------
+# 검출 파라미터
+# -----------------------------------------------------------------------------
+detection:
+  min_size_pixels: 10
+  max_size_pixels: 200
+  aspect_ratio_min: 0.7                # 원형에 가까운 bbox
+  aspect_ratio_max: 1.4
+  edge_margin_pixels: 5
+
+# -----------------------------------------------------------------------------
+# 색상 필터 (HSV)
+# -----------------------------------------------------------------------------
+color_filter:
+  enabled: true
+  # 주황색 농구공
+  orange_lower: [5, 80, 80]
+  orange_upper: [25, 255, 255]
+  # 갈색 가죽 농구공
+  brown_lower: [10, 50, 50]
+  brown_upper: [30, 200, 200]
+  min_color_ratio: 0.3
+
+# -----------------------------------------------------------------------------
+# 추적 (Kalman + ByteTrack)
+# -----------------------------------------------------------------------------
+tracking:
+  max_age: 30                          # 프레임 단위 최대 미검출 허용
+  min_hits: 3                          # 추적 확정까지 최소 연속 검출
+  iou_threshold: 0.3
+  velocity_smoothing: 0.7
+  acceleration_limit: 50.0             # m/s² 물리적 한계
+
+# -----------------------------------------------------------------------------
+# 물리 기반 검증
+# -----------------------------------------------------------------------------
+# 출처: ISO 표준중력 g₀ (9.80665), Achenbach (1972) (항력), Cross (1999) (반발)
+# SSOT: utils/physics_utils.py GRAVITY=9.80665 (Phase 4 하이브리드 통일, 2026-04-20)
+physics:
+  gravity: 9.80665                     # m/s² (ISO 표준중력 g₀, utils와 SSOT 일치)
+  air_density: 1.204                   # kg/m³ (20°C, 1atm, NIST)
+  drag_coefficient: 0.47               # 구체 항력 계수 (Achenbach, 1972)
+  restitution_coefficient: 0.85        # 반발 계수 (Cross, 1999: 0.82-0.87 범위)
+  max_speed_ms: 35.0                   # 최대 공 속도 (~126 km/h)
+  max_height_m: 8.0                    # 코트 내 최대 높이
+  # TODO: max_speed 35.0 m/s와 max_height 8.0m은 안전 마진 포함 추정값,
+  #       실제 슈팅/패스 데이터 축적 후 캘리브레이션 필요
+
+# -----------------------------------------------------------------------------
+# 공 상태 판별
+# -----------------------------------------------------------------------------
+# TODO: 공 상태 전환 임계치(보유 거리, 릴리스 속도, 패스 거리 등)는 초기 설계값,
+#       실제 경기 데이터 축적 후 캘리브레이션 필요
+state:
+  # 상태 전환 기준
+  possession_distance_m: 0.5           # 선수 보유 판정 거리
+  shot_release_speed_ms: 3.0           # 슛 릴리스 최소 속도
+  pass_min_distance_m: 2.0             # 패스 최소 이동 거리
+  dead_ball_max_speed_ms: 0.3          # 데드볼 판정 속도
+  rebound_proximity_m: 1.0             # 리바운드 판정 림 근접 거리
+  loose_ball_max_possession_sec: 0.5   # 루즈볼 최대 무소유 시간
+
+# -----------------------------------------------------------------------------
+# 멀티뷰 융합
+# -----------------------------------------------------------------------------
+multi_view:
+  min_views: 2
+  triangulation_confidence: 0.7
+  cross_view_iou_threshold: 0.4

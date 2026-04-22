@@ -1,0 +1,139 @@
+# =============================================================================
+# COURTVIEW_DESK - 테크니컬 파울 기준 (technical_criteria.yaml)
+#
+# 테크니컬 파울 / 비행동 위반 감지 기준.
+# 행동적 위반 (항의, 행동) + 절차적 위반 (규칙 위반).
+#
+# 참조:
+#   - FIBA Rule 38 (Technical Foul)
+#   - NBA Rulebook Rule 12-A-VII (Technical Foul)
+#   - shared/constants/referee_decision_constants.py
+#
+# 작성자: SPOIN_COURTVIEW
+# 최종 수정: 2026-03-20
+# 버전: 1.0.0
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# 테크니컬 파울 공통 설정
+# -----------------------------------------------------------------------------
+common:
+  min_confidence: 0.80
+  free_throws: 1                            # 1구 자유투
+  possession_retained: true                 # 점유 유지 (피파울팀)
+  ejection_threshold: 2                     # 테크니컬 2개 = 퇴장
+
+# -----------------------------------------------------------------------------
+# 행동적 테크니컬 (Behavioral Technical)
+# 선수/코치의 비신사적 행동
+# -----------------------------------------------------------------------------
+behavioral:
+  # 심판 항의 감지 (AI 기반)
+  referee_protest:
+    enabled: true
+    min_confidence: 0.75
+
+    # 감지 방법 (포즈 분석 기반)
+    detection_methods:
+      # 공격적 제스처 감지
+      # TODO: 공격적 제스처 감지 파라미터(팔 속도 3.0 m/s)는 초기 설계값,
+      #       행동 인식 정확도에 따라 캘리브레이션 필요 (오탐 위험 높음)
+      aggressive_gesture:
+        arm_waving: true                    # 격앙된 팔 흔들기
+        arm_velocity_threshold_ms: 3.0      # 팔 속도 임계치
+        pointing_at_referee: true           # 심판 향해 손가락 지적
+
+      # 접근 행동 감지
+      approach_referee:
+        distance_threshold_m: 1.0           # 심판 1m 이내 접근
+        approach_speed_ms: 2.0              # 빠르게 접근
+
+      # 코트 행동
+      court_behavior:
+        slamming_ball: true                 # 공 세게 던지기/때리기
+        kicking_objects: true               # 물건 차기
+
+  # 지연 행위 (Delay of Game)
+  delay_of_game:
+    enabled: true
+    types:
+      - "interfering_with_ball"             # 공 방해 (데드볼 후)
+      - "preventing_quick_throw_in"         # 빠른 스로인 방해
+      - "not_leaving_court_after_sub"       # 교체 후 코트 미이탈
+
+    # 경고 → 테크니컬 단계
+    warning_first: true                     # 첫 번째 = 경고
+    technical_on_repeat: true               # 반복 시 테크니컬
+
+# -----------------------------------------------------------------------------
+# 절차적 테크니컬 (Procedural Technical)
+# 규칙 위반 관련
+# -----------------------------------------------------------------------------
+procedural:
+  # 불법 교체
+  illegal_substitution:
+    entering_without_permission: true       # 허가 없이 코트 진입
+    too_many_players_on_court: true         # 코트 위 6명 이상
+
+  # 허가 없는 코트 진입
+  unauthorized_court_entry:
+    bench_player_entering: true             # 벤치 선수 코트 진입
+    coach_on_court: true                    # 코치 코트 진입
+
+  # 행동 조건
+  hanging_on_rim:
+    enabled: true                           # 림 매달리기 (안전 목적 제외)
+    safety_exception: true                  # 안전 목적 매달리기 예외
+
+# -----------------------------------------------------------------------------
+# 코치 테크니컬 (Coach Technical)
+# -----------------------------------------------------------------------------
+coach_technical:
+  # 감지 조건
+  criteria:
+    leaving_coaching_box: true              # 코칭 박스 이탈
+    excessive_protest: true                 # 과도한 항의
+    addressing_opponents: true              # 상대팀 선수에게 발언
+
+  # 코칭 박스 영역 (미터, 벤치 기준)
+  # 출처: FIBA Rule 38.3.2 — 코칭 박스 규격
+  # NBA: 28ft mark (8.5344m = 28 × 0.3048), FIBA: 팀 벤치 영역 (대회별 상이)
+  # TODO(phase15): FIBA 공식 규격 확인 후 팀 벤치 영역 별도 파라미터로 분리 필요
+  coaching_box:
+    length_m: 8.5344                        # NBA 28 ft × 0.3048 m/ft (수치 정정, 2026-04-20)
+    width_from_sideline_m: 2.0              # 사이드라인에서 2m
+
+# -----------------------------------------------------------------------------
+# NBA 고유 테크니컬 규칙
+# -----------------------------------------------------------------------------
+nba_specific:
+  # 시크릿 사인 테크니컬
+  excessive_timeouts:
+    enabled: true                           # 타임아웃 초과 시 테크니컬
+
+  # 플로핑 (Flopping)
+  flopping:
+    enabled: true                           # NBA 2012-13부터 (벌금 → 테크니컬은 아님)
+    detection: true                         # 감지는 하되 판정은 별도
+    warning_only: true                      # 경기 중 경고만
+
+  # 랙킹 업 (Racking Up)
+  away_from_play_foul:
+    enabled: true
+    fourth_quarter_last_2_min: true         # 4Q 마지막 2분
+    overtime: true
+
+# -----------------------------------------------------------------------------
+# 감지 신뢰도 설정
+# 행동적 테크니컬은 오판 위험이 높으므로 보수적 접근
+# -----------------------------------------------------------------------------
+confidence:
+  behavioral_min: 0.80                      # 행동적 테크니컬 최소 신뢰도
+  procedural_min: 0.85                      # 절차적 테크니컬 최소 신뢰도
+  delay_of_game_min: 0.75                   # 지연 행위 최소 신뢰도
+
+  # 자동 확정 불가 목록 (반드시 사람 확인 필요)
+  never_auto_confirm:
+    - "referee_protest"                     # 심판 항의 → 반드시 사람 확인
+    - "coach_technical"                     # 코치 테크니컬
+    - "fighting"                            # 싸움

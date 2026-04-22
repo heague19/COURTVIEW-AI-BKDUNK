@@ -1,0 +1,102 @@
+# =============================================================================
+# COURTVIEW_DESK - NBL 심판 규정 (nbl_rules.yaml)
+#
+# NBL (호주 프로농구) 경기 운영 규칙 2024-25 기반.
+# FIBA 기준 준용 + NBL 고유 규칙 정의.
+#
+# 참조:
+#   - NBL Official Rules 2024-25
+#   - FIBA Official Basketball Rules 2024 (기본 준용)
+#   - shared/constants/referee_rule_constants.py: RuleSet.NBL
+#
+# 작성자: SPOIN_COURTVIEW
+# 최종 수정: 2026-03-20
+# 버전: 1.0.0
+# =============================================================================
+
+rule_set: "nbl"
+description: "NBL (Australia) Official Rules 2024-25"
+base_rules: "fiba_rules.yaml"              # FIBA 기준 준용
+
+# -----------------------------------------------------------------------------
+# 경기 시간 규칙 (FIBA 동일)
+# -----------------------------------------------------------------------------
+game_time:
+  quarter_duration_sec: 600                 # 10분 × 4쿼터
+  overtime_duration_sec: 300                # 연장전 5분
+  halftime_break_sec: 900                   # 하프타임 15분
+  period_break_sec: 120                     # 쿼터 간 2분
+  shot_clock_sec: 24
+  shot_clock_reset_oreb_sec: 14
+  backcourt_sec: 8
+  free_throw_sec: 5
+  throw_in_sec: 5
+
+# -----------------------------------------------------------------------------
+# 코트 규격 (FIBA 동일)
+# -----------------------------------------------------------------------------
+court:
+  three_point_distance_m: 6.75
+  restricted_area_arc_m: 1.25
+
+# -----------------------------------------------------------------------------
+# 파울 규칙 (FIBA 동일)
+# -----------------------------------------------------------------------------
+fouls:
+  max_personal_fouls: 5
+  team_foul_bonus_threshold: 4
+  technical_foul_ejection: 2
+  unsportsmanlike_foul_ejection: 2
+
+  free_throws:
+    bonus_free_throws: 2
+    shooting_foul_2pt: 2
+    shooting_foul_3pt: 3
+    technical_free_throws: 1
+    unsportsmanlike_free_throws: 2
+
+# -----------------------------------------------------------------------------
+# 타임아웃 규칙
+# -----------------------------------------------------------------------------
+timeouts:
+  total_per_game: 5
+  first_half_max: 2
+  second_half_max: 3
+  overtime_additional: 1
+  duration_sec: 60
+  carryover: false
+
+# -----------------------------------------------------------------------------
+# NBL 고유 규칙
+# -----------------------------------------------------------------------------
+nbl_specific:
+  # 비디오 판독
+  video_review:
+    enabled: true
+    situations:
+      - "shot_clock_expiry"
+      - "end_of_period"
+      - "2pt_or_3pt"
+      - "goaltending"
+      - "unsportsmanlike_foul"
+      - "out_of_bounds_last_2_min"          # 4Q/OT 마지막 2분 아웃 판독
+    coach_challenge: false
+
+  # 교대 점유 화살표 (FIBA 준용)
+  alternating_possession:
+    enabled: true
+
+  # 3초 규칙
+  three_second_rule:
+    offensive_three_sec: true
+    defensive_three_sec: false
+
+  # 외국인 선수 규정
+  import_player:
+    max_on_court: 3                         # 코트 위 최대 외국인 3명
+    total_roster: 3                         # 로스터 외국인 3명
+
+  # NBL 시즌 특수 규칙
+  overtime_rules:
+    max_overtime_periods: 3                 # 최대 3회 연장전 (이후 무승부)
+    regular_season_only: true               # 정규시즌만 (플레이오프 무제한)

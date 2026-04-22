@@ -1,0 +1,209 @@
+# =============================================================================
+# COURTVIEW_DESK - 슛 로케이션 분석 설정 (shot_location.yaml)
+#
+# 코트 위 슛 위치별 분석, 히트맵, 존 분류, 핫/콜드 존 판정.
+# ShotZone (11구역) 기반 슛 차트 생성 설정.
+#
+# 학술 근거:
+#   - Goldsberry, K. (2012). "CourtVision: New Visual and Spatial Analytics
+#     for the NBA." MIT Sloan Sports Analytics Conference.
+#     (슛 존 분류, 히트맵 시각화 기법)
+#   - Goldsberry, K. (2019). "Sprawlball." Houghton Mifflin.
+#     (11구역 존 분류, 코너 3점 효율 분석)
+#
+# 참조 상수:
+#   - shared/constants/stats_constants.py: ShotZone (11종), 거리 경계
+#   - shared/constants/court_constants.py: 코트 규격 (FIBA/NBA)
+#
+# 작성자: SPOIN_COURTVIEW
+# 최종 수정: 2026-03-20
+# 버전: 1.0.0
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# 슛 존 정의 (11구역)
+# ShotZone 열거형 매핑
+# -----------------------------------------------------------------------------
+shot_zones:
+  # 존별 거리 경계 (미터, 림 중심 기준)
+  # 출처: FIBA 공식 코트 규격 (2020), NBA Rule Book (2023-24)
+  boundaries:
+    restricted_area_radius_m: 1.22          # 제한 구역 반경 (FIBA: 1.25m, NBA: 4ft=1.22m)
+    paint_depth_m: 4.27                     # 페인트존 깊이 (14ft=4.27m)
+    corner_break_m: 0.90                    # 코너→윙 전환 기준 (베이스라인 수직 거리)
+    side_angle_deg: 60.0                    # 좌/우 미드레인지 분리 각도
+
+  # 3점 라인 거리 (리그별, 공식 규격)
+  # 출처: FIBA Rule Book (2020): 6.75m, NBA Rule Book (2023-24): 23ft 9in=7.24m
+  three_point_line:
+    fiba_m: 6.75                            # FIBA 공식 규격
+    nba_m: 7.24                             # NBA 공식 규격 (23'9")
+    nba_corner_m: 6.71                      # NBA 코너 3점 (22ft=6.71m)
+
+  # 11구역 상세 정의
+  definitions:
+    restricted_area:
+      range_m: [0.0, 1.22]
+      expected_points: 2
+      description: "림 근접 (0~1.22m)"
+    paint_non_ra:
+      range_m: [1.22, 4.27]
+      expected_points: 2
+      description: "페인트존 RA 제외 (1.22~4.27m)"
+    mid_range_left:
+      angle_range_deg: [180, 300]
+      expected_points: 2
+      description: "미드레인지 좌측"
+    mid_range_center:
+      angle_range_deg: [300, 60]
+      expected_points: 2
+      description: "미드레인지 중앙"
+    mid_range_right:
+      angle_range_deg: [60, 180]
+      expected_points: 2
+      description: "미드레인지 우측"
+    corner_three_left:
+      baseline_distance_m: 0.90
+      expected_points: 3
+      description: "좌측 코너 3점"
+    corner_three_right:
+      baseline_distance_m: 0.90
+      expected_points: 3
+      description: "우측 코너 3점"
+    above_break_left:
+      angle_range_deg: [180, 300]
+      expected_points: 3
+      description: "좌측 윙 3점"
+    above_break_center:
+      angle_range_deg: [300, 60]
+      expected_points: 3
+      description: "탑 3점"
+    above_break_right:
+      angle_range_deg: [60, 180]
+      expected_points: 3
+      description: "우측 윙 3점"
+    backcourt:
+      beyond_halfcourt: true
+      expected_points: 3
+      description: "하프코트 넘어"
+
+# -----------------------------------------------------------------------------
+# 슛 차트 시각화 설정
+# -----------------------------------------------------------------------------
+visualization:
+  # 코트 렌더링
+  court:
+    orientation: "half_court"               # 하프코트 (슛 차트 표준)
+    coordinate_system: "meters"             # 좌표계 (미터)
+    origin: "basket_center"                 # 원점: 바스켓 중심
+
+  # 마커 설정
+  markers:
+    made_shot:
+      symbol: "circle"
+      color: "#00C853"                      # 초록
+      size: 8
+    missed_shot:
+      symbol: "x"
+      color: "#FF1744"                      # 빨강
+      size: 8
+
+  # 히트맵 설정
+  heatmap:
+    resolution_m: 0.3                       # 셀 해상도 (미터)
+    smoothing_sigma: 1.5                    # 가우시안 스무딩 시그마
+    colormap: "RdYlGn"                      # 빨강(낮음)→초록(높음)
+    min_shots_for_display: 3                # 히트맵 표시 최소 슛 수
+
+  # 존별 색상 (FG% 대비 리그 평균)
+  zone_colors:
+    hot_color: "#FF6D00"                    # 핫 존 (리그 평균 +5% 이상)
+    neutral_color: "#FFC107"                # 보통 (리그 평균 ±5%)
+    cold_color: "#2196F3"                   # 콜드 존 (리그 평균 -5% 이하)
+
+# -----------------------------------------------------------------------------
+# 핫/콜드 존 판정
+# -----------------------------------------------------------------------------
+hot_cold_analysis:
+  # 리그 평균 대비 판정 기준
+  thresholds:
+    hot_zone_pct_above_avg: 0.05            # 리그 평균 대비 +5%p 이상
+    cold_zone_pct_below_avg: -0.05          # 리그 평균 대비 -5%p 이하
+
+  # 최소 표본 크기
+  min_fga_per_zone: 10                      # 존별 최소 슛 시도 수
+
+  # 리그 평균 FG% (초기 기준값, 시즌 데이터로 갱신)
+  # 출처: NBA.com/stats 2023-24 시즌 Shot Zone FG% 리그 평균
+  league_average_fg_pct:
+    restricted_area: 0.63                   # NBA 2023-24 ~63%
+    paint_non_ra: 0.40                      # NBA 2023-24 ~40%
+    mid_range: 0.41                         # NBA 2023-24 ~41%
+    corner_three: 0.39                      # NBA 2023-24 ~39%
+    above_break_three: 0.36                 # NBA 2023-24 ~36%
+    # TODO: 리그 평균 FG%는 NBA 2023-24 기준, KBL/FIBA 리그별 데이터 캘리브레이션 필요
+
+# -----------------------------------------------------------------------------
+# 슛 거리 분석
+# -----------------------------------------------------------------------------
+distance_analysis:
+  # 거리 구간 (미터)
+  distance_bins:
+    - range: [0.0, 1.22]
+      label: "restricted_area"
+    - range: [1.22, 4.27]
+      label: "close_range"
+    - range: [4.27, 6.75]
+      label: "mid_range"
+    - range: [6.75, 7.24]
+      label: "fiba_three"
+    - range: [7.24, 10.0]
+      label: "deep_three"
+    - range: [10.0, 14.0]
+      label: "half_court"
+
+  # 거리별 기대 득점 분석
+  expected_value:
+    calculation: "zone_fg_pct × expected_points"
+    comparison_baseline: "league_average"
+
+# -----------------------------------------------------------------------------
+# 슛 수비 상황 분석
+# -----------------------------------------------------------------------------
+contest_analysis:
+  # 수비자 거리 기준 (미터)
+  defender_distance:
+    tight_m: 0.6                            # 타이트 (< 0.6m)
+    moderate_m: 1.2                         # 보통 (0.6~1.2m)
+    open_m: 1.8                             # 오픈 (1.2~1.8m)
+    wide_open_m: 1.8                        # 완전 오픈 (> 1.8m)
+
+  # 슛 유형별 분류
+  shot_type_breakdown:
+    - "catch_and_shoot"                     # 캐치앤슛
+    - "pull_up"                             # 풀업 점퍼
+    - "post_up"                             # 포스트업
+    - "off_screen"                          # 스크린 후
+    - "isolation"                           # 아이솔레이션
+    - "transition"                          # 전환
+
+# -----------------------------------------------------------------------------
+# 비교 분석
+# -----------------------------------------------------------------------------
+comparison:
+  # 경기별 슛 차트 비교
+  game_to_game:
+    enabled: true
+    max_games_comparison: 10
+
+  # 시즌 누적 추이
+  season_trend:
+    enabled: true
+    window_games: 5                         # 이동평균 경기 수
+
+  # 상대팀 기반 분석
+  opponent_adjusted:
+    enabled: true
+    weight_opponent_defense: 0.3            # 상대 수비력 가중치
+    # TODO: opponent_defense 가중치 0.3은 초기 설계값,
+    #       실제 데이터 회귀분석으로 캘리브레이션 필요

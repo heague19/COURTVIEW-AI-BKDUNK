@@ -1,0 +1,217 @@
+# =============================================================================
+# COURTVIEW_DESK - 파울 판정 기준 (foul_criteria.yaml)
+#
+# 11종 파울의 AI 감지 파라미터.
+# 접촉 강도, 실린더 규칙, 수비 위치 판정 기준.
+#
+# 참조:
+#   - shared/constants/game_rule_constants.py: FoulType (11종)
+#   - shared/constants/referee_decision_constants.py: ContactBody, FoulGrade
+#   - FIBA Official Basketball Rules 2024, Art. 33-38
+#   - NBA Official Rulebook Rule 12
+#
+# 작성자: SPOIN_COURTVIEW
+# 최종 수정: 2026-03-20
+# 버전: 1.0.0
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# 접촉 감지 공통 파라미터
+# -----------------------------------------------------------------------------
+contact_detection:
+  # 신체 겹침 감지
+  body_overlap:
+    overlap_threshold: 0.3                  # 바운딩박스 겹침 비율
+    sustained_frames: 2                     # 최소 접촉 지속 프레임
+
+  # 충격 감지 (가속도 급변)
+  # TODO: 접촉 감지 가속도(15.0 m/s²) 및 속도 변화(1.5 m/s)는 초기 설계값,
+  #       실제 파울 판정 데이터 축적 후 캘리브레이션 필요
+  impact:
+    acceleration_spike_ms2: 15.0            # 가속도 급변 임계치
+    velocity_change_ms: 1.5                 # 접촉 후 속도 변화
+
+  # 접촉 부위 (12종)
+  contact_bodies:
+    - "head"                                # 머리
+    - "neck"                                # 목
+    - "shoulder"                            # 어깨
+    - "chest"                               # 가슴
+    - "back"                                # 등
+    - "arm"                                 # 팔
+    - "hand"                                # 손
+    - "hip"                                 # 엉덩이
+    - "thigh"                               # 허벅지
+    - "knee"                                # 무릎
+    - "shin"                                # 정강이
+    - "foot"                                # 발
+
+# -----------------------------------------------------------------------------
+# 1. 개인 파울 (Personal Foul, FIBA Rule 34)
+# -----------------------------------------------------------------------------
+personal_foul:
+  rule_reference: "FIBA Rule 34"
+  min_confidence: 0.75
+  free_throws: 0                            # 보너스 아닐 때 0구
+
+  criteria:
+    illegal_contact: true                   # 불법 접촉 발생
+    cylinder_violation: true                # 실린더 규칙 위반
+    advantage_affected: true                # 공격측 불이익 발생
+
+  # 실린더 규칙 (FIBA Rule 33.1)
+  cylinder_rule:
+    shoulder_width_ratio: 1.0               # 어깨 너비 기준
+    vertical_extension_ratio: 1.15          # 키 대비 수직 확장 (팔 올림)
+    natural_movement_tolerance_deg: 15.0    # 자연스러운 움직임 각도 여유
+
+# -----------------------------------------------------------------------------
+# 2. 슈팅 파울 (Shooting Foul)
+# → shooting_foul_criteria.yaml에서 상세 정의
+# -----------------------------------------------------------------------------
+shooting_foul:
+  rule_reference: "FIBA Rule 34.2"
+  min_confidence: 0.80
+  detail_config: "shooting_foul_criteria.yaml"
+
+# -----------------------------------------------------------------------------
+# 3. 공격 파울 / 차징 (Offensive Foul, FIBA Rule 33.7)
+# -----------------------------------------------------------------------------
+offensive_foul:
+  rule_reference: "FIBA Rule 33.7"
+  min_confidence: 0.78
+  free_throws: 0                            # 공격 파울 = 점유 전환
+
+  # 차징 vs 블로킹 판정 기준
+  charge_vs_block:
+    # 수비자 위치 판정
+    defender_position:
+      legal_guarding_position: true         # 합법적 수비 위치 확보
+      both_feet_on_floor: true              # 양발 바닥 접촉
+      facing_opponent: true                 # 상대방 향함
+      torso_contact_required: true          # 몸통 접촉 필수
+
+    # 제한 구역 아크 (Restricted Area Arc)
+    restricted_area:
+      enabled: true                         # 제한 구역 내 수비자 = 블로킹
+      fiba_radius_m: 1.25
+      nba_radius_m: 1.22
+
+    # 타이밍 판정
+    timing:
+      defender_set_before_contact: true     # 접촉 전 수비 위치 확보
+      min_set_time_frames: 2               # 최소 2프레임 전 위치 확보
+
+# -----------------------------------------------------------------------------
+# 4. 블로킹 파울 (Blocking, FIBA Rule 33.7)
+# -----------------------------------------------------------------------------
+blocking_foul:
+  rule_reference: "FIBA Rule 33.7"
+  min_confidence: 0.76
+
+  criteria:
+    defender_moving: true                   # 수비자가 이동 중
+    not_set_position: true                  # 합법적 위치 미확보
+    lateral_contact: true                   # 측면 접촉
+    hip_below_contact: true                 # 엉덩이 이하 접촉 (하체 방해)
+
+# -----------------------------------------------------------------------------
+# 5. 핸드체크 (Hand Check, FIBA Rule 33.9)
+# -----------------------------------------------------------------------------
+hand_check:
+  rule_reference: "FIBA Rule 33.9"
+  min_confidence: 0.72
+
+  criteria:
+    hand_on_opponent: true                  # 손을 상대에게 대고 있음
+    impeding_progress: true                 # 진행 방해
+    sustained_contact_frames: 5             # 최소 5프레임 지속
+    contact_location: ["arm", "hip", "back"]
+
+# -----------------------------------------------------------------------------
+# 6. 홀딩 (Holding, FIBA Rule 33.10)
+# -----------------------------------------------------------------------------
+holding_foul:
+  rule_reference: "FIBA Rule 33.10"
+  min_confidence: 0.74
+
+  criteria:
+    grabbing_detected: true                 # 잡기 감지
+    arm_wrap_detection: true                # 팔 감싸기 감지
+    movement_restriction: true              # 이동 제한 확인
+    sustained_contact_frames: 3
+
+# -----------------------------------------------------------------------------
+# 7. 불법 스크린 (Illegal Screen, FIBA Rule 33.7)
+# -----------------------------------------------------------------------------
+illegal_screen:
+  rule_reference: "FIBA Rule 33.7"
+  min_confidence: 0.73
+
+  criteria:
+    # 스크리너 위반 조건
+    screener_moving: true                   # 스크리너가 이동 중
+    screener_leaning: true                  # 스크리너가 기울어짐
+    insufficient_distance: true             # 충분한 거리 미확보 (시야 밖 1보)
+    hip_extension: true                     # 엉덩이/다리 내밀기
+
+  # 스크린 거리 기준
+  distance:
+    min_visible_screen_distance_m: 0.5      # 시야 내 최소 거리
+    min_blind_screen_distance_m: 1.0        # 시야 밖 최소 거리 (1보)
+    max_lean_angle_deg: 15.0                # 최대 기울기
+
+# -----------------------------------------------------------------------------
+# 8. 리치인 (Reach-In, FIBA Rule 33.8)
+# -----------------------------------------------------------------------------
+reach_in:
+  rule_reference: "FIBA Rule 33.8"
+  min_confidence: 0.70
+
+  criteria:
+    hand_extending_beyond_cylinder: true    # 실린더 밖 손 뻗기
+    contact_with_ball_handler: true         # 볼 핸들러 접촉
+    contact_location: ["hand", "arm"]       # 접촉 부위
+
+# -----------------------------------------------------------------------------
+# 9-10. 플래그런트 파울
+# → flagrant_criteria.yaml에서 상세 정의
+# -----------------------------------------------------------------------------
+flagrant_foul:
+  detail_config: "flagrant_criteria.yaml"
+
+# -----------------------------------------------------------------------------
+# 11. 테크니컬 파울
+# → technical_criteria.yaml에서 상세 정의
+# -----------------------------------------------------------------------------
+technical_foul:
+  detail_config: "technical_criteria.yaml"
+
+# -----------------------------------------------------------------------------
+# 파울 심각도 분석 (foul_severity_analyzer.py)
+# -----------------------------------------------------------------------------
+severity_analysis:
+  # 접촉 강도 등급
+  # TODO: 접촉 강도 등급별 가속도/속도 임계치는 초기 설계값,
+  #       실제 접촉 측정 데이터 축적 후 캘리브레이션 필요
+  impact_levels:
+    light:
+      max_acceleration_ms2: 8.0             # 경미한 접촉
+      max_velocity_change_ms: 0.8
+    moderate:
+      max_acceleration_ms2: 15.0            # 보통 접촉
+      max_velocity_change_ms: 1.5
+    hard:
+      max_acceleration_ms2: 25.0            # 강한 접촉
+      max_velocity_change_ms: 3.0
+    excessive:
+      min_acceleration_ms2: 25.0            # 과도한 접촉
+      min_velocity_change_ms: 3.0
+
+  # 부상 위험 평가
+  # TODO: 부상 위험 배수(2.0/1.5/1.3)는 의료적 판단 기반 초기 설계값,
+  #       실제 부상 사례 데이터 축적 후 캘리브레이션 필요
+  injury_risk:
+    head_neck_contact_multiplier: 2.0       # 머리/목 접촉 시 심각도 2배
+    airborne_contact_multiplier: 1.5        # 공중 접촉 시 1.5배
+    from_behind_multiplier: 1.3             # 뒤에서 접촉 시 1.3배

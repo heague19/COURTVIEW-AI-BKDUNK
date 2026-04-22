@@ -1,0 +1,102 @@
+# =============================================================================
+# COURTVIEW_DESK - macOS 환경 설정 (macos.yaml)
+#
+# macOS (Intel/Apple Silicon) 고유 설정.
+# base_config.yaml 위에 병합 적용.
+#
+# 주의: macOS에서는 CUDA 미지원.
+#       Apple Silicon → MPS (Metal Performance Shaders) 사용.
+#       Intel Mac → CPU 전용 또는 eGPU (NVIDIA) 사용.
+#
+# 참조:
+#   - configs/base/base_config.yaml: 기본 설정 (base)
+#   - configs/desktop/performance.yaml: 성능 설정
+#
+# 작성자: SPOIN_COURTVIEW
+# 최종 수정: 2026-03-20
+# 버전: 1.0.0
+# =============================================================================
+
+# 환경 메타데이터
+environment:
+  name: "macos"
+  description: "macOS (Intel/Apple Silicon) 환경"
+  platform: "darwin"
+  base_config: "base_config.yaml"
+
+# -----------------------------------------------------------------------------
+# 시스템
+# -----------------------------------------------------------------------------
+system:
+  log_level: "INFO"
+  log_format: "json"
+
+  paths:
+    separator: "/"
+    temp_dir: "/tmp/courtview"
+    log_dir: "~/Library/Logs/COURTVIEW"
+    data_dir: "~/Library/Application Support/COURTVIEW/data"
+    config_dir: "~/Library/Application Support/COURTVIEW/config"
+
+# -----------------------------------------------------------------------------
+# GPU (macOS 분기)
+# -----------------------------------------------------------------------------
+gpu:
+  # Apple Silicon (M1/M2/M3/M4)
+  apple_silicon:
+    device: "mps"                          # Metal Performance Shaders
+    unified_memory: true                   # 통합 메모리 아키텍처
+
+  # TensorRT 미지원 → CoreML / ONNX Runtime
+  tensorrt:
+    enabled: false                         # macOS에서 TensorRT 미지원
+  inference_backend: "onnxruntime"         # ONNX Runtime (CoreML EP)
+  coreml:
+    enabled: true                          # CoreML 가속
+    compute_units: "all"                   # cpu_only, cpu_and_gpu, all (ANE 포함)
+
+  # Intel Mac (eGPU 없는 경우)
+  intel_fallback:
+    device: "cpu"
+    onnx_execution_provider: "CPUExecutionProvider"
+
+# -----------------------------------------------------------------------------
+# 비디오 디코딩
+# macOS VideoToolbox 하드웨어 디코딩
+# -----------------------------------------------------------------------------
+video:
+  decode:
+    hardware_decode: true
+    decoder_backend: "videotoolbox"        # macOS VideoToolbox
+    fallback_backend: "ffmpeg"
+    pixel_format: "nv12"
+
+# -----------------------------------------------------------------------------
+# 카메라
+# macOS AVFoundation
+# -----------------------------------------------------------------------------
+camera:
+  capture_backend: "avfoundation"          # macOS AVFoundation
+  usb_backend: "avfoundation"
+  network_backend: "ffmpeg"
+
+# -----------------------------------------------------------------------------
+# 성능 조정 (Apple Silicon 기준)
+# 통합 메모리이므로 VRAM/RAM 구분 없음
+# -----------------------------------------------------------------------------
+performance:
+  max_workers: 4                           # 효율 코어 고려
+  memory:
+    # 통합 메모리 → 전체 메모리 기준
+    max_usage_percent: 70                  # 70% 제한 (시스템 안정성)
+  pipeline:
+    max_concurrent_analyses: 1             # MPS 단일 스트림 권장
+    batch_size: 4                          # MPS 배치 크기 축소
+
+# -----------------------------------------------------------------------------
+# 네트워크
+# -----------------------------------------------------------------------------
+network:
+  api_server:
+    host: "0.0.0.0"
+    port: 8000

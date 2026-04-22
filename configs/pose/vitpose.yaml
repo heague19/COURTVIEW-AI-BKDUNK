@@ -1,0 +1,108 @@
+# =============================================================================
+# COURTVIEW_DESK - ViTPose-B 설정 (vitpose.yaml)
+#
+# Stage 2: 이벤트 트리거 133 키포인트 추정 (WholeBody).
+# 슛/드리블 등 세밀한 동작 분석 시에만 활성화.
+# VRAM 예산: ~600MB
+#
+# 학술 근거:
+#   - Xu, Y. et al. (2022). "ViTPose: Simple Vision Transformer Baselines
+#     for Human Pose Estimation." NeurIPS. (ViT 기반 포즈 추정)
+#   - Jin, S. et al. (2020). "Whole-Body Human Pose Estimation in the Wild."
+#     ECCV. (133 WholeBody 키포인트 정의)
+#   - Huang, J. et al. (2020). "The Devil is in the Details: Delving into
+#     Unbiased Data Processing for Human Pose Estimation." CVPR. (UDP)
+#   - Zhang, F. et al. (2020). "Distribution-Aware Coordinate Representation
+#     for Human Pose Estimation." CVPR. (DARK pose refinement)
+#
+# 작성자: SPOIN_COURTVIEW
+# 최종 수정: 2026-03-20
+# 버전: 1.0.0
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# 모델 기본
+# -----------------------------------------------------------------------------
+model:
+  name: "vitpose-base"
+  backbone: "vit-b"                    # vit-s, vit-b, vit-l, vit-h
+  input_size: [256, 192]               # [height, width]
+  keypoint_count: 133                  # WholeBody 133 키포인트
+  precision: "fp16"
+  vram_estimate_mb: 600
+
+# -----------------------------------------------------------------------------
+# 추론 파라미터
+# -----------------------------------------------------------------------------
+inference:
+  batch_size: 4
+  keypoint_confidence_threshold: 0.3
+  heatmap_size: [64, 48]              # output heatmap 크기
+
+# -----------------------------------------------------------------------------
+# 활성화 트리거 조건
+# 상시 실행하지 않고, 특정 이벤트 발생 시에만 Stage 2 활성화
+# -----------------------------------------------------------------------------
+trigger:
+  events:
+    - "shot_detected"
+    - "dribble_detected"
+    - "pass_detected"
+    - "free_throw"
+    - "layup_detected"
+    - "dunk_detected"
+  # 트리거 후 분석 윈도우
+  pre_event_frames: 30                 # 이벤트 전 1초 (@ 30fps)
+  post_event_frames: 30                # 이벤트 후 1초
+
+# -----------------------------------------------------------------------------
+# WholeBody 133 키포인트 그룹
+# -----------------------------------------------------------------------------
+keypoint_groups:
+  body: 17                             # COCO 17 (Stage 1과 동일)
+  foot: 6                              # 왼발 3 + 오른발 3
+  face: 68                             # 얼굴 랜드마크
+  left_hand: 21                        # 왼손 관절
+  right_hand: 21                       # 오른손 관절
+
+# 농구 분석에 중요한 키포인트 서브셋
+basketball_critical:
+  # 슈팅 폼: 손목, 팔꿈치, 어깨, 손가락 끝
+  shooting:
+    - 9     # left_wrist
+    - 10    # right_wrist
+    - 7     # left_elbow
+    - 8     # right_elbow
+    - 5     # left_shoulder
+    - 6     # right_shoulder
+  # 드리블: 손목, 손가락, 팔꿈치
+  dribbling:
+    - 9     # left_wrist
+    - 10    # right_wrist
+    - 7     # left_elbow
+    - 8     # right_elbow
+  # 풋워크: 발목, 무릎, 엉덩이
+  footwork:
+    - 15    # left_ankle
+    - 16    # right_ankle
+    - 13    # left_knee
+    - 14    # right_knee
+    - 11    # left_hip
+    - 12    # right_hip
+
+# -----------------------------------------------------------------------------
+# 전처리
+# -----------------------------------------------------------------------------
+preprocessing:
+  normalize_mean: [0.485, 0.456, 0.406]  # ImageNet (Russakovsky et al., 2015)
+  normalize_std: [0.229, 0.224, 0.225]   # ImageNet 학습 표준편차
+  bbox_scale_factor: 1.25               # bbox 확장 비율
+
+# -----------------------------------------------------------------------------
+# 후처리
+# -----------------------------------------------------------------------------
+# 출처: UDP — Huang et al. (2020, CVPR), DARK — Zhang et al. (2020, CVPR)
+postprocessing:
+  use_udp: true                        # Unbiased Data Processing (Huang et al., 2020)
+  dark_pose: true                      # DARK pose refinement (Zhang et al., 2020)
+  shift_heatmap: true

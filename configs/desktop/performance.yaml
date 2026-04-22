@@ -1,0 +1,156 @@
+# =============================================================================
+# COURTVIEW_DESK - 성능 최적화 설정 (performance.yaml)
+#
+# Desktop 로컬 GPU 서버 성능 최적화 파라미터.
+# 프로덕션 기준: RTX 5060 8GB VRAM / RAM 16GB
+# 피크 VRAM ~2.35GB / 가용 6.5GB, 피크 RAM ~7GB / 16GB — 충분
+#
+# 참조:
+#   - configs/base/gpu_config.yaml: GPU/TensorRT 설정
+#   - configs/base/base_config.yaml: 시스템 기본값
+#   - shared/constants/video_constants.py: FPS/프레임 상수
+#   - shared/constants/camera_constants.py: 카메라 제한값
+#
+# 작성자: SPOIN_COURTVIEW
+# 최종 수정: 2026-03-20
+# 버전: 1.0.0
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# CPU 최적화
+# -----------------------------------------------------------------------------
+cpu:
+  # 프로세스/스레드 설정
+  max_workers: 4                           # 최대 워커 수
+  analysis_threads: 2                      # 분석 전용 스레드
+  io_threads: 2                            # I/O 전용 스레드
+
+  # CPU 어피니티 (선택적)
+  affinity_enabled: false                  # CPU 코어 고정 사용
+  performance_cores_only: false            # P-코어만 사용 (하이브리드 CPU)
+
+  # 프로세스 우선순위
+  process_priority: "high"                 # low, normal, high, realtime
+
+# -----------------------------------------------------------------------------
+# 메모리 최적화
+# -----------------------------------------------------------------------------
+memory:
+  # RAM 사용량 제한
+  max_ram_usage_percent: 75                # 최대 RAM 사용률 (%)
+  warning_threshold_percent: 85            # 경고 임계치 (%)
+  critical_threshold_percent: 95           # 위험 임계치 (%)
+
+  # 프레임 버퍼
+  frame_buffer_size: 32                    # 프레임 버퍼 크기 (16GB RAM 기준 축소)
+  frame_pool_size: 64                      # 프레임 풀 크기
+
+  # 가비지 컬렉션
+  gc_threshold_mb: 256                     # GC 트리거 임계치 (16GB RAM 기준 축소)
+  gc_interval_sec: 30                      # 주기적 GC 간격 (초)
+
+# -----------------------------------------------------------------------------
+# GPU 최적화
+# -----------------------------------------------------------------------------
+gpu:
+  # VRAM 모니터링
+  vram_monitor_interval_sec: 5.0           # VRAM 모니터링 주기 (초)
+  vram_warning_threshold_percent: 85       # VRAM 경고 임계치 (%)
+  vram_critical_threshold_percent: 95      # VRAM 위험 임계치 (%)
+
+  # 모델 로딩 전략
+  model_loading:
+    lazy_load: true                        # 필요 시 로딩
+    preload_critical: true                 # 핵심 모델 사전 로딩 (detection)
+    unload_idle_sec: 300                   # 유휴 시 언로딩 (초)
+
+  # CUDA 스트림
+  cuda_streams: 2                          # 병렬 CUDA 스트림 수
+  async_memory_pool: true                  # 비동기 메모리 풀
+
+  # 배치 최적화
+  dynamic_batching: true                   # 동적 배치 크기 조정
+  min_batch_size: 1
+  max_batch_size: 16
+  batch_timeout_ms: 50                     # 배치 수집 타임아웃 (ms)
+
+# -----------------------------------------------------------------------------
+# 파이프라인 최적화
+# -----------------------------------------------------------------------------
+pipeline:
+  # 프레임 프리페치
+  prefetch_frames: 16                      # 사전 로딩 프레임 수
+  prefetch_buffer_mb: 256                  # 프리페치 버퍼 크기 (MB)
+
+  # 병렬 분석
+  max_concurrent_analyses: 2               # 동시 분석 최대 수
+  queue_max_size: 32                       # 분석 큐 최대 크기
+
+  # 프레임 스킵 (성능 부족 시)
+  adaptive_frame_skip:
+    enabled: true                          # 적응적 프레임 스킵
+    fps_target: 30                         # 목표 FPS
+    fps_min: 15                            # 최소 FPS (이하 시 품질 저하 경고)
+    skip_non_keyframes: true               # 비핵심 프레임 스킵 우선
+
+  # 분석 단계별 타임아웃 (초)
+  stage_timeouts:
+    detection: 5.0
+    pose_estimation: 8.0
+    biomechanics: 3.0
+    motion_analysis: 5.0
+    game_analysis: 10.0
+    ai_referee: 5.0
+    feedback_generation: 5.0
+
+# -----------------------------------------------------------------------------
+# 디스크 I/O 최적화
+# -----------------------------------------------------------------------------
+disk_io:
+  # 비디오 디코딩
+  decode_threads: 2                        # 디코딩 스레드 수
+  hardware_decode: true                    # 하드웨어 디코딩 (NVDEC)
+  pixel_format: "nv12"                     # GPU 디코딩 픽셀 포맷
+
+  # 결과 저장
+  result_write_async: true                 # 비동기 결과 저장
+  result_buffer_size: 100                  # 저장 버퍼 크기
+
+  # 임시 파일
+  temp_dir: "courtview_temp"
+  temp_cleanup_on_exit: true
+  temp_max_age_hours: 24
+
+# -----------------------------------------------------------------------------
+# 프로파일링
+# -----------------------------------------------------------------------------
+profiling:
+  enabled: false                           # 프로파일링 활성화 (개발 모드)
+  cpu_profiling: false                     # CPU 프로파일링
+  gpu_profiling: false                     # GPU 프로파일링
+  memory_profiling: false                  # 메모리 프로파일링
+  log_interval_sec: 60                     # 프로파일 로그 간격 (초)
+  report_top_n: 10                         # 상위 N개 병목 리포트
+
+# -----------------------------------------------------------------------------
+# 성능 벤치마크 기준값
+# 목표 달성 시 정상, 미달 시 경고
+# -----------------------------------------------------------------------------
+benchmarks:
+  # FPS 목표
+  detection_fps_target: 30
+  pose_fps_target: 25
+  total_pipeline_fps_target: 20
+
+  # 레이턴시 목표 (ms)
+  detection_latency_max_ms: 50
+  pose_latency_max_ms: 80
+  total_latency_max_ms: 200
+
+  # 정확도 목표
+  detection_accuracy_target: 0.92          # 92%+
+  pose_accuracy_target: 0.90               # 90%+
+
+  # 메모리 효율 (RTX 5060 8GB / RAM 16GB 기준)
+  vram_per_stream_max_mb: 2560             # 스트림당 최대 VRAM (MB)
+  ram_per_analysis_max_mb: 1536            # 분석당 최대 RAM (MB)

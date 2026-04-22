@@ -1,0 +1,150 @@
+# =============================================================================
+# COURTVIEW_DESK - 동역학 설정 (dynamics.yaml)
+#
+# 힘, 운동량, 에너지, 균형, 충격 분석 파라미터.
+# SI 단위 (N, kg·m/s, J).
+#
+# 학술 근거:
+#   - 세그먼트 질량비: de Leva, P. (1996). "Adjustments to Zatsiorsky-
+#     Seluyanov's segment inertia parameters." J. Biomechanics, 29(9), 1223-1230.
+#   - 착지 충격: McNitt-Gray, J.L. (1993). "Kinetics of the lower extremities
+#     during drop landings from three heights." J. Biomechanics, 26(9), 1037-1046.
+#   - 부상 위험 GRF: Dufek, J.S. & Bates, B.T. (1991). "Biomechanical factors
+#     associated with injury during landing in jump sports." Sports Medicine, 12(5).
+#   - 역동역학: Winter, D.A. (2009). "Biomechanics and Motor Control of
+#     Human Movement", 4th ed. Wiley. Ch.5 (Kinetics).
+#
+# 작성자: SPOIN_COURTVIEW
+# 최종 수정: 2026-03-20
+# 버전: 1.0.0
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# 물리 상수
+# 출처: ISO 표준중력 g₀ (9.80665), NIST 공기 밀도
+# SSOT: utils/physics_utils.py GRAVITY=9.80665 (Phase 4 하이브리드 통일, 2026-04-20)
+# -----------------------------------------------------------------------------
+physics:
+  gravity: 9.80665                     # m/s² (ISO 표준중력 g₀, utils와 SSOT 일치)
+  air_density: 1.204                   # kg/m³ (20°C, 1atm, NIST)
+
+# -----------------------------------------------------------------------------
+# 힘 추정
+# 출처: Winter (2009) Ch.5 역동역학 (Inverse Dynamics)
+# -----------------------------------------------------------------------------
+force:
+  # 지면 반력 추정 (GRF)
+  # 출처: McNitt-Gray (1993) — 착지 시 GRF 2~5 BW 관측
+  grf_estimation_method: "inverse_dynamics"  # Winter (2009) 역동역학
+  max_vertical_grf_bw: 5.0             # 체중 대비 최대 수직 반력 (배)
+  max_horizontal_grf_bw: 2.0           # 수평 반력
+
+  # 관절 토크 (역동역학)
+  # 참고: Linthorne, N.P. (2001). "Analysis of standing vertical jumps
+  #        using a force platform." Am. J. Physics, 69(11).
+  joint_torque_smoothing_window: 5
+  max_knee_torque_nm: 300.0            # 최대 슬관절 토크
+  max_ankle_torque_nm: 200.0           # 최대 족관절 토크
+  # TODO: 연령/체중별 최대 토크 캘리브레이션 필요
+
+# -----------------------------------------------------------------------------
+# 운동량 분석
+# -----------------------------------------------------------------------------
+momentum:
+  # 선운동량 (linear)
+  max_linear_momentum_kgms: 200.0      # kg·m/s
+  # 참고: 80kg × 2.5m/s = 200 kg·m/s (빠른 드라이브)
+  # 각운동량 (angular)
+  max_angular_momentum_kgm2s: 50.0     # kg·m²/s
+  # 충격량 (impulse)
+  landing_impulse_threshold_bw_s: 0.5  # 체중·초
+  # TODO: 농구 동작별 운동량 범위 실데이터 검증 필요
+
+# -----------------------------------------------------------------------------
+# 에너지 분석
+# -----------------------------------------------------------------------------
+energy:
+  # 운동 에너지 (kinetic)
+  max_kinetic_energy_j: 2000.0
+  # 참고: 0.5 × 80kg × (7m/s)² = 1960J (전력질주)
+  # 위치 에너지 (potential)
+  reference_height_m: 0.0              # 바닥 기준
+  # 에너지 효율
+  shooting_efficiency_threshold: 0.7
+  # TODO: 슈팅 에너지 효율 임계치 실데이터 캘리브레이션 필요
+
+# -----------------------------------------------------------------------------
+# 균형 분석
+# 출처: Winter (2009) Ch.7 — 균형과 자세 제어 (Balance and Posture)
+# -----------------------------------------------------------------------------
+balance:
+  # 압력 중심 (COP)
+  cop_estimation_method: "com_projection"  # 무게중심 투영법
+  max_cop_sway_m: 0.15                 # 정적 균형 흔들림 한계
+  # 참고: Winter (2009) — 정상 성인 정적 COP sway ~10-15mm
+  # 지지 기저면 (BOS)
+  bos_margin_threshold_m: 0.05         # BOS 여유 경고 임계값
+  # 균형 점수
+  stability_excellent_threshold: 0.9
+  stability_good_threshold: 0.7
+  stability_poor_threshold: 0.4
+  # TODO: 균형 점수 임계치는 초기 설계값, 실데이터 캘리브레이션 필요
+
+# -----------------------------------------------------------------------------
+# 충격 분석
+# 출처: Dufek & Bates (1991), McNitt-Gray (1993)
+# -----------------------------------------------------------------------------
+impact:
+  # 착지 충격
+  # 출처: Dufek & Bates (1991) — 3.5 BW 이상에서 부상 위험 증가
+  #        McNitt-Gray (1993) — 60cm 높이 착지 시 평균 3.9 BW
+  landing_peak_grf_warning_bw: 3.5     # 부상 위험 경고 (Dufek & Bates, 1991)
+  landing_peak_grf_danger_bw: 5.0      # 부상 위험 심각 (McNitt-Gray, 1993: 높은 착지)
+  # 충돌 감지
+  collision_deceleration_threshold_ms2: 30.0
+  collision_duration_max_ms: 200.0
+  # TODO: 충돌 감속도 임계치 30.0 m/s²는 초기 추정값, 실데이터 캘리브레이션 필요
+
+# -----------------------------------------------------------------------------
+# 인체 측정 기본값
+# 출처: de Leva, P. (1996). J. Biomechanics, 29(9), 1223-1230.
+#        Table 4 (Male) / Table 5 (Female) — 체중 대비 세그먼트 질량 비율
+# 정확도: 논문 원본 Table에서 직접 인용, 소수점 4자리
+# -----------------------------------------------------------------------------
+segment_mass_ratios:
+  male:
+    head: 0.0694                       # de Leva (1996) Table 4
+    trunk: 0.4346                      # de Leva (1996) Table 4
+    upper_arm: 0.0271                  # de Leva (1996) Table 4
+    forearm: 0.0162                    # de Leva (1996) Table 4
+    hand: 0.0061                       # de Leva (1996) Table 4
+    thigh: 0.1416                      # de Leva (1996) Table 4
+    shank: 0.0433                      # de Leva (1996) Table 4
+    foot: 0.0137                       # de Leva (1996) Table 4
+  female:
+    head: 0.0668                       # de Leva (1996) Table 5
+    trunk: 0.4257                      # de Leva (1996) Table 5
+    upper_arm: 0.0255                  # de Leva (1996) Table 5
+    forearm: 0.0138                    # de Leva (1996) Table 5
+    hand: 0.0056                       # de Leva (1996) Table 5
+    thigh: 0.1478                      # de Leva (1996) Table 5
+    shank: 0.0481                      # de Leva (1996) Table 5
+    foot: 0.0129                       # de Leva (1996) Table 5
+
+# -----------------------------------------------------------------------------
+# 연령별 체중 기본값 (kg, 참고용)
+# TODO: 아래 값은 일반적 한국인 체격 기반 추정값.
+#       정밀 보정을 위해 다음 자료 참조 필요:
+#       - 질병관리청 국민건강영양조사 (KNHANES) 최신 연도 신체계측 데이터
+#       - 대한체육회 국민체력실태조사
+#       앱 초기 신체 스캔 시 개인별 체중 입력으로 대체됨.
+# -----------------------------------------------------------------------------
+default_body_mass:
+  youth_male: 35.0                     # 추정값 (U-12 평균)
+  youth_female: 33.0                   # 추정값
+  teen_male: 60.0                      # 추정값 (U-18 평균)
+  teen_female: 55.0                    # 추정값
+  adult_male: 75.0                     # 추정값 (성인 남성 평균)
+  adult_female: 62.0                   # 추정값
+  senior_male: 70.0                    # 추정값
+  senior_female: 58.0                  # 추정값

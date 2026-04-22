@@ -1,0 +1,76 @@
+# =============================================================================
+# COURTVIEW_DESK - GPU 설정 (gpu_config.yaml)
+#
+# GPU 장치 및 추론 엔진 설정.
+# 프로덕션 기준: RTX 5060 8GB VRAM / RAM 16GB
+# 피크 VRAM ~2.35GB (가용 6.5GB의 36%) — 충분한 여유
+#
+# 작성자: SPOIN_COURTVIEW
+# 최종 수정: 2026-03-20
+# 버전: 1.0.0
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# GPU 장치 설정
+# -----------------------------------------------------------------------------
+device:
+  preferred: "cuda"                    # cuda, cpu
+  device_id: 0
+  allow_cpu_fallback: true
+
+# -----------------------------------------------------------------------------
+# VRAM 예산 (바이트 단위)
+# 개발 기준: RTX 5060 8GB → 약 6.5GB 가용 (OS/드라이버 ~1.5GB 예약)
+#
+# VRAM 배분 설계:
+#   detection  1.5GB  YOLO 모델들 (ball/court/player/hoop)
+#   pose       1.4GB  YOLOv8x-Pose ~800MB + ViTPose-B ~600MB
+#   tracking   256MB  BoT-SORT / ByteTrack
+#   reserve    512MB  시스템 예비 + 피크 버퍼
+#   ─────────────────
+#   합계       ~3.7GB (가용 6.5GB 내 안전 범위)
+#
+# 참고: 모든 모델 동시 로딩 시에도 6.5GB 이내.
+#       lazy_load + unload_idle로 실사용량 최적화.
+# -----------------------------------------------------------------------------
+vram:
+  total_budget_bytes: 6979321856       # 6.5GB (RTX 5060 8GB 가용분)
+  detection_budget_bytes: 1610612736   # 1.5GB (YOLO 모델들)
+  pose_budget_bytes: 1503238553        # 1.4GB (YOLOv8x-Pose ~800MB + ViTPose-B ~600MB)
+  tracking_budget_bytes: 268435456     # 256MB
+  reserve_bytes: 536870912             # 512MB (시스템 예비)
+  warning_threshold_percent: 80        # 8GB VRAM에서는 더 보수적으로
+  critical_threshold_percent: 90
+
+# -----------------------------------------------------------------------------
+# TensorRT 엔진 설정
+# -----------------------------------------------------------------------------
+tensorrt:
+  enabled: true
+  precision: "fp16"                    # fp32, fp16, int8
+  workspace_size_mb: 1024              # 8GB VRAM에서는 1GB로 축소
+  cache_dir: "tensorrt_engines"
+  rebuild_on_version_change: true
+  max_batch_size: 8                    # 8GB VRAM에서는 배치 축소
+  optimization_level: 5               # 1~5 (높을수록 최적화↑, 빌드 시간↑)
+  dynamic_shapes: true
+
+# -----------------------------------------------------------------------------
+# CUDA 설정
+# -----------------------------------------------------------------------------
+cuda:
+  benchmark_mode: true                 # cuDNN auto-tuner
+  deterministic: false                 # 재현성 (true 시 속도 저하)
+  allow_tf32: true                     # Ampere+ TF32 연산
+  memory_pool: "async"                 # async, default
+  stream_count: 2
+
+# -----------------------------------------------------------------------------
+# 배치 추론 설정
+# -----------------------------------------------------------------------------
+inference:
+  detection_batch_size: 4              # 8GB VRAM 기준 축소
+  pose_batch_size: 2                   # 8GB VRAM 기준 축소
+  max_queue_size: 16                   # 큐 크기 축소
+  warmup_iterations: 3
+  timeout_sec: 10.0

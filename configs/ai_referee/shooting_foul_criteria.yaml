@@ -1,0 +1,129 @@
+# =============================================================================
+# COURTVIEW_DESK - 슈팅 파울 판정 기준 (shooting_foul_criteria.yaml)
+#
+# 슛 동작 중 파울 감지, 자유투 부여 분류, 앤드원 판정.
+#
+# 참조:
+#   - FIBA Rule 34.2 (슈팅 동작 중 파울)
+#   - NBA Rulebook Rule 12-B-I (슈팅 파울)
+#   - shared/constants/referee_decision_constants.py
+#
+# 작성자: SPOIN_COURTVIEW
+# 최종 수정: 2026-03-20
+# 버전: 1.0.0
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# 슈팅 모션 정의 (Act of Shooting)
+# 파울 판정 시 '슈팅 동작 중' 여부가 자유투 부여를 결정
+# -----------------------------------------------------------------------------
+shooting_motion:
+  # 슈팅 동작 시작 판정
+  start_detection:
+    arm_rising: true                        # 팔 상승 시작
+    gathering_ball: true                    # 공 게더링
+    upward_motion_initiated: true           # 상승 동작 개시
+    wrist_above_shoulder_m: 0.0             # 손목이 어깨 높이 도달 (시작점)
+
+  # 슈팅 동작 종료 판정
+  end_detection:
+    ball_released: true                     # 공 릴리스 완료
+    follow_through_complete: true           # 팔로우 스루 완료
+    feet_returned_to_floor: true            # 양발 착지
+    max_continuation_frames: 15             # 릴리스 후 최대 팔로우스루 프레임
+
+  # 연속 동작 (continuation)
+  # TODO: continuation 파라미터(0 드리블, 2스텝, 1.5초)는 FIBA/NBA 규정 기반이나
+  #       AI 감지 타이밍 정밀도에 따라 캘리브레이션 필요
+  continuation:
+    enabled: true                           # 연속 동작 인정
+    max_dribbles_after_foul: 0              # 파울 후 드리블 불가 (즉시 슛만)
+    max_steps_after_foul: 2                 # 파울 후 최대 2스텝 (레이업)
+    max_time_after_foul_sec: 1.5            # 파울 후 최대 지연 시간
+
+# -----------------------------------------------------------------------------
+# 슈팅 파울 분류
+# -----------------------------------------------------------------------------
+classification:
+  # 2점 슈팅 파울
+  two_point_shooting_foul:
+    zone: "inside_three_point_line"
+    free_throws: 2
+    min_confidence: 0.80
+
+  # 3점 슈팅 파울
+  three_point_shooting_foul:
+    zone: "beyond_three_point_line"
+    free_throws: 3
+    min_confidence: 0.82
+    foot_on_line_check: true                # 발이 3점 라인 위 → 2점 파울
+
+  # 앤드원 (And-One)
+  and_one:
+    shot_made: true                         # 슛 성공
+    foul_during_shooting: true              # 슈팅 중 파울
+    free_throws: 1                          # 추가 자유투 1구
+    min_confidence: 0.85
+
+# -----------------------------------------------------------------------------
+# 슈팅 파울 접촉 유형
+# -----------------------------------------------------------------------------
+contact_types:
+  # 팔/손 접촉 (가장 흔함)
+  arm_contact:
+    shooting_arm_hit: true                  # 슈팅 팔 타격
+    guide_hand_hit: true                    # 가이드 핸드 타격
+    wrist_slap_detection: true              # 손목 때리기 감지
+    min_arm_deviation_deg: 5.0              # 슛 궤적 편차 최소 (파울로 인한)
+    # TODO: 팔 편차 5.0°는 초기 설계값, 실제 슈팅 파울 데이터로 캘리브레이션 필요
+
+  # 몸통 접촉
+  body_contact:
+    push_during_shot: true                  # 슛 중 밀치기
+    hip_check: true                         # 엉덩이 접촉
+    body_bump: true                         # 몸통 부딪힘
+
+  # 하체 접촉
+  lower_body_contact:
+    leg_contact: true                       # 다리 접촉
+    undercutting: true                      # 착지 공간 침범 (매우 위험)
+    foot_contact: true                      # 발 밟기
+
+  # 착지 공간 침범 (FIBA Rule 33.5 / NBA Rule 12-B-I)
+  # TODO: 착지 구역 반경(0.5m)과 최소 확보 공간(0.3m)은 초기 설계값,
+  #       실제 착지 공간 침범 사례 데이터로 캘리브레이션 필요
+  landing_space:
+    enabled: true                           # 착지 공간 보호 활성화
+    landing_zone_radius_m: 0.5              # 착지 구역 반경
+    severity: "high"                        # 심각도 높음 (부상 위험)
+    minimum_clearance_m: 0.3                # 최소 확보 공간
+
+# -----------------------------------------------------------------------------
+# 파울 드로잉 감지 (비자연적 동작)
+# -----------------------------------------------------------------------------
+foul_drawing:
+  # 비자연적 슈팅 동작 감지
+  unnatural_motion:
+    enabled: true
+    arm_swing_lateral_deg: 30.0             # 비정상적 측면 팔 휘두르기
+    kick_out_leg_detection: true            # 다리 내밀기 감지
+    lean_into_defender_detection: true      # 수비자 쪽으로 기울기
+    abnormal_contact_initiation: true       # 비정상적 접촉 유발
+
+  # NBA 룰 변경 (2021-22~): 비자연적 동작 → 공격 파울 가능
+  nba_non_basketball_move:
+    enabled: true
+    abnormal_jump_direction: true           # 비정상적 점프 방향
+    hooking_arm_detection: true             # 팔 걸기
+    lunging_detection: true                 # 돌진
+
+# -----------------------------------------------------------------------------
+# 멀티앵글 검증
+# -----------------------------------------------------------------------------
+multi_angle:
+  min_cameras_for_shooting_foul: 2          # 최소 2대 카메라 확인
+  contact_timing_agreement_ms: 100          # 접촉 타이밍 합의 (ms)
+  best_angle_priority:
+    - "baseline"                            # 베이스라인 카메라 우선
+    - "sideline"                            # 사이드라인
+    - "overhead"                            # 오버헤드

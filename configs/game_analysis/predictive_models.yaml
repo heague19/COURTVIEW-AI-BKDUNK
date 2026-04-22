@@ -1,0 +1,129 @@
+# =============================================================================
+# COURTVIEW — predictive_models 설정
+# 경로: configs/game_analysis/predictive_models.yaml
+# 설명: Phase 2 예측 모델 (WP, EPV, xFG%, 라인업) 파라미터
+# =============================================================================
+
+# --- 승리 확률 (Win Probability) ---
+win_probability:
+  # 로지스틱 모델 기반 파라미터
+  home_court_advantage: 0.035        # 홈코트 이점 (WP +3.5%)
+  possession_value: 0.02             # 점유권 보유 WP 가치 (+2%)
+
+  # 클러치 상황 정의
+  clutch_margin_points: 5            # 점수차 ±5점 이내
+  clutch_time_remaining_sec: 300     # 남은 시간 5분 이내 (4Q/OT)
+
+  # 가비지 타임 정의
+  garbage_time_margin_points: 25     # 점수차 25점 이상
+  garbage_time_min_remaining_sec: 300  # 남은 시간 5분 이상
+
+  # WP 확정 임계
+  certain_win_threshold: 0.995
+  certain_loss_threshold: 0.005
+
+  # 모멘텀 가중 (최근 N초 이벤트 가중)
+  momentum_window_sec: 120           # 최근 2분
+  momentum_weight: 0.05              # 모멘텀 WP 보정 최대 ±5%
+
+  # WP 곡선 저장 최대 포인트
+  max_curve_points: 2000
+
+  # 쿼터별 총 시간 (초)
+  quarter_duration_sec: 600          # 10분 (FIBA)
+  overtime_duration_sec: 300         # OT 5분
+
+# --- 기대 점유 가치 (EPV) ---
+expected_possession_value:
+  # 리그 평균 PPP (Points Per Possession)
+  league_average_ppp: 1.08
+
+  # 옵션별 기본 가중치
+  shot_weight: 1.0
+  pass_weight: 0.95
+  drive_weight: 0.90
+
+  # 의사결정 품질 임계
+  good_decision_threshold: -0.05     # EPV 손실 -0.05 이내 = 양호
+  bad_decision_threshold: -0.15      # EPV 손실 -0.15 이하 = 부진
+
+  # 점유 시간에 따른 보정
+  early_clock_sec: 8                 # 0~8초: 속공/얼리 오펜스
+  mid_clock_sec: 16                  # 8~16초: 하프코트
+  # 16~24초: 지연 공격
+
+  # 점유 이력 캐시 최대 수
+  max_possession_cache: 500
+
+# --- 슛 품질 모델 (xFG%) ---
+shot_quality_model:
+  # 수비자 거리 구간 (미터)
+  contest_tight_m: 0.6               # < 0.6m: 타이트 컨테스트
+  contest_moderate_m: 1.2            # 0.6~1.2m: 보통 컨테스트
+  contest_open_m: 1.8                # 1.2~1.8m: 오픈
+  # > 1.8m: 완전 오픈
+
+  # 캐치앤슛 판정
+  catch_and_shoot_max_touch_sec: 2.0
+  pull_up_min_dribbles: 1
+
+  # 존별 리그 평균 FG% (20존, FIBA 기준)
+  zone_base_fg_pct:
+    # 페인트 (높은 성공률)
+    paint_left: 0.55
+    paint_center: 0.60
+    paint_right: 0.55
+    # 미드레인지 (중간 성공률)
+    mid_left_corner: 0.42
+    mid_left_wing: 0.40
+    mid_left_elbow: 0.41
+    mid_center: 0.42
+    mid_right_elbow: 0.41
+    mid_right_wing: 0.40
+    mid_right_corner: 0.42
+    # 3점 (낮은 성공률)
+    three_left_corner: 0.39
+    three_left_wing: 0.36
+    three_left_top: 0.35
+    three_center: 0.36
+    three_right_top: 0.35
+    three_right_wing: 0.36
+    three_right_corner: 0.39
+    # 장거리
+    deep_left: 0.25
+    deep_center: 0.28
+    deep_right: 0.25
+
+  # 수비 거리별 FG% 조정 (곱셈 계수)
+  contest_adjustment:
+    tight: 0.75                      # 타이트 → 75%로 감소
+    moderate: 0.90                   # 보통 → 90%
+    open: 1.05                       # 오픈 → 105%
+    wide_open: 1.15                  # 완전 오픈 → 115%
+
+  # 핸드 컨테스트 추가 감소
+  hand_contest_penalty: 0.05         # 손 컨테스트 시 추가 -5%
+
+  # 슛 이력 캐시 최대 수
+  max_shot_cache: 2000
+
+# --- 라인업 예측 ---
+lineup_projection:
+  # 최소 출전 시간 (분) — 이 미만은 예측 불안정
+  min_sample_minutes: 5.0
+
+  # 넷레이팅 예측 모델 파라미터
+  regression_to_mean_factor: 0.3     # 평균 회귀 강도 (0=회귀 없음, 1=완전 회귀)
+
+  # 피로도 반영
+  fatigue_enabled: true
+  fatigue_decay_per_minute: 0.002    # 분당 효율 감소 (출전 시간 비례)
+
+  # 매치업 품질 반영
+  matchup_enabled: true
+
+  # 라인업 이력 최대 저장 수
+  max_lineup_cache: 300
+
+  # 시너지 보너스 (특정 2인 조합)
+  synergy_enabled: true

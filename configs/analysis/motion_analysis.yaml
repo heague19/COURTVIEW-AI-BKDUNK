@@ -1,0 +1,121 @@
+# =============================================================================
+# COURTVIEW_DESK - 동작 분석 설정 (motion_analysis.yaml)
+#
+# 5-Tier 동작 분석 파이프라인: 감지→분류→위상→폼평가→비교.
+#
+# 학술 근거:
+#   - 동작 감지 임계치: Miller & Bartlett (1996), Okazaki & Rodacki (2012)
+#   - 스프린트 속도: Ben Abdelkrim, N. et al. (2007). "Time-motion analysis
+#     and physiological data of elite under-19 basketball players during
+#     competition." British J. Sports Medicine, 41(2), 69-75.
+#     (농구 스프린트 ~5-7 m/s, 조깅 ~2-3 m/s)
+#
+# 작성자: SPOIN_COURTVIEW
+# 최종 수정: 2026-03-20
+# 버전: 1.0.0
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Tier 1: 동작 감지 (Detection)
+# -----------------------------------------------------------------------------
+detection:
+  # TODO: 동작 감지 임계치(손목 높이, 팔꿈치 각도, 릴리스 속도 등)는
+  #       학술 범위 내 초기 설계값, 실제 동작 인식 데이터로 캘리브레이션 필요
+  shot:
+    wrist_above_shoulder_threshold: 0.1  # 미터 (손목이 어깨 위)
+    elbow_angle_range: [80, 160]         # 도 (Miller & Bartlett, 1996: ~120-170°)
+    release_velocity_min_ms: 3.0
+    min_duration_frames: 8
+  dribble:
+    hand_below_hip_ratio: 0.6           # 손목 높이 < 엉덩이 높이 60%
+    vertical_oscillation_min_m: 0.1
+    frequency_range_hz: [1.0, 5.0]      # 드리블 빈도
+    min_consecutive_bounces: 2
+  pass:
+    arm_extension_ratio: 0.8            # 팔 펴짐 비율
+    ball_release_speed_min_ms: 2.0
+    min_pass_distance_m: 2.0
+  # 참고: Ben Abdelkrim et al. (2007) — 농구 스프린트 ~5-7 m/s, 조깅 ~2-3 m/s
+  movement:
+    sprint_speed_threshold_ms: 5.0       # Ben Abdelkrim et al. (2007)
+    jog_speed_threshold_ms: 2.0          # Ben Abdelkrim et al. (2007)
+    lateral_movement_threshold_ms: 1.5
+  rebound:
+    jump_height_min_m: 0.15
+    proximity_to_hoop_m: 3.0
+    arm_above_head_ratio: 1.1           # 손목 > 머리
+
+# -----------------------------------------------------------------------------
+# Tier 2: 동작 분류 (Classification)
+# -----------------------------------------------------------------------------
+classification:
+  shot_types:
+    - "jump_shot"
+    - "layup"
+    - "dunk"
+    - "hook_shot"
+    - "floater"
+    - "free_throw"
+    - "three_pointer"
+    - "mid_range"
+    - "post_shot"
+  dribble_types:
+    - "crossover"
+    - "behind_the_back"
+    - "between_the_legs"
+    - "spin_move"
+    - "hesitation"
+    - "in_and_out"
+    - "basic_dribble"
+  min_classification_confidence: 0.6
+
+# -----------------------------------------------------------------------------
+# Tier 3: 위상 분석 (Phase Analysis)
+# -----------------------------------------------------------------------------
+phase_analysis:
+  shot_phases:
+    - name: "preparation"
+      description: "슛 준비 (캐치/드리블 스탑)"
+      typical_duration_frames: [5, 15]
+    - name: "loading"
+      description: "파워 로딩 (무릎 굽힘, 에너지 축적)"
+      typical_duration_frames: [3, 10]
+    - name: "release"
+      description: "릴리스 (팔 펴짐, 공 이탈)"
+      typical_duration_frames: [2, 6]
+    - name: "follow_through"
+      description: "팔로우 스루 (손목 스냅, 유지)"
+      typical_duration_frames: [5, 15]
+
+  dribble_phases:
+    - name: "push_down"
+      description: "푸시 다운 (손바닥→공)"
+      typical_duration_frames: [2, 5]
+    - name: "ball_contact"
+      description: "바닥 접촉"
+      typical_duration_frames: [1, 3]
+    - name: "rise"
+      description: "공 상승"
+      typical_duration_frames: [2, 5]
+    - name: "catch"
+      description: "캐치 (공 제어)"
+      typical_duration_frames: [1, 3]
+
+# -----------------------------------------------------------------------------
+# Tier 4: 폼 평가 (Form Evaluation)
+# → shooting_criteria.yaml, dribble_criteria.yaml 참조
+# -----------------------------------------------------------------------------
+form_evaluation:
+  scoring_scale: 100                   # 100점 만점
+  weight_phase_importance: true        # 위상별 가중치 적용
+  generate_feedback: true              # 피드백 자동 생성
+  min_feedback_items: 10               # 최소 피드백 항목 수
+
+# -----------------------------------------------------------------------------
+# Tier 5: 폼 비교 (Comparison)
+# -----------------------------------------------------------------------------
+comparison:
+  method: "dtw"                        # dtw (Dynamic Time Warping)
+  similarity_threshold: 0.7            # 유사도 기준 (70%+)
+  reference_source: "ideal_form"       # ideal_form, personal_best, pro_player
+  normalize_body_proportions: true     # 신체 비율 정규화

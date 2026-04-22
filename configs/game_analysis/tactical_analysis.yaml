@@ -1,0 +1,261 @@
+# =============================================================================
+# COURTVIEW_DESK - 전술 분석 설정 (tactical_analysis.yaml)
+#
+# 공격/수비 전술, 세트 플레이, 스페이싱, 모멘텀, 전환 공수 분석 파라미터.
+#
+# 학술 근거:
+#   - Lamas, L. et al. (2011). "Modeling the Offensive Process in Basketball."
+#     Perceptual and Motor Skills, 112(2), 557-568.
+#     (세트 플레이 분류, PnR 분석 프레임워크)
+#   - Franks, I. & Miller, G. (1991). "Training Coaches to Observe and
+#     Remember." J. Sports Sciences, 9(3), 285-297.
+#     (전술 행동 관찰 기준)
+#   - NBA.com/stats Advanced Box Outs, Second Spectrum 트래킹 데이터
+#     (스페이싱, 전환 공수, 드라이브 분석 파라미터)
+#
+# 참조 상수:
+#   - shared/constants/tactical_constants.py: 전 상수 (14 세트 플레이, 스페이싱 등)
+#   - shared/constants/game_management_constants.py: 경기 상태, 시간
+#
+# 작성자: SPOIN_COURTVIEW
+# 최종 수정: 2026-03-20
+# 버전: 1.0.0
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# 세트 플레이 인식 (14종)
+# SetPlayType 열거형 매핑
+# -----------------------------------------------------------------------------
+set_play_recognition:
+  # 인식 대상 플레이 유형
+  play_types:
+    - "horn"                                # 혼
+    - "flex"                                # 플렉스
+    - "motion"                              # 모션
+    - "floppy"                              # 플로피
+    - "princeton"                           # 프린스턴
+    - "triangle"                            # 트라이앵글
+    - "pick_and_roll"                       # 픽앤롤
+    - "pick_and_pop"                        # 픽앤팝
+    - "isolation"                           # 아이솔레이션
+    - "post_up"                             # 포스트업
+    - "dribble_hand_off"                    # DHO
+    - "stagger_screen"                      # 스태거 스크린
+    - "spain_pnr"                           # 스페인 PnR
+    - "ato_set"                             # ATO 세트
+
+  # 인식 신뢰도
+  min_confidence: 0.65                      # 최소 인식 신뢰도
+  temporal_window_sec: 8.0                  # 하프코트 세팅 후 분석 시간 창
+  # TODO: min_confidence 0.65와 temporal_window 8.0초는 초기 설계값,
+  #       실제 세트 플레이 인식 데이터 축적 후 캘리브레이션 필요
+
+# -----------------------------------------------------------------------------
+# 픽앤롤 (PnR) 분석
+# 볼스크린 기반 공격 세부 분석
+# -----------------------------------------------------------------------------
+pick_and_roll:
+  # 스크린 감지
+  # TODO: 스크린 파라미터(거리/각도/유지시간)는 NBA 트래킹 데이터 관행 기반 초기값,
+  #       실제 PnR 감지 정확도 데이터 축적 후 캘리브레이션 필요
+  screen:
+    contact_distance_m: 0.5                 # 스크리너-디펜더 유효 거리
+    angle_min_deg: 45.0                     # 스크린 각도 최소
+    angle_max_deg: 135.0                    # 스크린 각도 최대
+    hold_time_min_sec: 0.3                  # 스크린 유지 최소 시간
+    hold_time_max_sec: 2.0                  # 스크린 유지 최대 시간 (불법 스크린 경고)
+
+  # 롤맨/팝아웃 분류
+  after_screen:
+    roll_man_dive_speed_min_ms: 2.0         # 롤맨 다이브 최소 속도 (m/s)
+    pop_out_distance_min_m: 6.0             # 팝아웃 최소 거리 (미터)
+
+  # 수비 반응 분석
+  defense_reaction:
+    reaction_time_sec: 0.8                  # PnR 수비 반응 시간 임계치
+    coverage_types:
+      - "drop"                              # 드롭 (빅맨 후퇴)
+      - "hedge"                             # 헤지 (빅맨 전진)
+      - "switch"                            # 스위치 (매치업 교환)
+      - "ice"                               # 아이스 (한쪽 방향 강제)
+      - "blitz"                             # 블리츠 (더블팀)
+      - "trap"                              # 트랩 (하프코트 트랩)
+      - "show_and_recover"                  # 쇼앤리커버
+
+  # 핸드오프
+  hand_off:
+    proximity_m: 1.0                        # 핸드오프 근접 거리
+
+# -----------------------------------------------------------------------------
+# 플로어 스페이싱 분석
+# SpacingQuality 열거형 매핑
+# -----------------------------------------------------------------------------
+spacing:
+  # 선수 간 거리 기준 (미터)
+  # 참고: NBA Second Spectrum — 평균 선수 간격 4.0~4.5m이 효율적 스페이싱
+  # TODO: 스페이싱 거리 기준은 NBA 트래킹 데이터 관행 기반,
+  #       KBL/FIBA 리그별 코트 사이즈 차이 반영 캘리브레이션 필요
+  distance:
+    min_adequate_m: 3.5                     # 최소 적정 간격
+    optimal_m: 4.5                          # 최적 간격
+    collapsed_m: 2.5                        # 밀집 판정
+
+  # 등급 판정 기준
+  quality_thresholds:
+    excellent: 4.5                          # SPACING_OPTIMAL_DISTANCE_M 이상
+    good: 3.5                               # SPACING_MIN_DISTANCE_M 이상
+    average: 3.0                            # 3.0m 이상
+    poor: 2.5                               # SPACING_COLLAPSED_DISTANCE_M 이상
+    collapsed: 2.5                          # 미만 = 밀집
+
+  # 코트 활용률 (볼록 껍질 면적 / 하프코트 면적)
+  court_utilization:
+    excellent: 0.55                         # 55% 이상
+    good: 0.45                              # 45% 이상
+    poor: 0.30                              # 30% 미만
+
+  # 드라이브 레인 분석
+  drive_lane:
+    min_width_m: 1.5                        # 림까지 경로 최소 폭
+
+# -----------------------------------------------------------------------------
+# 전환 공수 분석
+# TransitionPhase 열거형 매핑
+# -----------------------------------------------------------------------------
+transition:
+  # 전환 페이즈 시간 기준 (초)
+  phases:
+    primary_break_max_sec: 5.0              # 1차 속공 최대 시간
+    secondary_break_max_sec: 8.0            # 2차 속공 최대 시간
+    halfcourt_set_sec: 8.0                  # 하프코트 세팅 완료 시간
+
+  # 속공 판정 기준
+  fast_break:
+    advantage_min: 1                        # 최소 수적 우위 (공격-수비)
+    ball_speed_min_ms: 3.5                  # 공 전진 최소 속도 (m/s)
+    max_time_sec: 7.0                       # 속공 최대 시간
+
+  # 수비 복귀 분석
+  defensive_transition:
+    target_recovery_sec: 4.0                # 5인 하프코트 복귀 목표 시간
+    late_recovery_threshold_sec: 6.0        # 지연 복귀 경고
+
+# -----------------------------------------------------------------------------
+# 모멘텀/게임 흐름 분석
+# -----------------------------------------------------------------------------
+momentum:
+  # 스코어링 런 판정
+  scoring_run:
+    min_points: 6                           # 최소 6-0 런
+    min_unanswered: 3                       # 최소 3회 연속 무득점
+
+  # 모멘텀 전환 판정
+  shift:
+    threshold_points: 8                     # 8점 이상 런 = 모멘텀 전환
+
+  # 득점 가뭄 판정
+  drought:
+    possessions: 5                          # 5회 연속 무득점 점유
+
+  # 모멘텀 감쇠
+  # TODO: 모멘텀 감쇠 파라미터(0.05/분, 타임아웃 30% 리셋)는 초기 설계값,
+  #       실제 경기 데이터 기반 회귀분석으로 캘리브레이션 필요
+  decay:
+    per_minute: 0.05                        # 분당 모멘텀 자연 감소율
+    timeout_reset_factor: 0.3               # 타임아웃 후 리셋 비율 (30%)
+
+  # 리드 관리
+  lead:
+    close_game_margin: 5                    # 접전 판정 점수차
+    blowout_margin: 20                      # 블로우아웃 판정 점수차
+    comeback_min_duration_sec: 60.0         # 역전 구간 최소 지속 시간
+
+# -----------------------------------------------------------------------------
+# 수비 전술 분석
+# -----------------------------------------------------------------------------
+defense:
+  # 매치업 배정
+  # TODO: 매치업/클로즈아웃/헬프 수비 거리 임계치는 NBA 분석 관행 기반 초기값,
+  #       실제 수비 데이터 축적 후 캘리브레이션 필요
+  matchup:
+    assignment_distance_m: 3.0              # 매치업 배정 거리 (미터)
+    breakdown_distance_m: 5.0               # 수비 이탈 판정 거리
+
+  # 클로즈아웃 분석
+  closeout:
+    start_distance_m: 3.0                   # 클로즈아웃 시작 거리
+    success_distance_m: 1.2                 # 성공 도착 거리
+    target_time_sec: 1.0                    # 목표 도착 시간
+
+  # 헬프 수비
+  help_defense:
+    trigger_distance_m: 2.5                 # 헬프 수비 트리거 거리 (페인트 진입)
+    recovery_target_sec: 1.5                # 리커버리 목표 시간
+
+  # 슛 컨테스트
+  contest:
+    effective_distance_m: 1.5               # 유효 컨테스트 거리
+    hand_up_min_angle_deg: 120.0            # 핸드업 인식 최소 팔 각도
+
+  # 수비 체계 분류
+  schemes:
+    - "man_to_man"                          # 맨투맨
+    - "zone_2_3"                            # 2-3 존
+    - "zone_3_2"                            # 3-2 존
+    - "zone_1_3_1"                          # 1-3-1 존
+    - "full_court_press"                    # 풀코트 프레스
+    - "half_court_press"                    # 하프코트 프레스
+    - "box_and_one"                         # 박스앤원
+
+# -----------------------------------------------------------------------------
+# 드라이브 분석
+# -----------------------------------------------------------------------------
+drive:
+  start_speed_min_ms: 2.5                   # 드라이브 시작 최소 속도 (m/s)
+  direction_angle_deg: 30.0                 # 림 방향 ±30도 이내
+  min_distance_m: 1.5                       # 최소 드라이브 거리
+  end_speed_threshold_ms: 1.0               # 드라이브 종료 속도
+
+  # 킥아웃 분석
+  kickout:
+    max_time_after_drive_sec: 2.0           # 드라이브 후 킥아웃 최대 시간
+    kickout_three_enabled: true             # 킥아웃 3점 추적
+
+# -----------------------------------------------------------------------------
+# 오프볼 무브먼트 분석
+# -----------------------------------------------------------------------------
+off_ball:
+  # 커팅
+  cut:
+    speed_min_ms: 3.0                       # 적극적 컷 최소 속도
+    direction_angle_deg: 45.0               # 림 방향 최대 각도
+    direction_change_min_deg: 60.0          # V/L-Cut 방향 변환 최소 각도
+
+  # 스크린 후 이동
+  screen_exit:
+    speed_change_ms: 1.5                    # 스크린 후 속도 변화 감지
+
+# -----------------------------------------------------------------------------
+# 리바운드 전술 분석
+# -----------------------------------------------------------------------------
+rebounding:
+  box_out:
+    effective_distance_m: 1.5               # 박스아웃 유효 거리
+    reaction_time_sec: 0.5                  # 슛 후 반응 시간
+
+  long_rebound:
+    distance_m: 4.0                         # 장거리 리바운드 기준 (림에서)
+
+  tip_chain:
+    max_interval_sec: 1.5                   # 연속 팁 인정 최대 간격
+
+# -----------------------------------------------------------------------------
+# 템포 분석
+# -----------------------------------------------------------------------------
+tempo:
+  # 참고: NBA 평균 점유 시간 ~14초 (2023-24), 리그 상위 10% ~12초, 하위 10% ~18초
+  fast_threshold_sec: 12.0                  # 빠른 템포 (점유당 평균 시간)
+  slow_threshold_sec: 18.0                  # 느린 템포
+  halfcourt_set_sec: 8.0                    # 하프코트 세팅 완료
+  # TODO: 템포 분류 기준(12/18초)은 NBA 2023-24 시즌 기반,
+  #       KBL/FIBA 리그별 페이스 차이 반영 캘리브레이션 필요

@@ -1,0 +1,258 @@
+# =============================================================================
+# COURTVIEW_DESK - 바이올레이션 감지 임계치 (violation_thresholds.yaml)
+#
+# 12종 바이올레이션 각각의 AI 감지 파라미터.
+# FIBA Rule 참조번호 포함.
+#
+# 참조:
+#   - shared/constants/game_rule_constants.py: ViolationType (12종)
+#   - shared/constants/referee_decision_constants.py: 판정 신뢰도
+#   - FIBA Official Basketball Rules 2024
+#
+# 작성자: SPOIN_COURTVIEW
+# 최종 수정: 2026-03-20
+# 버전: 1.0.0
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# 1. 트래블링 (FIBA Rule 25)
+# -----------------------------------------------------------------------------
+traveling:
+  rule_reference: "FIBA Rule 25.1"
+  min_confidence: 0.75
+
+  # 피봇풋 감지
+  # TODO: 피봇풋 들림 높이(0.05m) 및 미끄러짐(0.15m)은 포즈 추정 정밀도 기반 초기값,
+  #       실제 트래블링 판정 데이터 축적 후 캘리브레이션 필요
+  pivot_foot:
+    lift_height_threshold_m: 0.05           # 피봇풋 들림 최소 높이
+    slide_distance_threshold_m: 0.15        # 피봇풋 미끄러짐 허용 거리
+    detection_fps_min: 30                   # 최소 분석 FPS
+
+  # 스텝 카운트
+  step_count:
+    max_steps_with_ball: 2                  # 볼 확보 후 최대 스텝
+    gather_step_tolerance_frames: 3         # 게더 스텝 판정 프레임 여유
+    step_detection_method: "foot_contact"   # 발 바닥 접촉 기반
+
+  # 점프 스탑
+  # TODO: 동시 착지 허용 50ms는 초기 설계값, 실제 점프스탑 프레임 분석으로 캘리브레이션 필요
+  jump_stop:
+    simultaneous_landing_tolerance_ms: 50   # 양발 동시 착지 판정 (ms)
+    max_slide_after_landing_m: 0.10         # 착지 후 미끄러짐 허용
+
+  # 슬라이딩 감지 (넘어지면서 공 확보 시)
+  sliding:
+    floor_contact_detection: true
+    ball_control_during_slide: true
+
+# -----------------------------------------------------------------------------
+# 2. 더블 드리블 (FIBA Rule 24.2)
+# -----------------------------------------------------------------------------
+double_dribble:
+  rule_reference: "FIBA Rule 24.2"
+  min_confidence: 0.78
+
+  # 드리블 종료 감지
+  dribble_end:
+    both_hands_contact_frames: 2            # 양손 접촉 최소 프레임
+    ball_rest_threshold_ms: 200             # 공 정지 판정 시간
+
+  # 재드리블 감지
+  restart_detection:
+    min_frames_between_dribbles: 3          # 드리블 종료 후 재시작 최소 프레임
+    hand_ball_contact_continuous: true      # 연속 접촉 확인
+
+# -----------------------------------------------------------------------------
+# 3. 캐리/팔밍 (FIBA Rule 24.1.2)
+# -----------------------------------------------------------------------------
+carry:
+  rule_reference: "FIBA Rule 24.1.2"
+  min_confidence: 0.72
+
+  # 손바닥 위치 감지
+  # TODO: 캐리 판정 파라미터(손바닥 각도 90°, 체류 150ms)는 초기 설계값,
+  #       실제 드리블 분석 데이터로 캘리브레이션 필요
+  palm_position:
+    under_ball_angle_threshold_deg: 90.0    # 손바닥 공 아래로 회전 각도
+    sustained_frames: 3                     # 최소 유지 프레임
+
+  # 드리블 중 일시 정지 (carrying)
+  pause_detection:
+    ball_apex_dwell_time_ms: 150            # 공 최고점 체류 시간 (캐리 판정)
+
+# -----------------------------------------------------------------------------
+# 4. 킥볼 (FIBA Rule 24.3)
+# -----------------------------------------------------------------------------
+kick_ball:
+  rule_reference: "FIBA Rule 24.3"
+  min_confidence: 0.82
+
+  # 의도적 킥 감지
+  intentional_kick:
+    leg_motion_speed_threshold_ms: 1.5      # 다리 이동 속도 임계치
+    ball_leg_contact_detection: true        # 공-다리 접촉 감지
+    accidental_tolerance: true              # 비의도적 접촉 허용 (볼에 맞음)
+
+# -----------------------------------------------------------------------------
+# 5. 공격 3초 (FIBA Rule 26)
+# -----------------------------------------------------------------------------
+three_second:
+  rule_reference: "FIBA Rule 26"
+  min_confidence: 0.80
+
+  # 페인트존 체류 감지
+  paint_zone:
+    entry_detection_method: "foot_position"  # 발 위치 기반
+    both_feet_in_paint: false                # 한 발만 들어가도 카운트 시작
+    tolerance_m: 0.1                         # 라인 경계 여유
+
+  # 시간 카운트
+  time:
+    max_duration_sec: 3.0                    # 최대 3초
+    grace_period_sec: 0.5                    # 이탈 시도 유예
+    reset_on_shot_attempt: true              # 슛 시도 시 리셋
+    reset_on_loss_of_control: true           # 공 제어 상실 시 리셋
+    clock_pause_on_dead_ball: true           # 데드볼 시 시계 정지
+
+# -----------------------------------------------------------------------------
+# 6. 수비 3초 (NBA 전용 — NBA Rule 10, Section XIII)
+# -----------------------------------------------------------------------------
+defensive_three_second:
+  rule_reference: "NBA Rule 10 Section XIII"
+  min_confidence: 0.78
+  nba_only: true                            # NBA에서만 적용
+
+  # 수비 페인트존 체류
+  detection:
+    must_be_guarding_opponent: false         # 근접 수비 중이 아닌 경우에만
+    matching_distance_m: 1.83               # 매치업 거리 (arm's length, 6ft)
+    max_duration_sec: 3.0
+    grace_period_sec: 0.5
+
+# -----------------------------------------------------------------------------
+# 7. 5초 (FIBA Rule 17.3)
+# -----------------------------------------------------------------------------
+five_second:
+  rule_reference: "FIBA Rule 17.3"
+  min_confidence: 0.85
+
+  # 스로인 5초
+  throw_in:
+    max_duration_sec: 5.0
+    start_trigger: "ball_at_disposal"       # 공 수령 시점
+
+  # 자유투 5초
+  free_throw:
+    max_duration_sec: 5.0
+    start_trigger: "ball_at_disposal"
+
+  # 밀접 수비 5초 (FIBA 전용)
+  closely_guarded:
+    max_duration_sec: 5.0
+    defender_distance_m: 1.0                # 밀접 수비 거리
+    ball_handler_stationary: true           # 볼 핸들러가 정지 상태
+
+# -----------------------------------------------------------------------------
+# 8. 8초 (FIBA Rule 28)
+# -----------------------------------------------------------------------------
+eight_second:
+  rule_reference: "FIBA Rule 28"
+  min_confidence: 0.88
+
+  detection:
+    max_duration_sec: 8.0
+    start_trigger: "defensive_rebound_or_throw_in"
+    end_trigger: "ball_crosses_halfcourt"
+    halfcourt_crossing_tolerance_m: 0.1     # 하프코트 라인 경계 여유
+
+# -----------------------------------------------------------------------------
+# 9. 24초 슛클락 (FIBA Rule 29)
+# -----------------------------------------------------------------------------
+shot_clock:
+  rule_reference: "FIBA Rule 29"
+  min_confidence: 0.92                      # 시간 기반이므로 높은 신뢰도
+
+  detection:
+    max_duration_sec: 24.0
+    reset_14_on_oreb: true                  # 공격 리바운드 시 14초 리셋
+    reset_14_on_foul: true                  # 파울 후 14초 또는 남은 시간 중 큰 값
+    must_hit_rim: true                      # 슛이 림에 닿아야 리셋
+
+# -----------------------------------------------------------------------------
+# 10. 백코트 (FIBA Rule 30)
+# -----------------------------------------------------------------------------
+backcourt:
+  rule_reference: "FIBA Rule 30"
+  min_confidence: 0.85
+
+  detection:
+    ball_crosses_back: true                 # 공이 프론트→백코트 이동
+    player_last_touch: true                 # 공격팀 마지막 터치 확인
+    halfcourt_line_tolerance_m: 0.1
+    exception_on_tip_off: true              # 점프볼 예외
+    exception_on_throw_in: false            # 백코트 스로인 시 적용
+
+# -----------------------------------------------------------------------------
+# 11. 아웃 오브 바운즈 (FIBA Rule 23)
+# -----------------------------------------------------------------------------
+out_of_bounds:
+  rule_reference: "FIBA Rule 23"
+  min_confidence: 0.82
+
+  detection:
+    ball_on_line: true                      # 라인 위 = 아웃
+    player_on_line: true                    # 선수 라인 밟으면 아웃
+    line_detection_tolerance_m: 0.02        # 라인 감지 여유
+    last_touch_determination: true          # 마지막 터치 판정
+
+  multi_view:
+    min_cameras: 2                          # 최소 2대 카메라 확인
+    angle_agreement_threshold: 0.8          # 앵글 합의 임계치
+
+# -----------------------------------------------------------------------------
+# 12. 골텐딩/바스켓 인터피어런스 (FIBA Rule 31)
+# -----------------------------------------------------------------------------
+goaltending:
+  rule_reference: "FIBA Rule 31"
+  min_confidence: 0.80
+
+  # 골텐딩 조건
+  goaltending_criteria:
+    ball_descending: true                   # 공이 하강 중
+    ball_above_rim: true                    # 공이 림 위
+    ball_has_chance_to_enter: true           # 공이 바스켓에 들어갈 가능성
+
+  # 바스켓 인터피어런스 조건
+  basket_interference:
+    ball_on_or_in_cylinder: true            # 공이 바스켓 실린더 내
+    touching_rim_during_shot: true          # 슛 중 림 접촉
+    reaching_through_basket: true           # 바스켓 아래에서 손 넣음
+
+  # FIBA vs NBA 차이
+  fiba_specific:
+    ball_touching_ring_can_be_touched: false # FIBA: 림 접촉 후 터치 불가
+  nba_specific:
+    ball_touching_ring_can_be_touched: true  # NBA: 림 접촉 후 터치 가능
+
+# -----------------------------------------------------------------------------
+# 공통 판정 파라미터
+# -----------------------------------------------------------------------------
+common:
+  # 신뢰도 등급 경계
+  # TODO: 신뢰도 등급 경계(0.95/0.85/0.70/0.50)는 초기 설계값,
+  #       실제 오탐/미탐 분석 데이터 축적 후 ROC 분석으로 캘리브레이션 필요
+  confidence_levels:
+    auto_confirm: 0.95                      # 자동 확정
+    high: 0.85                              # 높은 확신
+    moderate: 0.70                          # 보통 확신
+    low_cutoff: 0.50                        # 이하 = 판정 보류
+
+  # 멀티앵글 검증
+  # TODO: 카메라당 신뢰도 부스트(+5%, 최대 +15%)는 초기 설계값,
+  #       멀티카메라 실험 데이터로 캘리브레이션 필요
+  multi_angle:
+    enabled: true
+    min_cameras: 2
+    confidence_boost_per_camera: 0.05       # 카메라 추가당 신뢰도 +5%
+    max_boost: 0.15                         # 최대 +15%

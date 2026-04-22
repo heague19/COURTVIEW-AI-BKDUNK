@@ -1,0 +1,165 @@
+# =============================================================================
+# COURTVIEW_DESK - 플래그런트/비신사적 파울 기준 (flagrant_criteria.yaml)
+#
+# 플래그런트 1/2 (NBA), 비신사적 파울 (FIBA) 판정 기준.
+# 접촉 심각도, 의도성, 부상 위험 평가.
+#
+# 참조:
+#   - FIBA Rule 36 (비신사적 파울 / Unsportsmanlike Foul)
+#   - FIBA Rule 37 (실격 파울 / Disqualifying Foul)
+#   - NBA Rulebook Rule 12-A-V (Flagrant Foul)
+#   - shared/constants/referee_decision_constants.py: FoulGrade
+#
+# 작성자: SPOIN_COURTVIEW
+# 최종 수정: 2026-03-20
+# 버전: 1.0.0
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# 플래그런트 1 / 비신사적 C1-C2 (Unnecessary Contact)
+# -----------------------------------------------------------------------------
+flagrant_1:
+  rule_reference:
+    nba: "NBA Rule 12-A-V (Flagrant 1)"
+    fiba: "FIBA Rule 36 (UF C1-C2)"
+  min_confidence: 0.85
+  free_throws: 2
+  possession_retained: true
+  ejection: false
+
+  # 판정 기준
+  criteria:
+    # 볼 플레이 의도 없음
+    no_play_on_ball:
+      enabled: true
+      ball_distance_at_contact_m: 1.0       # 접촉 시 볼과의 거리 (볼 플레이 아님)
+      hand_direction_toward_ball: false     # 손이 볼 방향이 아님
+
+    # 불필요한 접촉
+    unnecessary_contact:
+      wind_up_motion: true                  # 백스윙/와인드업 동작
+      follow_through_excessive: true        # 과도한 팔로우 스루
+      contact_away_from_play: true          # 플레이 무관 지역 접촉
+
+    # 접촉 강도
+    # TODO: 플래그런트 1 접촉 강도(12.0 m/s², 1.5 m/s)는 초기 설계값,
+    #       실제 플래그런트 판정 데이터로 캘리브레이션 필요
+    impact:
+      min_acceleration_ms2: 12.0            # 접촉 가속도 하한
+      min_velocity_change_ms: 1.5
+
+  # FIBA 비신사적 파울 C1-C2 기준
+  fiba_criteria:
+    c1_no_effort_to_play_ball: true         # 볼 플레이 노력 없음
+    c2_excessive_hard_contact: true         # 과도하게 강한 접촉
+
+# -----------------------------------------------------------------------------
+# 플래그런트 2 / 비신사적 C3-C4 (Unnecessary & Excessive)
+# -----------------------------------------------------------------------------
+flagrant_2:
+  rule_reference:
+    nba: "NBA Rule 12-A-V (Flagrant 2)"
+    fiba: "FIBA Rule 36 (UF C3-C4) / Rule 37 (DQ)"
+  min_confidence: 0.90                      # 높은 신뢰도 필요 (퇴장 판정)
+  free_throws: 2
+  possession_retained: true
+  ejection: true                            # 즉시 퇴장
+
+  # 판정 기준
+  criteria:
+    # 과도하고 불필요한 접촉
+    excessive_contact:
+      violent_swing: true                   # 폭력적 휘두르기
+      striking_motion: true                 # 타격 동작
+      head_neck_contact: true               # 머리/목 접촉 (매우 위험)
+      airborne_contact_from_behind: true    # 공중 뒤에서 접촉
+
+    # 부상 유발 위험
+    injury_risk:
+      high_impact_force: true               # 고충격 힘
+      vulnerable_body_part: true            # 취약 부위 (머리, 목, 무릎)
+      player_airborne: true                 # 공중 선수 접촉
+      undercut_landing: true                # 착지 공간 침범
+
+    # 접촉 강도
+    # TODO: 플래그런트 2 접촉 강도(20.0 m/s², 2.5 m/s)는 초기 설계값,
+    #       실제 플래그런트 2 판정 데이터로 캘리브레이션 필요
+    impact:
+      min_acceleration_ms2: 20.0            # 높은 가속도 하한
+      min_velocity_change_ms: 2.5
+
+  # FIBA 비신사적 파울 C3-C4 기준
+  fiba_criteria:
+    c3_excessive_unnecessary_contact: true  # C3: 과도하고 불필요한 접촉
+    c4_striking_or_violent: true            # C4: 타격 또는 폭력적 접촉
+
+# -----------------------------------------------------------------------------
+# 실격 파울 (Disqualifying Foul, FIBA Rule 37)
+# -----------------------------------------------------------------------------
+disqualifying_foul:
+  rule_reference: "FIBA Rule 37"
+  min_confidence: 0.92
+  free_throws: 2
+  possession_retained: true
+  ejection: true
+
+  criteria:
+    violent_act: true                       # 폭력 행위
+    fighting: true                          # 싸움
+    flagrant_unsportsmanlike: true           # 극도로 비신사적 행위
+
+# -----------------------------------------------------------------------------
+# 속공 방해 파울 (Last 14 Seconds Rule)
+# FIBA: 슛클락 14초 이하에서 속공 방해 = UF
+# NBA: Clear Path Foul
+# -----------------------------------------------------------------------------
+fast_break_prevention:
+  # FIBA 기준
+  fiba:
+    enabled: true
+    shot_clock_threshold_sec: 14            # 14초 이하
+    fast_break_detected: true               # 속공 진행 중
+    no_defender_between: true               # 공격자-바스켓 사이 수비 없음
+    result: "unsportsmanlike"               # 비신사적 파울
+
+  # NBA Clear Path Foul 기준
+  nba:
+    enabled: true
+    no_defender_ahead: true                 # 볼핸들러 앞 수비 없음
+    ball_in_frontcourt: true                # 프론트코트 진입
+    result: "clear_path"                    # 2FT + 점유 유지
+
+# -----------------------------------------------------------------------------
+# 심각도 평가 모델
+# -----------------------------------------------------------------------------
+severity_scoring:
+  # 요소별 가중치
+  # TODO: 심각도 가중치(0.30/0.25/0.20/0.15/0.10)는 초기 설계값,
+  #       실제 파울 심각도 판정 데이터 기반 회귀분석으로 캘리브레이션 필요
+  weights:
+    contact_force: 0.30                     # 접촉 강도
+    contact_location: 0.25                  # 접촉 부위
+    intent_assessment: 0.20                 # 의도성 평가
+    player_vulnerability: 0.15              # 선수 취약 상태
+    game_context: 0.10                      # 경기 상황 (이전 파울 이력)
+
+  # 접촉 부위별 심각도 배수
+  body_part_multiplier:
+    head: 2.0
+    neck: 2.0
+    face: 1.8
+    knee: 1.5
+    back: 1.3
+    chest: 1.2
+    arm: 1.0
+    hip: 1.0
+    shoulder: 1.0
+
+  # 최종 판정 경계
+  # TODO: 심각도 등급 경계(0.50/0.75/0.90)는 초기 설계값,
+  #       실제 판정 데이터 축적 후 ROC 분석으로 캘리브레이션 필요
+  grade_thresholds:
+    normal: 0.0                             # 일반 파울
+    flagrant_1: 0.50                        # 50 이상 → 플래그런트 1
+    flagrant_2: 0.75                        # 75 이상 → 플래그런트 2
+    disqualifying: 0.90                     # 90 이상 → 실격

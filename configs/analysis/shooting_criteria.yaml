@@ -1,0 +1,191 @@
+# =============================================================================
+# COURTVIEW_DESK - 슈팅 폼 평가 기준 (shooting_criteria.yaml)
+#
+# 과학적 근거 기반 슈팅 폼 채점 기준.
+# 연령/성별/실력 수준별 차등 적용.
+# 각 항목 최소 10개 이상 세부 피드백.
+#
+# 학술 근거:
+#   - Miller, S. & Bartlett, R. (1996). "The Relationship Between Basketball
+#     Shooting Kinematics, Distance and Playing Position."
+#     J. Sports Sciences, 14(3), 243-253.
+#   - Okazaki, V.H.A. & Rodacki, A.L.F. (2012). "Increased distance of
+#     shooting on basketball jump shot." J. Sports Science & Medicine, 11, 231-237.
+#   - Knudson, D. (1993). "Biomechanics of the Basketball Jump Shot — Six
+#     Key Teaching Points." J. Physical Education, 64(2), 67-73.
+#
+# 작성자: SPOIN_COURTVIEW
+# 최종 수정: 2026-03-20
+# 버전: 1.0.0
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# 전체 점수 배분 (100점 만점)
+# -----------------------------------------------------------------------------
+# TODO: 점수 배분 가중치는 슈팅 과학 문헌 기반 초기 설계값,
+#       전문 코치 검증 및 실제 슈팅 정확도 상관분석으로 캘리브레이션 필요
+score_weights:
+  stance_and_balance: 15               # 자세/균형
+  ball_position: 10                    # 공 위치 (셋 포인트)
+  elbow_alignment: 15                  # 팔꿈치 정렬
+  release_mechanics: 20                # 릴리스 메커닉 (Knudson, 1993: 가장 중요)
+  follow_through: 15                   # 팔로우 스루
+  arc_and_trajectory: 10               # 궤적/아크 (Miller & Bartlett, 1996)
+  body_coordination: 10                # 신체 협응
+  consistency: 5                       # 일관성 (반복 시)
+
+# -----------------------------------------------------------------------------
+# 1. 자세/균형 (15점)
+# -----------------------------------------------------------------------------
+stance_and_balance:
+  # 발 너비: 어깨 너비 기준
+  feet_width_ratio:
+    optimal: 1.0                       # 어깨 너비와 동일
+    acceptable_range: [0.8, 1.2]
+  # 슈팅 발 (dominant foot) 약간 앞
+  shooting_foot_forward_m:
+    optimal: 0.10
+    acceptable_range: [0.05, 0.20]
+  # 무릎 굽힘 각도
+  # 참고: Okazaki & Rodacki (2012) — 점프슛 준비 시 슬관절 ~120-140°
+  knee_bend_angle_deg:
+    optimal: 130
+    acceptable_range: [115, 145]
+  # 체중 분배 (앞발:뒷발)
+  weight_distribution_ratio:
+    optimal: 0.55                      # 앞발 55%
+    acceptable_range: [0.50, 0.60]
+  # 몸통 기울기
+  trunk_lean_deg:
+    optimal: 5.0                       # 약간 앞으로
+    max_allowed: 15.0
+
+# -----------------------------------------------------------------------------
+# 2. 공 위치 / 셋 포인트 (10점)
+# -----------------------------------------------------------------------------
+ball_position:
+  # 셋 포인트 높이 (이마~눈 높이)
+  set_point_height_ratio:
+    optimal: 0.95                      # 머리 높이 대비
+    acceptable_range: [0.85, 1.05]
+  # 셋 포인트 좌우 정렬 (슈팅 어깨 위)
+  set_point_lateral_offset_m:
+    optimal: 0.0                       # 어깨 바로 위
+    max_deviation: 0.10
+  # 공과 손의 관계
+  shooting_hand_under_ball: true       # 슈팅 손이 공 아래
+  guide_hand_side: true                # 가이드 손은 옆면
+
+# -----------------------------------------------------------------------------
+# 3. 팔꿈치 정렬 (15점)
+# -----------------------------------------------------------------------------
+elbow_alignment:
+  # 팔꿈치 각도 (셋 포지션)
+  set_angle_deg:
+    optimal: 90
+    acceptable_range: [75, 105]
+  # 팔꿈치-손목-공 수직 정렬
+  vertical_alignment_deviation_deg:
+    max_allowed: 10.0
+  # 팔꿈치 외전 (flare) 각도
+  elbow_flare_deg:
+    optimal: 0.0                       # 정면 방향
+    max_allowed: 15.0
+  # 릴리스 시 팔꿈치 각도
+  release_angle_deg:
+    optimal: 160
+    acceptable_range: [145, 175]
+
+# -----------------------------------------------------------------------------
+# 4. 릴리스 메커닉 (20점)
+# -----------------------------------------------------------------------------
+release_mechanics:
+  # 릴리스 각도 (수평 대비)
+  release_angle_deg:
+    optimal: 52.0
+    three_point: 50.0
+    free_throw: 52.0
+    acceptable_range: [40.0, 60.0]
+  # 릴리스 높이 (서 있는 키 대비)
+  release_height_ratio:
+    optimal: 1.15                      # 키의 115%
+    acceptable_range: [1.05, 1.30]
+  # 손목 스냅 각속도
+  wrist_snap_angular_velocity_degs:
+    optimal: 800.0
+    acceptable_range: [500.0, 1200.0]
+  # 릴리스 타이밍 (점프 정점 대비)
+  release_timing:
+    optimal: "at_peak"                 # 점프 정점에서
+    acceptable_window_frames: 3
+  # 백스핀
+  backspin_rate_rpm:
+    optimal: 120
+    acceptable_range: [60, 180]
+
+# -----------------------------------------------------------------------------
+# 5. 팔로우 스루 (15점)
+# -----------------------------------------------------------------------------
+follow_through:
+  # 팔 완전 신전
+  arm_extension_ratio:
+    optimal: 0.95
+    min_required: 0.85
+  # 손목 꺾임 (구스넥)
+  wrist_flexion_deg:
+    optimal: 60.0
+    acceptable_range: [40.0, 80.0]
+  # 유지 시간
+  hold_duration_frames:
+    optimal: 15                        # 0.5초 @ 30fps
+    min_required: 8
+  # 손가락 방향 (림 방향)
+  finger_pointing_target: "rim_center"
+  finger_deviation_max_deg: 15.0
+
+# -----------------------------------------------------------------------------
+# 6. 궤적/아크 (10점)
+# -----------------------------------------------------------------------------
+arc_and_trajectory:
+  # 림 진입 각도
+  entry_angle_deg:
+    optimal: 45.0
+    acceptable_range: [38.0, 55.0]
+  # 아크 높이 (릴리스~최고점)
+  arc_height_above_rim_m:
+    optimal: 0.6
+    acceptable_range: [0.3, 1.2]
+  # 좌우 편차 (림 중심 기준)
+  lateral_deviation_m:
+    max_allowed: 0.15
+
+# -----------------------------------------------------------------------------
+# 7. 신체 협응 (10점)
+# -----------------------------------------------------------------------------
+body_coordination:
+  # 하체→상체 동력 전달 순서 (키네틱 체인)
+  kinetic_chain_sequence:
+    - "ankle_extension"
+    - "knee_extension"
+    - "hip_extension"
+    - "trunk_rotation"
+    - "shoulder_flexion"
+    - "elbow_extension"
+    - "wrist_snap"
+  # 동시성 오차 허용
+  sequence_timing_tolerance_frames: 2
+  # 점프 높이 (슛 유형별)
+  jump_height_m:
+    jump_shot_min: 0.10
+    free_throw_max: 0.05               # 자유투는 점프 최소화
+    three_point_min: 0.08
+
+# -----------------------------------------------------------------------------
+# 연령/성별별 기준 조정 계수
+# -----------------------------------------------------------------------------
+adjustment_factors:
+  # tolerance_factor: 기준 범위 확장 배수
+  beginner: 1.3
+  intermediate: 1.1
+  advanced: 0.95
+  professional: 0.8

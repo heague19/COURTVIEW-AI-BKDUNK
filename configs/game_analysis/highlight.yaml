@@ -1,0 +1,174 @@
+# =============================================================================
+# COURTVIEW_DESK - 하이라이트 추출 설정 (highlight.yaml)
+#
+# 경기 영상에서 하이라이트 구간 감지 및 클립 생성 설정.
+# 이벤트 중요도 기반 자동 선별 + 사용자 커스텀 규칙.
+#
+# 참조 상수:
+#   - shared/constants/event_types.py: HIGHLIGHT_DETECTED, HIGHLIGHT_EXTRACTED
+#   - shared/constants/game_rule_constants.py: HighlightType (12종)
+#   - shared/constants/video_constants.py: 영상 처리 상수
+#
+# 작성자: SPOIN_COURTVIEW
+# 최종 수정: 2026-03-20
+# 버전: 1.0.0
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# 하이라이트 감지 규칙
+# 이벤트 유형별 하이라이트 적격 판정
+# -----------------------------------------------------------------------------
+detection:
+  # 각 이벤트의 하이라이트 점수 (0~100)
+  # 이 점수가 threshold 이상이면 하이라이트 후보
+  # TODO: 이벤트별 하이라이트 점수는 일반적 관심도 기반 초기 설계값,
+  #       사용자 시청 데이터 축적 후 캘리브레이션 필요
+  event_scores:
+    # 득점 관련
+    three_pointer_made: 60                  # 3점 성공
+    and_one: 85                             # 앤드원
+    buzzer_beater: 100                      # 버저비터
+    dunk: 90                                # 덩크
+    alley_oop: 95                           # 엘리옵
+    put_back_dunk: 88                       # 풋백 덩크
+    deep_three: 75                          # 장거리 3점 (NBA 라인 +1m 이상)
+    four_point_play: 90                     # 4점 플레이
+
+    # 수비 관련
+    chase_down_block: 92                    # 체이스다운 블록
+    weakside_block: 80                      # 약사이드 블록
+    steal_fast_break: 78                    # 스틸 → 속공 연계
+    multiple_blocks: 85                     # 연속 블록 (2개+)
+
+    # 기타
+    assist_highlight: 70                    # 뛰어난 어시스트 (노룩, 비하인드)
+    crossover_ankle_breaker: 82             # 앵클 브레이커 크로스오버
+    fast_break_finish: 65                   # 속공 마무리
+    scoring_run: 55                         # 스코어링 런
+
+    # AI 심판 관련
+    controversial_call: 50                  # 논쟁적 판정
+    challenge_overturned: 60                # 챌린지 성공
+
+  # 하이라이트 선정 임계값
+  threshold: 55                             # 이 점수 이상 = 하이라이트
+
+  # 클러치 상황 보너스
+  clutch_bonus:
+    enabled: true
+    margin_points: 5                        # 점수차 ±5점 이내
+    time_remaining_sec: 300                 # 남은 시간 5분 이내
+    bonus_score: 20                         # 추가 점수
+
+  # 연속 하이라이트 병합
+  merge:
+    max_gap_sec: 5.0                        # 5초 이내 연속이면 병합
+    max_merged_duration_sec: 30.0           # 병합 후 최대 클립 길이
+
+# -----------------------------------------------------------------------------
+# 클립 생성 설정
+# -----------------------------------------------------------------------------
+clip:
+  # 전후 여유 시간 (초)
+  padding:
+    before_event_sec: 3.0                   # 이벤트 전 여유
+    after_event_sec: 3.0                    # 이벤트 후 여유
+
+  # 이벤트 유형별 클립 길이 조정
+  duration_override:
+    dunk:
+      before_sec: 4.0                       # 접근 과정 포함
+      after_sec: 3.0
+    fast_break_finish:
+      before_sec: 5.0                       # 속공 전개 과정 포함
+      after_sec: 2.0
+    buzzer_beater:
+      before_sec: 8.0                       # 마지막 플레이 전체
+      after_sec: 5.0                        # 세레모니 포함
+    scoring_run:
+      before_sec: 2.0
+      after_sec: 2.0
+
+  # 영상 품질 설정
+  output:
+    resolution: "1080p"                     # 출력 해상도
+    fps: 30                                 # 출력 FPS
+    codec: "h264"                           # 인코딩 코덱
+    bitrate_mbps: 8.0                       # 비트레이트
+
+  # 최대 클립 수
+  max_clips_per_game: 50                    # 경기당 최대 하이라이트 수
+  max_total_duration_sec: 600               # 전체 하이라이트 최대 길이 (10분)
+
+# -----------------------------------------------------------------------------
+# 하이라이트 릴(Reel) 생성
+# -----------------------------------------------------------------------------
+reel:
+  # 자동 생성 릴 유형
+  auto_reels:
+    - type: "top_plays"
+      description: "경기 Top 10 하이라이트"
+      max_clips: 10
+      sort_by: "score_desc"                 # 점수 내림차순
+      target_duration_sec: 120              # 목표 2분
+
+    - type: "scoring_highlights"
+      description: "득점 하이라이트"
+      filter_events: ["three_pointer_made", "dunk", "and_one", "buzzer_beater", "alley_oop"]
+      max_clips: 15
+      target_duration_sec: 180
+
+    - type: "defensive_highlights"
+      description: "수비 하이라이트"
+      filter_events: ["chase_down_block", "weakside_block", "steal_fast_break", "multiple_blocks"]
+      max_clips: 10
+      target_duration_sec: 90
+
+    - type: "player_spotlight"
+      description: "선수별 하이라이트"
+      per_player: true                      # 선수별 개별 릴
+      max_clips_per_player: 5
+      target_duration_sec: 60
+
+  # 전환 효과
+  transitions:
+    type: "crossfade"                       # 크로스페이드
+    duration_sec: 0.5                       # 전환 시간
+    add_scoreboard_overlay: true            # 스코어보드 오버레이
+
+# -----------------------------------------------------------------------------
+# 멀티카메라 하이라이트
+# -----------------------------------------------------------------------------
+multi_camera:
+  # 베스트 앵글 자동 선택
+  best_angle_selection:
+    enabled: true
+    prefer_close_up: true                   # 클로즈업 우선
+    avoid_obstructed: true                  # 시야 가림 회피
+
+  # 멀티앵글 클립
+  multi_angle_clip:
+    enabled: true
+    max_angles: 3                           # 최대 앵글 수
+    angle_switch_interval_sec: 2.0          # 앵글 전환 간격
+
+# -----------------------------------------------------------------------------
+# 사용자 커스텀 규칙
+# -----------------------------------------------------------------------------
+custom_rules:
+  # 특정 선수 추적 하이라이트
+  player_tracking:
+    enabled: true
+    bonus_score_for_tracked: 15             # 추적 선수 보너스 점수
+
+  # 특정 이벤트 조합 규칙
+  combo_events:
+    - name: "steal_to_dunk"
+      events: ["steal", "fast_break", "dunk"]
+      max_gap_sec: 8.0
+      bonus_score: 30
+
+    - name: "block_to_score"
+      events: ["block", "score"]
+      max_gap_sec: 10.0
+      bonus_score: 25

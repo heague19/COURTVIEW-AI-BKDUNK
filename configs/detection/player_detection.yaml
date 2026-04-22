@@ -1,0 +1,125 @@
+# =============================================================================
+# COURTVIEW_DESK - 선수 감지 설정 (player_detection.yaml)
+#
+# 패턴+YOLO 선수/심판/코치 감지 + 팀 분류 + 등번호 OCR + ReID.
+# 유소년/청소년/성인/시니어 + 성별 기준 적용.
+#
+# 작성자: SPOIN_COURTVIEW
+# 최종 수정: 2026-03-20
+# 버전: 1.0.0
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# 감지 모델
+# -----------------------------------------------------------------------------
+# TODO: 감지 모델 파라미터(confidence 0.5, NMS IoU 0.45)는 초기 설계값,
+#       실제 감지 성능 평가 후 precision-recall 분석으로 캘리브레이션 필요
+model:
+  input_size: 640
+  confidence_threshold: 0.5
+  nms_iou_threshold: 0.45
+  max_detections: 30                   # 코트 위 최대 인원 (양팀 10 + 심판 3 + 코치/스태프)
+
+# -----------------------------------------------------------------------------
+# 클래스 분류
+# -----------------------------------------------------------------------------
+classes:
+  player: 0
+  referee: 1
+  coach: 2
+  staff: 3
+
+# -----------------------------------------------------------------------------
+# 팀 분류 (유니폼 색상)
+# -----------------------------------------------------------------------------
+team_classification:
+  method: "hsv_clustering"             # hsv_clustering, histogram_comparison
+  # HSV Value 채널 기준
+  dark_threshold: 125.0
+  light_threshold: 140.0
+  # 히스토그램
+  histogram_bins: 32
+  comparison_method: "correlation"     # correlation, chi_square, intersection
+  min_confidence: 0.6
+  # ROI (상체 유니폼 영역)
+  roi_top_ratio: 0.15                  # bbox 상단 15%부터
+  roi_bottom_ratio: 0.55              # bbox 55%까지 (상체)
+  roi_left_ratio: 0.2
+  roi_right_ratio: 0.8
+
+# -----------------------------------------------------------------------------
+# 등번호 OCR
+# -----------------------------------------------------------------------------
+jersey_ocr:
+  enabled: true
+  min_bbox_height: 80                  # OCR 가능 최소 bbox 높이 (픽셀)
+  confidence_threshold: 0.7
+  # 등번호 범위
+  min_number: 0
+  max_number: 99
+  # 다중 뷰 투표
+  voting_window_frames: 30
+  min_votes: 3
+  # ROI (등번호 위치)
+  back_roi_top_ratio: 0.2
+  back_roi_bottom_ratio: 0.5
+  front_roi_top_ratio: 0.25
+  front_roi_bottom_ratio: 0.55
+
+# -----------------------------------------------------------------------------
+# ReID (Re-Identification)
+# -----------------------------------------------------------------------------
+# TODO: ReID 파라미터(매칭 임계치, 외관/공간/시간 가중치)는 초기 설계값,
+#       실제 ReID 성능 평가 데이터로 캘리브레이션 필요
+reid:
+  feature_dim: 512
+  gallery_max_size: 100
+  match_threshold: 0.6
+  update_interval_frames: 10
+  # 외관 특징
+  appearance_weight: 0.6
+  spatial_weight: 0.2
+  temporal_weight: 0.2
+
+# -----------------------------------------------------------------------------
+# 선수 추적 (멀티뷰)
+# -----------------------------------------------------------------------------
+tracking:
+  max_age: 60                          # 프레임 단위 최대 미검출 허용 (2초 @ 30fps)
+  min_hits: 3
+  iou_threshold: 0.3
+  # 크로스뷰 ID 일관성
+  cross_view_match_threshold: 0.5
+  id_reassignment_cooldown_frames: 90  # 3초 @ 30fps
+
+# -----------------------------------------------------------------------------
+# 신체 스캔 (앱 연동)
+# -----------------------------------------------------------------------------
+body_scan:
+  enabled: true
+  # 정면/좌측면/우측면 3장 입력
+  required_views: ["front", "left_side", "right_side"]
+  # 신체 비율 추출
+  extract_proportions: true
+  # 연령/성별 기준 적용
+  age_groups:
+    youth:
+      age_range: [6, 12]
+      height_range_m: [1.1, 1.6]
+    teen:
+      age_range: [13, 18]
+      height_range_m: [1.4, 2.0]
+    adult:
+      age_range: [19, 49]
+      height_range_m: [1.5, 2.2]
+    senior:
+      age_range: [50, 100]
+      height_range_m: [1.4, 2.0]
+
+# -----------------------------------------------------------------------------
+# ImageNet 정규화 (선수 특징 추출 전처리)
+# -----------------------------------------------------------------------------
+# 출처: ImageNet 통계 (Russakovsky et al., 2015 — ILSVRC)
+normalize:
+  mean: [0.485, 0.456, 0.406]           # ImageNet 학습 평균
+  std: [0.229, 0.224, 0.225]            # ImageNet 학습 표준편차

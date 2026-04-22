@@ -1,0 +1,84 @@
+# =============================================================================
+# COURTVIEW_DESK - Windows 환경 설정 (windows.yaml)
+#
+# Windows 10/11 운영체제 고유 설정.
+# base_config.yaml 위에 병합 적용.
+#
+# 참조:
+#   - configs/base/base_config.yaml: 기본 설정 (base)
+#   - configs/desktop/performance.yaml: 성능 설정
+#
+# 작성자: SPOIN_COURTVIEW
+# 최종 수정: 2026-03-20
+# 버전: 1.0.0
+# =============================================================================
+
+# 환경 메타데이터
+environment:
+  name: "windows"
+  description: "Windows 10/11 프로덕션 환경"
+  platform: "win32"
+  base_config: "base_config.yaml"
+
+# -----------------------------------------------------------------------------
+# 시스템
+# -----------------------------------------------------------------------------
+system:
+  log_level: "INFO"
+  log_format: "json"
+
+  # Windows 고유 경로 설정
+  paths:
+    separator: "\\"                        # Windows 경로 구분자
+    temp_dir: "%TEMP%\\courtview"          # Windows 임시 디렉토리
+    log_dir: "%APPDATA%\\COURTVIEW\\logs"
+    data_dir: "%LOCALAPPDATA%\\COURTVIEW\\data"
+    config_dir: "%APPDATA%\\COURTVIEW\\config"
+
+# -----------------------------------------------------------------------------
+# 비디오 디코딩
+# Windows에서 NVDEC/DXVA2 하드웨어 디코딩 지원
+# -----------------------------------------------------------------------------
+video:
+  decode:
+    hardware_decode: true
+    decoder_backend: "nvdec"               # nvdec (NVIDIA), dxva2 (DirectX)
+    fallback_backend: "ffmpeg"             # 소프트웨어 폴백
+    pixel_format: "nv12"                   # GPU 네이티브 포맷
+
+# -----------------------------------------------------------------------------
+# GPU (Windows CUDA)
+# -----------------------------------------------------------------------------
+gpu:
+  cuda:
+    library_path: ""                       # 자동 탐색 (System PATH)
+    trt_library_path: ""                   # 자동 탐색
+  tensorrt:
+    cache_dir: "%LOCALAPPDATA%\\COURTVIEW\\tensorrt_engines"
+
+# -----------------------------------------------------------------------------
+# 카메라
+# Windows DirectShow / Media Foundation
+# -----------------------------------------------------------------------------
+camera:
+  capture_backend: "dshow"                 # dshow (DirectShow), mf (Media Foundation)
+  usb_backend: "dshow"
+  network_backend: "ffmpeg"                # RTSP → FFmpeg
+
+# -----------------------------------------------------------------------------
+# 프로세스 관리
+# -----------------------------------------------------------------------------
+process:
+  priority: "above_normal"                 # Windows 프로세스 우선순위
+  # IDLE_PRIORITY_CLASS, BELOW_NORMAL, NORMAL, ABOVE_NORMAL, HIGH, REALTIME
+  gpu_scheduling: true                     # Windows 10+ 하드웨어 가속 GPU 스케줄링
+  power_plan: "high_performance"           # 전원 관리 (high_performance 권장)
+
+# -----------------------------------------------------------------------------
+# 방화벽 / 네트워크
+# -----------------------------------------------------------------------------
+network:
+  api_server:
+    host: "0.0.0.0"                        # 모든 인터페이스
+    port: 8000
+  firewall_note: "Windows 방화벽에서 포트 8000 인바운드 허용 필요"

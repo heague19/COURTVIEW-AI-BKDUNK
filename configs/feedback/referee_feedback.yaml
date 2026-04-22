@@ -1,0 +1,218 @@
+# =============================================================================
+# COURTVIEW_DESK - 심판 피드백 설정 (referee_feedback.yaml)
+#
+# AI 심판 판정 결과 → 코칭/팀 피드백 변환 파라미터.
+# 파울 경향 분석, 바이올레이션 패턴, 판정 일관성 피드백.
+#
+# 참조:
+#   - shared/constants/referee_decision_constants.py: DecisionConfidence (4단계),
+#     FoulGrade (4단계), ContactArea (12종)
+#   - shared/constants/game_rule_constants.py: ViolationType (12종), FoulType (11종)
+#   - shared/constants/feedback_constants.py: FeedbackSeverity (5단계)
+#   - configs/ai_referee/foul_criteria.yaml, violation_thresholds.yaml
+#   - feedback_system/generators/referee_feedback.py
+#
+# 작성자: SPOIN_COURTVIEW
+# 최종 수정: 2026-03-20
+# 버전: 1.0.0
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# 파울 피드백 기준
+# -----------------------------------------------------------------------------
+foul_feedback:
+  # 팀 파울 경향 분석
+  team_foul_tendency:
+    # 쿼터당 팀 파울 수 기준
+    per_quarter:
+      excellent_max: 3                     # ≤3 → 파울 규율 우수
+      good_max: 4                          # 4 → 양호
+      acceptable_max: 5                    # 5 → 보통 (보너스 근접)
+      needs_work_max: 7                    # 6~7 → 개선 필요
+      # 8+ → 파울 과다 (CRITICAL)
+
+    feedback_points:
+      - "total_foul_count"                 # 총 파울 수
+      - "foul_distribution_by_quarter"     # 쿼터별 파울 분포
+      - "foul_distribution_by_player"      # 선수별 파울 분포
+      - "foul_type_breakdown"              # 파울 유형별 비율
+      - "unnecessary_foul_rate"            # 불필요한 파울 비율
+      - "bonus_entry_timing"               # 보너스 진입 시점
+      - "foul_trouble_management"          # 파울 트러블 관리
+      - "shooting_foul_given_rate"         # 슈팅 파울 허용 비율
+      - "and_one_conceded"                 # 앤드원 허용 수
+      - "flagrant_unsportsmanlike"         # 플래그런트/비신사적 파울
+
+  # 개인 파울 피드백
+  individual_foul:
+    # 게임당 개인 파울 기준
+    per_game:
+      excellent_max: 1                     # 0~1 → 우수
+      good_max: 2                          # 2 → 양호
+      acceptable_max: 3                    # 3 → 보통
+      needs_work_max: 4                    # 4 → 주의 (1개 남음)
+      # 5+ → 파울 아웃 위험/퇴장
+
+    feedback_points:
+      - "foul_location_pattern"            # 파울 발생 위치 패턴
+      - "foul_timing_pattern"              # 파울 발생 시간대 패턴
+      - "reach_in_frequency"               # 리치인 빈도
+      - "blocking_vs_charge_ratio"         # 블로킹/차징 비율
+      - "off_ball_foul_rate"               # 오프볼 파울 비율
+      - "transition_foul_rate"             # 전환 시 파울 비율
+      - "contact_intensity_trend"          # 접촉 강도 추세
+      - "smart_foul_usage"                 # 전략적 파울 활용
+      - "foul_avoidance_technique"         # 파울 회피 기법
+      - "body_positioning_quality"         # 보디 포지셔닝 품질
+
+# -----------------------------------------------------------------------------
+# 바이올레이션 피드백 기준
+# -----------------------------------------------------------------------------
+violation_feedback:
+  # 팀 바이올레이션 경향
+  team_tendency:
+    # 게임당 바이올레이션 수 기준
+    per_game:
+      excellent_max: 2                     # ≤2 → 우수
+      good_max: 4                          # 3~4 → 양호
+      acceptable_max: 6                    # 5~6 → 보통
+      needs_work_max: 8                    # 7~8 → 개선 필요
+      # 9+ → CRITICAL
+
+    feedback_points:
+      - "traveling_frequency"              # 트래블링 빈도
+      - "double_dribble_frequency"         # 더블 드리블 빈도
+      - "carry_frequency"                  # 캐리 빈도
+      - "three_second_frequency"           # 3초 위반 빈도
+      - "backcourt_frequency"              # 백코트 빈도
+      - "shot_clock_management"            # 슛클락 관리
+      - "turnover_from_violation"          # 바이올레이션 기인 턴오버
+      - "violation_timing_pattern"         # 바이올레이션 시간대 패턴
+      - "violation_situation_pattern"      # 바이올레이션 상황 패턴
+      - "improvement_trend"                # 개선 추세
+
+  # 바이올레이션 유형별 심각도
+  type_severity:
+    traveling: "moderate"                  # 반복 시 전술 오류 의미
+    double_dribble: "moderate"
+    carry: "low"                           # 일반적으로 경미
+    kick_ball: "low"
+    three_second: "high"                   # 전술적 배치 문제
+    defensive_three_second: "moderate"     # NBA 전용
+    five_second: "moderate"
+    eight_second: "high"                   # 프레스 대응 문제
+    shot_clock: "high"                     # 공격 실행 문제
+    backcourt: "high"                      # 프레스 대응 문제
+    out_of_bounds: "low"
+    goaltending: "moderate"
+
+# -----------------------------------------------------------------------------
+# 판정 분석 피드백
+# 팀에게 유리/불리한 판정 패턴 분석
+# -----------------------------------------------------------------------------
+decision_analysis:
+  # 판정 일관성 피드백
+  consistency:
+    min_calls_for_analysis: 10             # 분석 최소 판정 수
+    consistency_score_excellent: 0.90      # 90%+ → 높은 일관성
+    consistency_score_good: 0.80           # 80~89% → 양호
+    consistency_score_acceptable: 0.70     # 70~79% → 보통
+
+  # 논쟁적 판정 리뷰
+  controversial:
+    confidence_threshold: 0.75             # 신뢰도 75% 미만 → 논쟁적
+    max_review_items: 5                    # 리뷰 최대 항목
+    include_multi_angle: true              # 멀티앵글 증거 포함
+
+  # 판정 균형 (양팀 간)
+  balance:
+    foul_ratio_acceptable_range: 0.30      # 파울 수 차이 30% 이내 → 균형
+    free_throw_ratio_acceptable_range: 0.35 # 자유투 차이 35% 이내
+
+  # 판정 결과 요약 포인트
+  feedback_points:
+    - "total_calls_summary"                # 총 판정 수 요약
+    - "call_accuracy_estimate"             # 판정 정확도 추정
+    - "favorable_unfavorable_balance"      # 유리/불리 판정 균형
+    - "key_possession_impact"              # 핵심 점유 영향
+    - "foul_call_consistency"              # 파울 판정 일관성
+    - "violation_call_consistency"          # 바이올레이션 일관성
+    - "close_call_breakdown"               # 근접 판정 분석
+    - "game_changing_calls"                # 경기 전환 판정
+    - "makeup_call_detection"              # 보상 판정 감지
+    - "clutch_time_calls"                  # 클러치 타임 판정
+
+# -----------------------------------------------------------------------------
+# 리그별 파울 규칙 피드백 차이
+# -----------------------------------------------------------------------------
+league_specific:
+  fiba:
+    max_personal_fouls: 5                  # FIBA: 5파울 퇴장
+    bonus_threshold: 5                     # 팀 파울 5개 → 보너스
+    foul_out_warning_at: 4                 # 4파울 시 경고
+    unsportsmanlike_emphasis: true          # 비신사적 파울 강조
+
+  nba:
+    max_personal_fouls: 6                  # NBA: 6파울 퇴장
+    bonus_threshold: 5                     # 팀 파울 5개 → 보너스
+    foul_out_warning_at: 5                 # 5파울 시 경고
+    flagrant_emphasis: true                # 플래그런트 강조
+    clear_path_emphasis: true              # 클리어 패스 강조
+
+  kbl:
+    max_personal_fouls: 5
+    bonus_threshold: 5
+    foul_out_warning_at: 4
+    foreign_player_foul_tracking: true     # 용병 선수 파울 추적
+
+  nbl:
+    max_personal_fouls: 5
+    bonus_threshold: 5
+    foul_out_warning_at: 4
+
+# -----------------------------------------------------------------------------
+# 파울/바이올레이션 개선 제안
+# 반복 패턴 감지 시 구체적 개선안 제시
+# -----------------------------------------------------------------------------
+improvement_suggestions:
+  # 반복 패턴 감지 기준
+  pattern_detection:
+    min_occurrences: 3                     # 최소 3회 반복 시 패턴 인정
+    lookback_games: 5                      # 최근 5경기 분석
+
+  # 파울 유형별 개선 포커스
+  foul_improvement_focus:
+    blocking:
+      - "body_positioning_drills"          # 보디 포지셔닝 훈련
+      - "lateral_movement_training"        # 측면 이동 훈련
+      - "feet_set_discipline"             # 발 고정 습관
+
+    reach_in:
+      - "hand_discipline_drills"           # 핸드 규율 훈련
+      - "stance_improvement"               # 스탠스 개선
+      - "anticipation_training"            # 예측 훈련
+
+    hand_check:
+      - "off_ball_defense_technique"       # 오프볼 수비 기법
+      - "body_contact_management"          # 보디 접촉 관리
+
+    holding:
+      - "release_timing"                   # 릴리즈 타이밍
+      - "screen_navigation_without_grab"   # 잡기 없는 스크린 통과
+
+  # 바이올레이션 유형별 개선 포커스
+  violation_improvement_focus:
+    traveling:
+      - "footwork_fundamentals"            # 풋워크 기초
+      - "gather_step_awareness"            # 게더 스텝 인식
+      - "euro_step_technique"              # 유로스텝 기법
+
+    three_second:
+      - "paint_awareness_drills"           # 페인트존 인식 훈련
+      - "timing_movement_patterns"         # 타이밍 무빙 패턴
+      - "flash_and_clear_technique"        # 플래시 앤 클리어 기법
+
+    eight_second:
+      - "press_break_execution"            # 프레스 브레이크 실행
+      - "advance_pass_options"             # 전진 패스 옵션
+      - "backcourt_composure"              # 백코트 침착성

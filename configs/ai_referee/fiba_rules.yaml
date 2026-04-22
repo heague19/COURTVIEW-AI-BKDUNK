@@ -1,0 +1,132 @@
+# =============================================================================
+# COURTVIEW_DESK - FIBA 심판 규정 (fiba_rules.yaml)
+#
+# FIBA Official Basketball Rules 2024 기반.
+# 국제 대회, KBL, NBL, EUROLEAGUE 공통 기반 규정.
+#
+# 참조:
+#   - FIBA Official Basketball Rules 2024
+#   - shared/constants/referee_rule_constants.py: RuleSet.FIBA
+#   - shared/constants/game_rule_constants.py: ViolationType, FoulType
+#   - shared/constants/game_management_constants.py: QUARTER_DURATION_SEC
+#
+# 작성자: SPOIN_COURTVIEW
+# 최종 수정: 2026-03-20
+# 버전: 1.0.0
+# =============================================================================
+
+rule_set: "fiba"
+description: "FIBA Official Basketball Rules 2024"
+
+# -----------------------------------------------------------------------------
+# 경기 시간 규칙
+# -----------------------------------------------------------------------------
+game_time:
+  quarter_duration_sec: 600                 # 10분 × 4쿼터
+  overtime_duration_sec: 300                # 연장전 5분
+  halftime_break_sec: 900                   # 하프타임 15분 (대회별 20분 가능)
+  period_break_sec: 120                     # 쿼터 간 휴식 2분
+  shot_clock_sec: 24                        # 슛클락 24초
+  shot_clock_reset_oreb_sec: 14             # 공격 리바운드 후 14초 리셋
+  backcourt_sec: 8                          # 백코트 8초
+  free_throw_sec: 5                         # 자유투 시도 시간 5초
+  throw_in_sec: 5                           # 스로인 5초
+
+# -----------------------------------------------------------------------------
+# 코트 규격
+# -----------------------------------------------------------------------------
+court:
+  three_point_distance_m: 6.75              # 3점 라인 6.75m
+  free_throw_distance_m: 4.225              # 프리스로 라인 거리
+  restricted_area_arc_m: 1.25               # 제한 구역 아크 1.25m
+  paint_width_m: 4.9                        # 페인트존 너비
+  paint_depth_m: 5.8                        # 페인트존 깊이
+
+# -----------------------------------------------------------------------------
+# 파울 규칙
+# -----------------------------------------------------------------------------
+fouls:
+  max_personal_fouls: 5                     # 개인 파울 퇴장 5개
+  team_foul_bonus_threshold: 4              # 쿼터당 4개 팀파울 후 보너스 (5번째부터)
+  technical_foul_ejection: 2                # 테크니컬 2개 → 퇴장
+  unsportsmanlike_foul_ejection: 2          # 비신사적 파울 2개 → 퇴장
+  disqualifying_foul: true                  # 실격 파울 (즉시 퇴장)
+
+  # 자유투 부여 규칙
+  free_throws:
+    bonus_free_throws: 2                    # 보너스 상태 시 2구 (1-and-1 없음)
+    shooting_foul_2pt: 2                    # 2점 슈팅 파울 → 2구
+    shooting_foul_3pt: 3                    # 3점 슈팅 파울 → 3구
+    technical_free_throws: 1                # 테크니컬 → 1구 (후 점유 유지)
+    unsportsmanlike_free_throws: 2          # 비신사적 → 2구 + 점유
+
+# -----------------------------------------------------------------------------
+# 타임아웃 규칙
+# -----------------------------------------------------------------------------
+timeouts:
+  total_per_game: 5                         # 경기당 총 5개
+  first_half_max: 2                         # 전반 최대 2개
+  second_half_max: 3                        # 후반 최대 3개
+  overtime_additional: 1                    # 연장전 추가 1개
+  duration_sec: 60                          # 타임아웃 60초
+  carryover: false                          # 미사용 이월 불가
+
+# -----------------------------------------------------------------------------
+# 3초 규칙
+# -----------------------------------------------------------------------------
+three_second_rule:
+  offensive_three_sec: true                 # 공격 3초 적용
+  defensive_three_sec: false                # 수비 3초 미적용 (NBA 전용)
+  grace_period_sec: 0.5                     # 유예 시간 (페인트존 이탈 시도 중)
+  paint_entry_tolerance_m: 0.1              # 페인트 진입 판정 여유
+
+# -----------------------------------------------------------------------------
+# 트래블링 규칙 (FIBA Rule 25)
+# -----------------------------------------------------------------------------
+traveling:
+  # 피봇풋 감지
+  pivot_foot:
+    lift_threshold_m: 0.05                  # 피봇풋 들림 판정 높이
+    slide_threshold_m: 0.15                 # 피봇풋 미끄러짐 허용
+
+  # 게더 스텝 (gather step) 규칙
+  gather_step:
+    enabled: true                           # FIBA 2018부터 적용
+    max_steps_after_gather: 2               # 게더 후 최대 2보
+
+  # 점프 스탑 규칙
+  jump_stop:
+    both_feet_simultaneous_tolerance_ms: 50 # 양발 동시 착지 판정 (ms)
+
+# -----------------------------------------------------------------------------
+# 더블 드리블 규칙 (FIBA Rule 24)
+# -----------------------------------------------------------------------------
+double_dribble:
+  hand_under_ball_angle_deg: 90.0           # 손바닥 아래 → 캐리 판정 각도
+  dribble_restart_after_hold_frames: 3      # 홀드 후 재드리블 감지 프레임
+
+# -----------------------------------------------------------------------------
+# FIBA 고유 규칙
+# -----------------------------------------------------------------------------
+fiba_specific:
+  # 비신사적 파울 (Unsportsmanlike Foul)
+  unsportsmanlike_criteria:
+    - "unnecessary_contact"                 # 불필요한 접촉
+    - "excessive_contact"                   # 과도한 접촉
+    - "no_play_on_ball"                     # 볼 플레이 의도 없음
+    - "fast_break_prevention"               # 속공 방해 (마지막 14초)
+
+  # 점유권 교대 화살표 (Alternating Possession Arrow)
+  alternating_possession:
+    enabled: true                           # 점유 화살표 사용 (NBA는 점프볼)
+    reset_on_overtime: true                 # 연장전 시 리셋
+
+  # 코치 챌린지 (FIBA IRS 규칙)
+  instant_replay:
+    available_situations:
+      - "shot_clock_expiry"
+      - "end_of_period"
+      - "2pt_or_3pt"
+      - "goaltending"
+      - "flagrant_foul"
+    coach_challenge: false                  # FIBA는 코치 챌린지 없음 (심판 주도 IRS)

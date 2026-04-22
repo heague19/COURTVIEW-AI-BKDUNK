@@ -1,0 +1,202 @@
+# =============================================================================
+# COURTVIEW_DESK - 드리블 폼 평가 기준 (dribble_criteria.yaml)
+#
+# 과학적 근거 기반 드리블 폼 채점 기준.
+# 연령/성별/실력 수준별 차등 적용.
+# 각 항목 최소 10개 이상 세부 피드백.
+#
+# 학술 근거:
+#   - Arias, J.L. et al. (2012). "Review of biomechanical factors in
+#     basketball ball handling." J. Human Sport & Exercise, 7(1), 318-329.
+#   - Cortis, C. et al. (2011). "Inter-limb coordination, strength, jump,
+#     and sprint performances following a youth men's basketball game."
+#     J. Strength & Conditioning Research, 25(1).
+#
+# 작성자: SPOIN_COURTVIEW
+# 최종 수정: 2026-03-20
+# 버전: 1.0.0
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# 전체 점수 배분 (100점 만점)
+# -----------------------------------------------------------------------------
+# TODO: 점수 배분 가중치는 드리블 과학 문헌 기반 초기 설계값,
+#       전문 코치 검증 및 실제 볼 핸들링 평가 상관분석으로 캘리브레이션 필요
+score_weights:
+  hand_position: 15                    # 손 위치/자세 (Arias et al., 2012)
+  ball_control: 20                     # 볼 컨트롤 (가장 중요)
+  body_posture: 15                     # 신체 자세
+  head_and_vision: 10                  # 고개/시야
+  rhythm_and_timing: 15                # 리듬/타이밍
+  protection: 10                       # 볼 프로텍션
+  transition: 10                       # 전환 동작
+  consistency: 5                       # 일관성
+
+# -----------------------------------------------------------------------------
+# 1. 손 위치/자세 (15점)
+# -----------------------------------------------------------------------------
+hand_position:
+  # 손바닥 위치 (공 위/옆, 아래 금지)
+  palm_position: "top_or_side"         # 캐리 바이올레이션 방지
+  # 손가락 펼침
+  finger_spread_ratio:
+    optimal: 0.85                      # 손가락 충분히 펼침
+    acceptable_range: [0.7, 1.0]
+  # 손목 유연성 각도
+  wrist_angle_deg:
+    push_down:
+      optimal: 45.0
+      acceptable_range: [30.0, 60.0]
+    catch:
+      optimal: 30.0
+      acceptable_range: [15.0, 50.0]
+  # 비드리블 손 위치
+  off_hand_position: "guard_or_neutral"
+
+# -----------------------------------------------------------------------------
+# 2. 볼 컨트롤 (20점)
+# -----------------------------------------------------------------------------
+ball_control:
+  # 드리블 높이
+  height:
+    speed_dribble_ratio: 0.4           # 허리 아래 40% (빠른 드리블)
+    control_dribble_ratio: 0.5         # 허리 높이 50%
+    power_dribble_ratio: 0.3           # 무릎 높이 30%
+    acceptable_variation: 0.15
+  # 바운스 위치 (발 앞~옆)
+  bounce_position:
+    lateral_offset_m: 0.2              # 몸 옆 20cm
+    forward_offset_m: 0.3              # 몸 앞 30cm
+  # 손-공 접촉 시간
+  contact_time_ratio:
+    optimal: 0.6                       # 전체 드리블 사이클의 60%
+    min_required: 0.4
+  # 공 속도 일관성
+  speed_consistency_cv:
+    excellent: 0.1                     # 변동계수 10% 이하
+    good: 0.2
+    acceptable: 0.3
+
+# -----------------------------------------------------------------------------
+# 3. 신체 자세 (15점)
+# -----------------------------------------------------------------------------
+body_posture:
+  # 무릎 굽힘
+  knee_bend_deg:
+    optimal: 120
+    acceptable_range: [100, 140]
+  # 등 각도 (약간 앞으로)
+  back_angle_deg:
+    optimal: 15.0
+    acceptable_range: [5.0, 25.0]
+  # 무게 중심 높이
+  center_of_gravity_ratio:
+    optimal: 0.50                      # 키의 50%
+    acceptable_range: [0.40, 0.55]
+  # 어깨 수평
+  shoulder_level_deviation_deg:
+    max_allowed: 5.0
+  # 발 간격
+  feet_width_ratio:
+    optimal: 1.1                       # 어깨 너비보다 약간 넓게
+    acceptable_range: [0.9, 1.3]
+
+# -----------------------------------------------------------------------------
+# 4. 고개/시야 (10점)
+# -----------------------------------------------------------------------------
+head_and_vision:
+  # 고개 방향 (정면 유지, 공 안 봄)
+  head_down_penalty: true
+  head_angle_deg:
+    max_down_tilt: 15.0                # 15도 이상 숙이면 감점
+  # 시선 추정 (가능한 경우)
+  gaze_target: "court_ahead"
+
+# -----------------------------------------------------------------------------
+# 5. 리듬/타이밍 (15점)
+# -----------------------------------------------------------------------------
+rhythm_and_timing:
+  # 드리블 빈도
+  frequency_hz:
+    basic:
+      optimal: 2.5
+      acceptable_range: [1.5, 4.0]
+    speed:
+      optimal: 3.5
+      acceptable_range: [2.5, 5.0]
+    crossover:
+      optimal: 3.0
+      acceptable_range: [2.0, 4.5]
+  # 리듬 일관성 (표준편차)
+  rhythm_std_ms:
+    excellent: 30.0
+    good: 50.0
+    acceptable: 80.0
+  # 변속 능력
+  pace_change_ratio:
+    optimal: 1.5                       # 빠른/느린 비율
+    min_required: 1.2
+
+# -----------------------------------------------------------------------------
+# 6. 볼 프로텍션 (10점)
+# -----------------------------------------------------------------------------
+protection:
+  # 비드리블 팔 위치 (방어)
+  off_arm_angle_deg:
+    optimal: 90.0
+    acceptable_range: [60.0, 120.0]
+  # 신체와 공 거리 (밀착)
+  body_ball_distance_m:
+    optimal: 0.3
+    max_allowed: 0.6
+  # 공 노출 최소화
+  ball_exposure_ratio:
+    max_allowed: 0.4                   # 수비자 방향 노출 40% 이하
+
+# -----------------------------------------------------------------------------
+# 7. 전환 동작 (10점)
+# -----------------------------------------------------------------------------
+transition:
+  # 드리블→슛 전환 시간
+  dribble_to_shot_frames:
+    excellent: 8                       # 0.27초 @ 30fps
+    good: 12
+    acceptable: 18
+  # 드리블→패스 전환 시간
+  dribble_to_pass_frames:
+    excellent: 6
+    good: 10
+    acceptable: 15
+  # 좌우 전환 속도
+  hand_switch_frames:
+    excellent: 4
+    good: 8
+    acceptable: 12
+
+# -----------------------------------------------------------------------------
+# 드리블 유형별 추가 기준
+# -----------------------------------------------------------------------------
+technique_specific:
+  crossover:
+    ball_transfer_height_ratio: 0.3    # 무릎 이하
+    cross_angle_deg: 45.0              # 교차 각도
+    timing_symmetry: 0.9               # 좌우 대칭
+  behind_the_back:
+    hand_behind_hip: true
+    ball_path_clearance_m: 0.1
+  between_the_legs:
+    stride_width_ratio: 1.3            # 어깨 너비 130%
+    ball_path_under_thigh: true
+  spin_move:
+    rotation_speed_degs: 360.0         # 1회전 목표
+    ball_control_during_spin: true
+    pivot_foot_stability: true
+
+# -----------------------------------------------------------------------------
+# 연령/성별별 기준 조정 계수
+# -----------------------------------------------------------------------------
+adjustment_factors:
+  beginner: 1.3
+  intermediate: 1.1
+  advanced: 0.95
+  professional: 0.8

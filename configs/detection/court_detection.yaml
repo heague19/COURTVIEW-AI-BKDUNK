@@ -1,0 +1,115 @@
+# =============================================================================
+# COURTVIEW_DESK - 코트 감지 설정 (court_detection.yaml)
+#
+# 현재 상태: 호모그래피 기반 수동 캘리브레이션으로 대체 (ML 코트 감지 미학습).
+# 장기 로드맵: Hough + DL 코트 라인 감지 + data_extraction/ 3개 추출기가 학습용
+#             데이터를 활발히 수집 중. 향후 ML 학습 착수 시 본 설정 활용.
+#
+# Hough + DL 코트 라인 감지 및 호모그래피 좌표 변환 파라미터.
+# FIBA/NBA/KBL/NBL 규격 코트 기준.
+#
+# 학술 근거:
+#   - 코트 규격: FIBA Official Basketball Rules 2024, Annex (Court Diagrams)
+#                NBA Official Rule Book 2024-25, Rule 1 (Court Dimensions)
+#   - Hough 변환: Duda, R.O. & Hart, P.E. (1972). "Use of the Hough
+#     transformation to detect lines and curves in pictures."
+#     Communications of the ACM, 15(1), 11-15.
+#
+# 참조 상수:
+#   - shared/constants/court_constants.py: 코트 규격 상수
+#
+# 작성자: SPOIN_COURTVIEW
+# 최종 수정: 2026-04-20
+# 버전: 1.0.0
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# 코트 규격 (FIBA 기준, 미터)
+# -----------------------------------------------------------------------------
+# 출처: FIBA Official Basketball Rules 2024, Annex — Court Diagram
+court_spec:
+  fiba:
+    length_m: 28.0                        # FIBA 공식 규격
+    width_m: 15.0                         # FIBA 공식 규격
+    three_point_arc_m: 6.75
+    three_point_corner_m: 6.6
+    key_width_m: 4.9
+    key_length_m: 5.8
+    free_throw_line_m: 4.6
+    center_circle_radius_m: 1.8
+    backboard_offset_m: 1.2
+
+  nba:
+    length_m: 28.65                    # 94 ft
+    width_m: 15.24                     # 50 ft
+    three_point_arc_m: 7.24            # 23 ft 9 in
+    three_point_corner_m: 6.71         # 22 ft
+    key_width_m: 4.88                  # 16 ft
+    key_length_m: 5.79                 # 19 ft
+    free_throw_line_m: 4.57            # 15 ft
+    center_circle_radius_m: 1.83       # 6 ft
+    backboard_offset_m: 1.22           # 4 ft
+
+  youth:
+    court_scale: 0.8
+    hoop_height_m: 2.6                 # 8.5 ft
+
+# -----------------------------------------------------------------------------
+# 골대 규격 (공통)
+# SSOT: utils/basketball_geometry.py (Phase 4 하이브리드 통일, 2026-04-20)
+#       HOOP_DIAMETER_M=0.4572 (18 inch 표준 림), HOOP_HEIGHT_M=3.05
+# -----------------------------------------------------------------------------
+hoop:
+  height_m: 3.05                       # 10 ft (FIBA/NBA 공통)
+  diameter_m: 0.4572                   # 18 inch (45.72 cm) — utils와 SSOT 일치
+  backboard_width_m: 1.8
+  backboard_height_m: 1.05
+
+# -----------------------------------------------------------------------------
+# 라인 감지 파라미터
+# -----------------------------------------------------------------------------
+# TODO: 라인 감지 파라미터(Canny/Hough 임계치)는 초기 설계값,
+#       실제 촬영 환경(조명, 코트 색상)에 따라 캘리브레이션 필요
+line_detection:
+  # Canny 엣지
+  canny_low: 50
+  canny_high: 150
+  # Hough 변환
+  hough_threshold: 100
+  hough_min_line_length: 80
+  hough_max_line_gap: 10
+  # 라인 필터링
+  min_line_length_pixels: 50
+  max_line_angle_deviation_deg: 5.0
+  merge_distance_pixels: 20
+
+# -----------------------------------------------------------------------------
+# 호모그래피 설정
+# -----------------------------------------------------------------------------
+homography:
+  method: "ransac"                     # ransac, lmeds, rho
+  ransac_reproj_threshold: 3.0
+  min_correspondences: 4
+  max_correspondences: 50
+  refinement_iterations: 100
+  update_interval_frames: 30           # 호모그래피 갱신 주기
+
+# -----------------------------------------------------------------------------
+# 구역 분류 (슛 차트)
+# -----------------------------------------------------------------------------
+zones:
+  # 14개 구역 (페인트존, 미드레인지 8, 3점 4, 백코트)
+  paint_zone_enabled: true
+  midrange_sectors: 8
+  three_point_sectors: 4
+  backcourt_enabled: true
+  zone_boundary_tolerance_m: 0.3       # 경계 근처 판정 여유
+
+# -----------------------------------------------------------------------------
+# 멀티뷰 코트 매핑
+# -----------------------------------------------------------------------------
+multi_view:
+  min_views_for_mapping: 2
+  homography_blend_weight: 0.7         # 새 호모그래피 반영 비중
+  consistency_check_enabled: true
+  max_position_error_m: 0.5
