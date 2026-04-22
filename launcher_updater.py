@@ -37,7 +37,8 @@ from urllib.request import Request, urlopen
 
 _logger = logging.getLogger("launcher.updater")
 
-# 기본 latest.json URL — S3 직접 또는 CloudFront 배포 URL
+# 기본 latest.json URL — S3 직접 또는 CloudFront 배포 URL.
+# 프로덕션 릴리즈는 stable 채널. 베타 테스트는 COURTVIEW_LATEST_URL 환경변수로 오버라이드.
 DEFAULT_LATEST_URL = (
     "https://courtview-releases.s3.us-east-1.amazonaws.com/stable/latest.json"
 )
