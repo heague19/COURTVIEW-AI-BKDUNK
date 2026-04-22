@@ -84,3 +84,25 @@ temp/
 
 # ==================== 프로젝트 데이터 ====================
 storage/
+
+# ==================== COURTVIEW 런타임 생성물 ====================
+_appdata/
+recordings/
+cloud_sync_queue/
+tensorrt_cache/
+*.engine
+*.engine.bak
+
+# ==================== COURTVIEW 빌드/릴리즈 임시 파일 ====================
+_build_log.txt
+_release_log.txt
+_build_version.json
+_courtview_swap.bat
+_courtview_swap.log
+
+# ==================== 모델 가중치 (내부 보안 대상) ====================
+weights/
+
+# ==================== Claude Code 로컬 설정 ====================
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
