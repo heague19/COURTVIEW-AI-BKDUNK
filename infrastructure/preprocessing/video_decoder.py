@@ -522,6 +522,23 @@ class VideoDecoder:
             return self._metadata
 
     @property
+    def latest_frame(self) -> NDArray[np.uint8] | None:
+        """
+        최신 프레임 (background reader 가 유지).
+
+        RTSP 모드 (Phase 18/19) 에서 background reader 가 ffmpeg stdout 에서
+        계속 pull 하는 프레임. stream_mjpeg / get_snapshot 이 decode_next() 를
+        따로 호출하지 않고 이 캐시만 읽으면 decoder 경합 없이 O(1) 반환.
+
+        파일 모드에서는 최근 decode_next 가 반환한 프레임 (있을 경우).
+
+        Returns:
+            최신 BGR 프레임 ndarray 또는 None
+        """
+        with self._lock:
+            return self._latest_frame
+
+    @property
     def current_index(self) -> int:
         """현재 프레임 인덱스."""
         with self._lock:
@@ -695,33 +712,42 @@ class VideoDecoder:
                 self._state = DecoderState.OPENING
                 self._file_path = file_path
 
-            # 1) OpenCV 로 메타 조회 (handshake + 첫 프레임 확인)
+            # 1) OpenCV 로 메타 조회 — 실제 프레임 read 후 frame.shape 에서 해상도 추출.
+            #    (RTSP 는 첫 read 전까지 CAP_PROP_FRAME_WIDTH/HEIGHT 가 0 을 반환하는
+            #     OpenCV+FFmpeg backend 특성 때문에 read 먼저 해야 한다 — v0.2.0 에서
+            #     width=0 으로 ffmpeg pipe 가 frame_size=0 으로 EOF 즉시 처리되던 버그.)
             probe_cap = _open_rtsp_with_retry(file_path)
             if probe_cap is None or not probe_cap.isOpened():
                 with self._lock:
                     self._state = DecoderState.ERROR
                 return False
             try:
-                width = int(probe_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                height = int(probe_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
                 fps_raw = probe_cap.get(cv2.CAP_PROP_FPS)
                 fps_val = fps_raw if fps_raw > 0.0 else float(DEFAULT_FPS)
-                # 첫 프레임 읽어 유효성
-                ret, _ = probe_cap.read()
-                if not ret:
+                # 실제 첫 프레임 — shape 에서 해상도 추출
+                ret, first_frame = probe_cap.read()
+                if not ret or first_frame is None:
                     with self._lock:
                         self._state = DecoderState.ERROR
                     return False
+                height, width = first_frame.shape[:2]
             finally:
                 probe_cap.release()
 
             if width < MIN_VIDEO_WIDTH or height < MIN_VIDEO_HEIGHT:
+                _logger.error(
+                    "RTSP 해상도 유효하지 않음: %dx%d (url=%s)", width, height, file_path,
+                )
                 with self._lock:
                     self._state = DecoderState.ERROR
                 return False
 
             width = min(width, MAX_VIDEO_WIDTH)
             height = min(height, MAX_VIDEO_HEIGHT)
+            _logger.info(
+                "RTSP 메타 조회: %dx%d @ %.1f fps (url=%s)",
+                width, height, fps_val, file_path,
+            )
 
             # 2) ffmpeg subprocess pipe 시작
             try:

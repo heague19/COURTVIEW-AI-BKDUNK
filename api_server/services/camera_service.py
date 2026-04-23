@@ -468,10 +468,12 @@ class CameraService:
 
         UI 장비관리/경기분석 썸네일 폴링용.
 
-        Phase 18 (v0.1.4): 최대 3회 재시도 — stream 이 idle 인 decoder 의
-        첫 호출에서 None 이 반환되는 케이스를 흡수한다. VideoCapture 가 오래
-        쉬고 있었으면 TCP keepalive 손실·버퍼 재동기로 첫 read() 가 실패할
-        수 있어, 짧은 대기 후 재시도하면 대부분 성공 (20 fps 기준 다음 프레임까지 50 ms).
+        Phase 19 (v0.2.1): decoder.latest_frame 직접 사용.
+          - RTSP: background reader 가 유지하는 최신 프레임 바로 JPEG 인코딩.
+                  decode_next() 를 거치지 않으므로 stream_mjpeg 과 decoder
+                  경합 없음. _current_index 증가 부작용도 없음. O(1) 응답.
+          - 파일: 최근 decode_next 가 반환한 프레임이 있으면 사용, 없으면
+                  decode_next 한 번 시도 (기존 동작 fallback).
 
         Returns:
             JPEG 인코딩된 바이트 또는 None
@@ -481,21 +483,25 @@ class CameraService:
         if handle is None or not handle.connected:
             return None
 
-        frame_data = None
-        for attempt in range(3):
-            frame_data = handle.decoder.decode_next()
-            if frame_data is not None and frame_data.is_valid:
-                break
-            time.sleep(0.05)  # 50 ms — 20 fps 기준 다음 프레임까지
+        # 1) background reader 가 유지하는 최신 프레임 우선 (RTSP 의 기본 경로)
+        frame = handle.decoder.latest_frame
+        if frame is not None:
+            success, buffer = cv2.imencode(".jpg", frame, [
+                cv2.IMWRITE_JPEG_QUALITY, 80,
+            ])
+            return buffer.tobytes() if success else None
 
-        if frame_data is None or not frame_data.is_valid:
-            return None
+        # 2) Fallback — 파일 모드 첫 호출 or RTSP 초기 (reader 아직 첫 프레임 전)
+        for _ in range(3):
+            fd = handle.decoder.decode_next()
+            if fd is not None and fd.is_valid:
+                success, buffer = cv2.imencode(".jpg", fd.image, [
+                    cv2.IMWRITE_JPEG_QUALITY, 80,
+                ])
+                return buffer.tobytes() if success else None
+            time.sleep(0.05)
 
-        # JPEG 인코딩
-        success, buffer = cv2.imencode(".jpg", frame_data.image, [
-            cv2.IMWRITE_JPEG_QUALITY, 80,
-        ])
-        return buffer.tobytes() if success else None
+        return None
 
     # =========================================================================
     # MJPEG 스트리밍 (Phase 17 S4 — 분석 디코더 공유, 별도 RTSP 연결 제거)
@@ -712,22 +718,40 @@ class CameraService:
         )
 
         # 카메라 핸들 상태 업데이트
+        # Phase 19 (v0.2.1): 임계값 완화 0.5 → 0.3 + 품질별 명확한 안내.
+        # 이전엔 0.4 수준에서 JSON 은 저장되면서도 UI 엔 "미적용" 표시되어 혼란.
+        # 실제 호모그래피는 계산·저장됐으므로 0.3 이상이면 적용으로 간주하고,
+        # 낮은 품질 구간은 메시지로 재조정 권장.
+        CALIBRATED_THRESHOLD = 0.3
+
         with self._lock:
             handle = self._cameras.get(cam_id)
             if handle is not None:
-                handle.calibrated = success and quality_score >= 0.5
+                handle.calibrated = success and quality_score >= CALIBRATED_THRESHOLD
                 handle.calibration_quality = quality_score
 
-        status_msg = (
-            f"캘리브레이션 완료 (품질: {quality_score:.2f}, 오차: {mean_reproj:.2f}px)"
-            if success
-            else "캘리브레이션 저장 실패"
-        )
+        if not success:
+            status_msg = "캘리브레이션 저장 실패"
+        elif quality_score >= 0.6:
+            status_msg = (
+                f"캘리브레이션 완료 — 양호 (품질 {quality_score:.2f}, 오차 {mean_reproj:.2f}px)"
+            )
+        elif quality_score >= CALIBRATED_THRESHOLD:
+            status_msg = (
+                f"캘리브레이션 적용 — 낮은 품질 (품질 {quality_score:.2f}, 오차 {mean_reproj:.2f}px). "
+                f"코트 교차점을 더 정확히 찍으면 정확도가 개선됩니다."
+            )
+        else:
+            status_msg = (
+                f"품질이 기준(0.30) 미만입니다 (품질 {quality_score:.2f}, 오차 {mean_reproj:.2f}px). "
+                f"코트 교차점을 정확히 다시 찍어주세요."
+            )
+
         _logger.info("수동 캘리브레이션: %s → %s", cam_id, status_msg)
 
         return ManualCalibrationResponse(
             camera_id=cam_id,
-            success=success and quality_score >= 0.3,
+            success=success and quality_score >= CALIBRATED_THRESHOLD,
             quality_score=round(quality_score, 4),
             mean_reproj_error_px=round(mean_reproj, 4),
             inlier_count=inlier_count,

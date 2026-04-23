@@ -244,15 +244,23 @@ async def get_snapshot(
 @router.get("/{camera_id}/stream")
 async def stream_camera(
     camera_id: str,
+    quality: int = 70,
+    fps: float = 15.0,
     service: CameraService = Depends(get_camera_service),
 ) -> StreamingResponse:
     """카메라 MJPEG 실시간 스트림.
 
     브라우저 <img src="..."> 태그에서 직접 소비할 수 있는
     multipart/x-mixed-replace 스트림을 반환한다.
+
+    Phase 19 (v0.2.1): quality/fps 쿼리 파라미터 지원.
+      - 메인뷰: quality=80&fps=20 (기본 품질)
+      - 썸네일: quality=50&fps=3  (경기분석 8대 동시 표시, 연결당 부담 최소화)
     """
+    quality = max(1, min(100, quality))
+    fps = max(0.5, min(30.0, fps))
     return StreamingResponse(
-        service.stream_mjpeg(camera_id, quality=70, max_fps=15.0),
+        service.stream_mjpeg(camera_id, quality=quality, max_fps=fps),
         media_type="multipart/x-mixed-replace; boundary=frame",
     )
 
