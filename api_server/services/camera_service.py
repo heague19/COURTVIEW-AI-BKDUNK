@@ -1016,6 +1016,39 @@ class CameraService:
         return self.discover_many([subnet], port=port, timeout_sec=timeout_sec, start=start, end=end)
 
     @staticmethod
+    def _find_link_local_source(target_ip: str) -> str | None:
+        """
+        target_ip(169.254.x.y) 와 **같은 /24 서브넷** 을 가진 로컬 NIC 의 APIPA
+        주소를 찾아 반환. socket.bind((source, 0)) 에 써서 해당 NIC 로 out-routing
+        을 강제한다.
+
+        배경: 다중 NIC (이더넷 + Wi-Fi + Wi-Fi Direct 등) 환경에서 각 NIC 가 서로
+              다른 169.254.*.* APIPA 를 받는다. Windows 기본 라우팅은 route metric
+              이 낮은 Wi-Fi 를 먼저 선택하므로 이더넷에 연결된 카메라도 Wi-Fi 로
+              out 시도 → 실패. 사용자가 route/metric 만지지 않아도 되도록 소켓을
+              이더넷 APIPA 에 직접 bind 해 버린다.
+
+        /24 매치 기준: target=169.254.24.13 이면 source 는 169.254.24.x 여야 같은
+        서브넷. 다른 /24 의 APIPA (예: Wi-Fi Direct 169.254.216.x) 는 제외.
+
+        Returns:
+            적합한 source IP (예: "169.254.24.236"), 없으면 None
+        """
+        if not target_ip.startswith("169.254."):
+            return None
+        prefix = ".".join(target_ip.split(".")[:3]) + "."
+        try:
+            import psutil  # type: ignore[import-not-found]
+            import socket as _s
+            for name, addrs in psutil.net_if_addrs().items():
+                for addr in addrs:
+                    if addr.family == _s.AF_INET and addr.address.startswith(prefix):
+                        return addr.address
+        except Exception:
+            return None
+        return None
+
+    @staticmethod
     def _prewarm_arp(ips: list[str], timeout_ms: int = 200) -> None:
         """
         각 IP 로 ping 을 병렬 발사해 ARP 테이블 + Windows 라우팅 결정 (route metric)
@@ -1095,10 +1128,27 @@ class CameraService:
             self._prewarm_arp(ips)
             _logger.info("ARP prewarm 완료: %d IP × ping (%.1f s)", len(ips), time.monotonic() - t0)
 
+        # 같은 /24 의 link-local source 를 미리 찾아둔다 (서브넷당 1회 계산).
+        # 예: target 169.254.24.* 의 source = 169.254.24.236 (이더넷 APIPA)
+        sources: dict[str, str | None] = {}
+        for sn in subnets:
+            sample_target = f"{sn}.1"
+            sources[sn] = self._find_link_local_source(sample_target)
+
         def _probe(ip: str) -> dict[str, str] | None:
             try:
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
                     sock.settimeout(timeout_sec)
+                    # 169.254.x.x 타겟이면 같은 /24 의 source IP 로 bind →
+                    # Windows route metric 무관하게 해당 NIC 로 강제 out-routing.
+                    # 이게 Wi-Fi 가 먼저 선택되는 문제 (route_metric 경쟁) 를 근본 차단.
+                    target_prefix = ".".join(ip.split(".")[:3])
+                    src = sources.get(target_prefix)
+                    if src:
+                        try:
+                            sock.bind((src, 0))
+                        except OSError:
+                            pass  # bind 실패해도 일반 connect 는 시도
                     if sock.connect_ex((ip, port)) == 0:
                         return {
                             "ip": ip,
