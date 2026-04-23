@@ -180,21 +180,35 @@ def apply_update(
     tmp_zip = tmp_dir / f"courtview-{info.version}.zip"
 
     try:
-        # 1. 다운로드
-        if on_progress:
-            on_progress("download", 0.0)
-        _logger.info("다운로드 시작: %s", info.url)
-        _download_with_progress(info.url, tmp_zip, info.size_bytes, on_progress)
+        # 1~2. 다운로드 + SHA-256 검증 (실패 시 재다운 최대 3회)
+        # 현장 학습/디스크 I/O 경합으로 TCP 가 잡지 못한 비트 손상 발생 시 자동 회복.
+        MAX_ATTEMPTS = 3
+        verified = False
+        for attempt in range(1, MAX_ATTEMPTS + 1):
+            if on_progress:
+                on_progress("download", 0.0)
+            if attempt == 1:
+                _logger.info("다운로드 시작: %s", info.url)
+            else:
+                _logger.warning(
+                    "SHA-256 불일치 — 재다운로드 시도 %d/%d", attempt, MAX_ATTEMPTS,
+                )
+                tmp_zip.unlink(missing_ok=True)
 
-        # 2. 검증
-        if on_progress:
-            on_progress("verify", 0.0)
-        _logger.info("SHA-256 검증 중...")
-        if not _verify_sha256(tmp_zip, info.sha256):
-            _logger.error("SHA-256 불일치 — 손상된 다운로드")
+            _download_with_progress(info.url, tmp_zip, info.size_bytes, on_progress)
+
+            if on_progress:
+                on_progress("verify", 0.0)
+            _logger.info("SHA-256 검증 중... (%d/%d)", attempt, MAX_ATTEMPTS)
+            if _verify_sha256(tmp_zip, info.sha256):
+                verified = True
+                if on_progress:
+                    on_progress("verify", 1.0)
+                break
+
+        if not verified:
+            _logger.error("SHA-256 불일치 — %d회 재시도 모두 실패, 업데이트 포기", MAX_ATTEMPTS)
             return False
-        if on_progress:
-            on_progress("verify", 1.0)
 
         # 3. 압축 해제 (설치 폴더 옆에 새 폴더)
         if on_progress:

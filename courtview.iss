@@ -9,8 +9,10 @@
 ;  1. shortcut WorkingDir={userappdata} — Start-in 을 설치 폴더 밖으로 두어
 ;     auto-update 시 install 디렉토리 잠김 이슈 근본 회피.
 ;  2. AppId GUID 고정 — 동일 GUID 유지해야 업그레이드 설치가 제대로 인식됨.
-;  3. Program Files 에 설치 → PrivilegesRequired=admin, 64-bit 모드.
-;  4. MyAppVersion 은 ISCC 호출 시 /DMyAppVersion=0.1.0 으로 외부에서 주입 권장
+;  3. v0.1.2 이후 per-user 설치 (%LOCALAPPDATA%\Programs\COURTVIEW) —
+;     auto-update 가 일반 사용자 권한으로 staging/move 가능해 UAC 재요청 없음.
+;     이전 Program Files 설치본은 [Code] InitializeSetup 에서 감지·안내.
+;  4. MyAppVersion 은 ISCC 호출 시 /DMyAppVersion=0.1.2 으로 외부에서 주입 권장
 ;     (build.py 결과와 동기화). 기본값 은 fallback.
 
 #ifndef MyAppVersion
@@ -33,8 +35,8 @@ AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
 
-; --- 설치 경로 ---
-DefaultDirName={autopf}\{#MyAppName}
+; --- 설치 경로 (per-user, 사용자 권한만으로 auto-update 가능) ---
+DefaultDirName={localappdata}\Programs\{#MyAppName}
 DisableProgramGroupPage=yes
 DefaultGroupName={#MyAppName}
 
@@ -57,9 +59,11 @@ DiskSpanning=yes
 DiskSliceSize=2100000000
 
 ; --- 권한/아키텍처 ---
-PrivilegesRequired=admin
-ArchitecturesAllowed=x64
-ArchitecturesInstallIn64BitMode=x64
+; per-user 설치 — 관리자 승격 불필요, auto-update 도 UAC 없이 작동
+PrivilegesRequired=lowest
+PrivilegesRequiredOverridesAllowed=dialog
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0.17763
 
 ; --- UI ---
@@ -108,3 +112,61 @@ Type: filesandordirs; Name: "{app}\.courtview_new_*"
 Type: filesandordirs; Name: "{app}\..\.courtview_new_*"
 Type: files;          Name: "{app}\..\_courtview_swap.bat"
 Type: files;          Name: "{app}\..\_courtview_swap.log"
+
+[Code]
+// v0.1.0 / v0.1.1 은 Program Files 에 per-machine(admin) 설치됐음.
+// v0.1.2 부터 %LOCALAPPDATA%\Programs 로 per-user 이관.
+// 설치 시작 시 기존 Program Files 설치를 감지해 사용자에게 제거 안내.
+function InitializeSetup(): Boolean;
+var
+  OldPath:       string;
+  OldExePath:    string;
+  UninstKey:     string;
+  Uninstaller:   string;
+  ResultCode:    Integer;
+  MsgResult:     Integer;
+begin
+  Result := True;
+
+  OldPath    := ExpandConstant('{pf}\COURTVIEW');
+  OldExePath := OldPath + '\courtview.exe';
+  UninstKey  := 'Software\Microsoft\Windows\CurrentVersion\Uninstall\' +
+                '{B2A3D4E5-F6A7-4B8C-9D0E-1F2A3B4C5D6E}_is1';
+
+  if not FileExists(OldExePath) then
+    Exit;
+
+  // 기존 Program Files 설치 감지됨
+  MsgResult := MsgBox(
+    '이전 버전 COURTVIEW 가 관리자 권한으로 설치돼있습니다.' + #13#10 +
+    '경로: ' + OldPath + #13#10 + #13#10 +
+    'v0.1.2 부터는 일반 사용자 권한 경로(%LOCALAPPDATA%) 에 설치됩니다.' + #13#10 +
+    'auto-update 가 UAC 없이 작동하도록 하기 위한 구조 변경입니다.' + #13#10 + #13#10 +
+    '기존 설치를 지금 제거할까요? (강력 권장)',
+    mbConfirmation, MB_YESNO);
+
+  if MsgResult <> IDYES then begin
+    MsgBox('기존 설치를 수동으로 제거한 뒤 본 설치를 다시 실행해주세요.' + #13#10 +
+           '(설정 > 앱 > COURTVIEW > 제거)',
+           mbInformation, MB_OK);
+    Result := False;
+    Exit;
+  end;
+
+  // 레지스트리에서 uninstaller 경로 조회 + 실행
+  if RegQueryStringValue(HKLM, UninstKey, 'UninstallString', Uninstaller) then begin
+    // UninstallString 는 보통 따옴표 포함 — RemoveQuotes
+    Uninstaller := RemoveQuotes(Uninstaller);
+    if not Exec(Uninstaller, '/SILENT /NORESTART', '', SW_HIDE,
+                ewWaitUntilTerminated, ResultCode) then begin
+      MsgBox('이전 설치 제거 실행 실패. 수동으로 제거 후 다시 시도해주세요.',
+             mbError, MB_OK);
+      Result := False;
+    end;
+  end else begin
+    MsgBox('기존 uninstaller 를 찾을 수 없습니다.' + #13#10 +
+           '설정 > 앱 > COURTVIEW > 제거 후 다시 실행해주세요.',
+           mbError, MB_OK);
+    Result := False;
+  end;
+end;
