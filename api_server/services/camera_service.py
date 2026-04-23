@@ -34,6 +34,7 @@ from __future__ import annotations
 # =============================================================================
 import json
 import logging
+import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -1014,30 +1015,67 @@ class CameraService:
         """
         return self.discover_many([subnet], port=port, timeout_sec=timeout_sec, start=start, end=end)
 
+    @staticmethod
+    def _prewarm_arp(ips: list[str], timeout_ms: int = 200) -> None:
+        """
+        각 IP 로 ping 을 병렬 발사해 ARP 테이블 + Windows 라우팅 결정 (route metric)
+        을 사전 예열한다.
+
+        배경: 다중 NIC (Wi-Fi + 이더넷 APIPA) 환경에서 Windows 가 처음엔 기본
+              게이트웨이 있는 Wi-Fi 인터페이스로 패킷을 보내려다 실패하고, 재시도
+              해야 링크-로컬 이더넷을 찾는다. socket.connect 의 짧은 timeout
+              (300~500 ms) 로는 첫 시도 실패 뒤 재시도까지 끝내기 어려움.
+              ping 한 번 선행시키면 Windows 가 올바른 interface 선택을 "학습" 한다.
+
+        실측 증거: 노트북 APIPA 환경에서 첫 discover → 0 대, ping 후 discover → 1 대.
+        """
+        import subprocess
+
+        creationflags = 0
+        if sys.platform == "win32":
+            # CREATE_NO_WINDOW — 콘솔 창 뜨지 않게
+            creationflags = 0x08000000
+
+        def _ping(ip: str) -> None:
+            try:
+                subprocess.run(
+                    ["ping", "-n", "1", "-w", str(timeout_ms), ip],
+                    capture_output=True,
+                    timeout=(timeout_ms / 1000.0) + 1.0,
+                    creationflags=creationflags,
+                )
+            except Exception:
+                pass
+
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=min(len(ips), 512), thread_name_prefix="arp-prewarm") as pool:
+            list(pool.map(_ping, ips))
+
     def discover_many(
         self,
         subnets: list[str],
         port: int = 554,
-        timeout_sec: float = 0.3,
+        timeout_sec: float = 0.5,
         start: int = 1,
         end: int = 254,
+        prewarm: bool = True,
     ) -> list[dict[str, str]]:
         """
         여러 서브넷을 단일 스레드 풀로 한 번에 스캔한다.
 
-        THE RECORD (C# AICourtView) 의 CameraScan 방식을 반영:
-          - 서브넷별로 for-loop 로 순차 스캔하지 않고, IP 전체를 한 풀에 submit
-          - 한 서브넷당 254 병렬 + 300 ms timeout
-          - N 개 서브넷이어도 총 소요 ≈ 1 서브넷 수준
+        THE RECORD (C# AICourtView) 의 CameraScan 방식을 반영 + Windows 다중 NIC
+        환경의 라우팅 지연을 ping prewarm 으로 보정:
+          - 먼저 ARP prewarm (ping sweep, ~200 ms/IP, 모두 병렬): Windows 가 올바른
+            interface 를 학습하게 함 (Wi-Fi 에서 APIPA 로 오라우팅 방지).
+          - 이후 TCP 554 probe: 서브넷별로 for-loop 순차가 아니라 전체 IP 를 한 풀에.
+          - per-IP timeout 500 ms (300 ms 는 Python socket 에서 아슬아슬, 500 ms 안전).
 
         Args:
-            subnets: ["169.254.24", "192.168.1", ...] 형태의 서브넷 목록 (prefix .a.b.c)
+            subnets: ["169.254.24", "192.168.1", ...] 형태
             port: RTSP 포트 (기본 554)
-            timeout_sec: per-IP TCP connect timeout (기본 300 ms)
+            timeout_sec: per-IP TCP connect timeout (기본 500 ms)
             start/end: 스캔 옥텟 범위 (기본 1~254)
-
-        Returns:
-            발견된 카메라 목록 [{"ip", "port", "rtsp_url"}]
+            prewarm: True 면 ping sweep 선행 (기본 True, 현장 APIPA 환경에 필수)
         """
         import socket
         from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -1051,6 +1089,11 @@ class CameraService:
         ips: list[str] = []
         for subnet in subnets:
             ips.extend(f"{subnet}.{i}" for i in range(start, end + 1))
+
+        if prewarm:
+            t0 = time.monotonic()
+            self._prewarm_arp(ips)
+            _logger.info("ARP prewarm 완료: %d IP × ping (%.1f s)", len(ips), time.monotonic() - t0)
 
         def _probe(ip: str) -> dict[str, str] | None:
             try:
@@ -1066,11 +1109,10 @@ class CameraService:
                 pass
             return None
 
-        # 전체 IP (N 서브넷 × 254) 를 한 풀에 던진다.
-        # max_workers 는 IP 수 이하로 자동 캡 — 254 * 8 = 2032 까지도 OS 가 관리 가능.
         max_workers = min(len(ips), 512)
         found: list[dict[str, str]] = []
 
+        t0 = time.monotonic()
         with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="cam-disc") as pool:
             futures = [pool.submit(_probe, ip) for ip in ips]
             for future in as_completed(futures):
@@ -1078,11 +1120,11 @@ class CameraService:
                 if result is not None:
                     found.append(result)
 
-        # IP 마지막 옥텟 기준 정렬 (CAM 슬롯 매핑 안정화)
         found.sort(key=lambda x: tuple(int(p) for p in x["ip"].split(".")))
         _logger.info(
-            "카메라 탐색 완료: %d 서브넷 × %d IP → %d대 발견 (timeout=%.0f ms)",
-            len(subnets), end - start + 1, len(found), timeout_sec * 1000,
+            "카메라 탐색 완료: %d 서브넷 × %d IP → %d대 발견 (probe %.1f s, timeout=%.0f ms)",
+            len(subnets), end - start + 1, len(found),
+            time.monotonic() - t0, timeout_sec * 1000,
         )
         return found
 
