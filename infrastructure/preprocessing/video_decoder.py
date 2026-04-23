@@ -185,6 +185,98 @@ def probe_rtsp(url: str, timeout_sec: float = 3.0) -> dict[str, object]:
     return result
 
 
+# =============================================================================
+# RTSP 경로 자동 탐지 (Phase 18 — v0.1.4)
+# =============================================================================
+# IP 카메라 벤더별 RTSP path 후보.
+# priority:
+#   0  = sub-stream (저해상도, 다중 카메라 현장용 최우선)
+#   1  = 기타 sub-stream 계열
+#   2  = main-stream (고해상도, fallback)
+#   3  = generic / 미상 벤더
+_RTSP_PATH_CANDIDATES: list[tuple[str, int]] = [
+    # (path, priority) — priority 낮을수록 선호
+    # --- sub-stream (저해상도, 지연 짧음, 다중 카메라 동시 처리 부담 ↓) ---
+    ("/11", 0),                                        # IPCam H80 / 저가 중국산 sub
+    ("/stream2", 1),                                   # Generic sub
+    ("/Streaming/Channels/102", 1),                    # Hikvision sub
+    ("/cam/realmonitor?channel=1&subtype=1", 1),       # Dahua sub
+    ("/live/ch00_1", 1),                               # 일부 벤더 sub
+    ("/videoSub", 1),                                  # Foscam sub
+    # --- main-stream (고해상도, fallback) ---
+    ("/12", 2),                                        # IPCam H80 main
+    ("/stream1", 2),                                   # Generic main
+    ("/Streaming/Channels/101", 2),                    # Hikvision main
+    ("/cam/realmonitor?channel=1&subtype=0", 2),       # Dahua main
+    ("/live/ch00_0", 2),                               # 일부 벤더 main
+    ("/videoMain", 2),                                 # Foscam main
+    # --- 마지막 수단 ---
+    ("/", 3),
+    ("/live", 3),
+    ("/media", 3),
+]
+
+
+def probe_rtsp_paths(
+    host: str,
+    port: int = 554,
+    timeout_sec: float = 0.6,
+    username: str = "",
+    password: str = "",
+) -> list[dict[str, object]]:
+    """
+    RTSP 카메라의 재생 가능한 path 를 자동 탐지한다.
+
+    `_RTSP_PATH_CANDIDATES` 의 후보들을 **모두 병렬** probe (DESCRIBE 200/401) 해서
+    응답하는 URL 만 반환. **sub-stream 우선** 정렬 — AI 분석 + 다중 카메라 환경에서
+    대역폭·디코딩 부담을 절반 이하로 줄인다 (예: 4K main 대신 640×480 sub).
+
+    배경: 기존 discover 는 `/stream1` 로 하드코딩했는데 IPCam H80 같은 카메라는
+          `/stream1` 에 404 반환 or 연결은 되지만 프레임이 안 오는 '유령 연결'.
+          사용자가 수동으로 `/11`, `/12` 같은 벤더 고유 경로를 알아야 했음.
+          이 함수로 노트북이 알아서 찾아준다.
+
+    Args:
+        host, port: 카메라 주소 (554 포트 이미 open 확인된 것)
+        timeout_sec: per-path probe timeout (default 0.6s — 15개 병렬이라 총 ~0.6s)
+        username/password: 인증 있으면 URL 에 포함
+
+    Returns:
+        [{path, url, priority, rtsp_ok, status_code, elapsed_ms, server}, ...]
+        응답 성공 것만, priority 오름차순 (sub-stream 우선). 빈 리스트면 RTSP
+        서비스는 열려있으나 유효한 경로 없음.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    auth = ""
+    if username:
+        auth = f"{username}:{password}@" if password else f"{username}@"
+
+    def _test(item: tuple[str, int]) -> dict[str, object] | None:
+        path, priority = item
+        url = f"rtsp://{auth}{host}:{port}{path}"
+        r = probe_rtsp(url, timeout_sec=timeout_sec)
+        if r.get("rtsp_ok"):
+            return {
+                "path": path,
+                "url": url,
+                "priority": priority,
+                "status_code": r.get("status_code"),
+                "elapsed_ms": r.get("elapsed_ms"),
+                "server": r.get("server", ""),
+            }
+        return None
+
+    with ThreadPoolExecutor(max_workers=len(_RTSP_PATH_CANDIDATES),
+                             thread_name_prefix="rtsp-paths") as pool:
+        futures = [pool.submit(_test, it) for it in _RTSP_PATH_CANDIDATES]
+        results = [f.result() for f in futures]
+
+    found = [r for r in results if r is not None]
+    found.sort(key=lambda x: (x["priority"], x.get("elapsed_ms", 9999)))
+    return found
+
+
 def _open_rtsp_with_retry(url: str) -> cv2.VideoCapture | None:
     """
     RTSP URL을 TCP 전송 + 재시도 로직으로 연결.

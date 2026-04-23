@@ -466,7 +466,12 @@ class CameraService:
         """
         1프레임 스냅샷 (JPEG 바이트).
 
-        세팅 화면 미리보기용.
+        UI 장비관리/경기분석 썸네일 폴링용.
+
+        Phase 18 (v0.1.4): 최대 3회 재시도 — stream 이 idle 인 decoder 의
+        첫 호출에서 None 이 반환되는 케이스를 흡수한다. VideoCapture 가 오래
+        쉬고 있었으면 TCP keepalive 손실·버퍼 재동기로 첫 read() 가 실패할
+        수 있어, 짧은 대기 후 재시도하면 대부분 성공 (20 fps 기준 다음 프레임까지 50 ms).
 
         Returns:
             JPEG 인코딩된 바이트 또는 None
@@ -476,7 +481,13 @@ class CameraService:
         if handle is None or not handle.connected:
             return None
 
-        frame_data = handle.decoder.decode_next()
+        frame_data = None
+        for attempt in range(3):
+            frame_data = handle.decoder.decode_next()
+            if frame_data is not None and frame_data.is_valid:
+                break
+            time.sleep(0.05)  # 50 ms — 20 fps 기준 다음 프레임까지
+
         if frame_data is None or not frame_data.is_valid:
             return None
 
@@ -1176,6 +1187,40 @@ class CameraService:
             len(subnets), end - start + 1, len(found),
             time.monotonic() - t0, timeout_sec * 1000,
         )
+
+        # ---------------------------------------------------------------
+        # Phase 18 (v0.1.4) — RTSP 경로 자동 탐지
+        # ---------------------------------------------------------------
+        # 554 포트 열린 건 확인했으나 실제 재생 가능한 path 는 카메라 모델별로
+        # 다르다(/stream1, /11, /12, /Streaming/Channels/101, ...). 기본값
+        # `/stream1` 은 IPCam H80 등에서 404 or 프레임 없는 '유령 연결' 유발.
+        # 모든 후보 path 를 병렬 probe 해서 **sub-stream 우선 유효 URL** 로 교체.
+        if found:
+            from infrastructure.preprocessing.video_decoder import probe_rtsp_paths
+
+            def _enrich(item: dict[str, str]) -> None:
+                ip_ = item["ip"]
+                try:
+                    port_ = int(item["port"])
+                except (ValueError, TypeError):
+                    port_ = 554
+                paths = probe_rtsp_paths(ip_, port_, timeout_sec=0.6)
+                if paths:
+                    best = paths[0]  # priority 낮은 순 정렬 완료
+                    item["rtsp_url"] = str(best["url"])
+                    item["path"] = str(best["path"])
+
+            with ThreadPoolExecutor(
+                max_workers=min(len(found), 16),
+                thread_name_prefix="rtsp-paths",
+            ) as pool:
+                list(pool.map(_enrich, found))
+
+            _logger.info(
+                "RTSP 경로 탐지 완료: %d대 URL 최종화 (%.1f s)",
+                len(found), time.monotonic() - t0,
+            )
+
         return found
 
     # =========================================================================
