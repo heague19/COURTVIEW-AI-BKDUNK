@@ -1002,58 +1002,88 @@ class CameraService:
         self,
         subnet: str = "192.168.1",
         port: int = 554,
-        timeout_sec: float = 1.0,
+        timeout_sec: float = 0.3,
         start: int = 1,
         end: int = 254,
     ) -> list[dict[str, str]]:
         """
-        네트워크에서 RTSP 카메라 자동 탐색.
+        단일 서브넷 스캔 (하위 호환).
 
-        지정된 서브넷의 IP 범위를 스캔하여
-        RTSP 포트(554)가 열린 장비를 찾습니다.
+        여러 서브넷을 한 번에 스캔하려면 discover_many() 를 쓰세요 — IP 전부를
+        하나의 풀에 던져 병렬성을 최대화하므로 훨씬 빠릅니다.
+        """
+        return self.discover_many([subnet], port=port, timeout_sec=timeout_sec, start=start, end=end)
+
+    def discover_many(
+        self,
+        subnets: list[str],
+        port: int = 554,
+        timeout_sec: float = 0.3,
+        start: int = 1,
+        end: int = 254,
+    ) -> list[dict[str, str]]:
+        """
+        여러 서브넷을 단일 스레드 풀로 한 번에 스캔한다.
+
+        THE RECORD (C# AICourtView) 의 CameraScan 방식을 반영:
+          - 서브넷별로 for-loop 로 순차 스캔하지 않고, IP 전체를 한 풀에 submit
+          - 한 서브넷당 254 병렬 + 300 ms timeout
+          - N 개 서브넷이어도 총 소요 ≈ 1 서브넷 수준
 
         Args:
-            subnet: 서브넷 (예: "192.168.1")
+            subnets: ["169.254.24", "192.168.1", ...] 형태의 서브넷 목록 (prefix .a.b.c)
             port: RTSP 포트 (기본 554)
-            timeout_sec: 연결 타임아웃 (초)
-            start: 시작 IP 마지막 옥텟
-            end: 종료 IP 마지막 옥텟
+            timeout_sec: per-IP TCP connect timeout (기본 300 ms)
+            start/end: 스캔 옥텟 범위 (기본 1~254)
 
         Returns:
-            발견된 카메라 목록 [{"ip": "...", "port": 554, "rtsp_url": "..."}]
+            발견된 카메라 목록 [{"ip", "port", "rtsp_url"}]
         """
         import socket
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
-        found: list[dict[str, str]] = []
+        # 공백·중복 제거
+        subnets = [s.strip() for s in subnets if s and s.strip()]
+        subnets = list(dict.fromkeys(subnets))
+        if not subnets:
+            return []
+
+        ips: list[str] = []
+        for subnet in subnets:
+            ips.extend(f"{subnet}.{i}" for i in range(start, end + 1))
 
         def _probe(ip: str) -> dict[str, str] | None:
             try:
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                sock.settimeout(timeout_sec)
-                result = sock.connect_ex((ip, port))
-                sock.close()
-                if result == 0:
-                    return {
-                        "ip": ip,
-                        "port": str(port),
-                        "rtsp_url": f"rtsp://{ip}:{port}/stream1",
-                    }
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                    sock.settimeout(timeout_sec)
+                    if sock.connect_ex((ip, port)) == 0:
+                        return {
+                            "ip": ip,
+                            "port": str(port),
+                            "rtsp_url": f"rtsp://{ip}:{port}/stream1",
+                        }
             except Exception:
                 pass
             return None
 
-        # 병렬 스캔 (최대 50 스레드)
-        ips = [f"{subnet}.{i}" for i in range(start, end + 1)]
-        with ThreadPoolExecutor(max_workers=50) as pool:
-            futures = {pool.submit(_probe, ip): ip for ip in ips}
+        # 전체 IP (N 서브넷 × 254) 를 한 풀에 던진다.
+        # max_workers 는 IP 수 이하로 자동 캡 — 254 * 8 = 2032 까지도 OS 가 관리 가능.
+        max_workers = min(len(ips), 512)
+        found: list[dict[str, str]] = []
+
+        with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="cam-disc") as pool:
+            futures = [pool.submit(_probe, ip) for ip in ips]
             for future in as_completed(futures):
                 result = future.result()
                 if result is not None:
                     found.append(result)
 
-        found.sort(key=lambda x: int(x["ip"].split(".")[-1]))
-        _logger.info("카메라 탐색 완료: %s.* → %d대 발견", subnet, len(found))
+        # IP 마지막 옥텟 기준 정렬 (CAM 슬롯 매핑 안정화)
+        found.sort(key=lambda x: tuple(int(p) for p in x["ip"].split(".")))
+        _logger.info(
+            "카메라 탐색 완료: %d 서브넷 × %d IP → %d대 발견 (timeout=%.0f ms)",
+            len(subnets), end - start + 1, len(found), timeout_sec * 1000,
+        )
         return found
 
     # =========================================================================

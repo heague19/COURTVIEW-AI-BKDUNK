@@ -79,30 +79,32 @@ async def discover_cameras(
     """
     네트워크에서 RTSP 카메라 자동 탐색.
 
-    서브넷의 1~254 IP를 스캔하여 RTSP 포트(554)가 열린 장비를 반환합니다.
-    subnet을 비워두면 현재 PC의 모든 네트워크 인터페이스 대역을 자동 감지합니다.
-    다중 인터페이스 환경(WiFi + 유선 등)은 쉼표로 구분된 서브넷을 입력할 수 있습니다.
+    감지된(혹은 명시된) 서브넷들의 1~254 IP 를 **한 풀에 병렬 스캔**하여
+    RTSP 포트(554) 가 열린 장비를 반환합니다.
+
+    subnet 을 비워두면 현재 PC 의 모든 네트워크 인터페이스 대역을 자동 감지합니다.
+    다중 인터페이스 환경(WiFi + 유선 등) 은 쉼표로 구분해 입력할 수 있고, 내부에서
+    전체 IP 를 단일 풀에 던지므로 서브넷 수와 무관하게 ≈1–2 초 내 완료됩니다.
 
     Args:
-        subnet: 서브넷 (예: "192.168.24" 또는 "192.168.1,192.168.24") — 비워두면 자동 감지
-        port: RTSP 포트 (기본 554)
+        subnet: "192.168.24" 또는 "192.168.1,169.254.24" 형식. 비우면 자동 감지
+        port:   RTSP 포트 (기본 554)
     """
+    from fastapi.concurrency import run_in_threadpool
+
     if not subnet:
         subnet = service.detect_local_subnet()
 
-    # 쉼표로 구분된 다중 서브넷 스캔
-    all_cameras: list[dict[str, str]] = []
-    scanned: list[str] = []
-    for sn in subnet.split(","):
-        sn = sn.strip()
-        if not sn:
-            continue
-        all_cameras.extend(service.discover(subnet=sn, port=port))
-        scanned.append(sn)
+    subnets = [s.strip() for s in subnet.split(",") if s.strip()]
+
+    # 블로킹 스캔은 threadpool 로 offload → 이벤트 루프 유지
+    all_cameras = await run_in_threadpool(
+        service.discover_many, subnets, port,
+    )
 
     return APIResponse(
         data=all_cameras,
-        message=f"{len(all_cameras)}대 카메라 발견 ({', '.join(scanned)})",
+        message=f"{len(all_cameras)}대 카메라 발견 ({', '.join(subnets)})",
     )
 
 
