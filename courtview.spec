@@ -135,7 +135,7 @@ extra_binaries = []
 TRT_PKGS = ("tensorrt", "tensorrt_cu13", "tensorrt_cu13_libs", "tensorrt_cu13_bindings",
             "tensorrt_cu12", "tensorrt_cu12_libs", "tensorrt_cu12_bindings")
 
-for pkg in ("torch", "torchvision", "ultralytics") + TRT_PKGS:
+for pkg in ("torch", "torchvision", "ultralytics", "imageio_ffmpeg") + TRT_PKGS:
     try:
         datas, binaries, hi = collect_all(pkg)
         extra_datas += datas

@@ -27,7 +27,7 @@ alembic==1.13.1
 # Video Processing
 ffmpeg-python==0.2.0
 imageio==2.33.1
-imageio-ffmpeg==0.4.9
+imageio-ffmpeg>=0.6.0  # RTSP ffmpeg subprocess pipe (v0.2.0+) — 번들에 ffmpeg.exe 포함
 
 # Multi-view
 scipy==1.11.4

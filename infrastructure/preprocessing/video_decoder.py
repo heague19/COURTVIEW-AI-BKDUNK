@@ -20,6 +20,7 @@ from __future__ import annotations
 # 표준 라이브러리 (Standard Library)
 # =============================================================================
 import logging
+import sys
 import threading
 import time
 from collections import deque
@@ -451,6 +452,16 @@ class VideoDecoder:
         "_latest_frame",
         "_latest_jpeg",
         "_latest_jpeg_quality",
+        # Phase 18 (v0.1.5): RTSP 배경 리더 스레드 — OpenCV 내부 버퍼 지연 제거
+        "_is_rtsp",
+        "_reader_thread",
+        "_reader_stop",
+        "_new_frame_event",
+        "_reader_frame_counter",
+        # Phase 19 (v0.2.0): RTSP = ffmpeg subprocess pipe (THE RECORD 수준 지연)
+        "_ffmpeg_proc",
+        "_ffmpeg_width",
+        "_ffmpeg_height",
     )
 
     def __init__(self, camera_id: str | None = None) -> None:
@@ -466,6 +477,21 @@ class VideoDecoder:
         self._latest_frame: NDArray[np.uint8] | None = None
         self._latest_jpeg: bytes | None = None
         self._latest_jpeg_quality: int = 0
+        # Phase 18 (v0.1.5): RTSP 배경 리더 (cap.read() 를 OpenCV 내부 버퍼
+        # 에서 계속 꺼내 drop — decode_next() 가 언제 불려도 지연 누적 없이
+        # 최신 프레임 반환. 실질 latency ~0.3 s 목표.
+        self._is_rtsp: bool = False
+        self._reader_thread: threading.Thread | None = None
+        self._reader_stop: threading.Event = threading.Event()
+        self._new_frame_event: threading.Event = threading.Event()
+        self._reader_frame_counter: int = 0
+        # Phase 19 (v0.2.0): RTSP = ffmpeg subprocess pipe
+        #   - ffmpeg -rtsp_transport tcp -i URL -f rawvideo -pix_fmt bgr24 -
+        #   - low_delay + nobuffer 플래그 — OpenCV FFmpeg backend 의 내부
+        #     버퍼·상태 관리 오버헤드 제거, THE RECORD LibVLC 수준 지연 달성
+        self._ffmpeg_proc = None   # subprocess.Popen
+        self._ffmpeg_width: int = 0
+        self._ffmpeg_height: int = 0
 
     # =========================================================================
     # 프로퍼티
@@ -647,14 +673,85 @@ class VideoDecoder:
     # =========================================================================
 
     def open(self, file_path: str) -> bool:
-        """비디오 파일 열기.
+        """비디오 파일 / RTSP 스트림 열기.
 
-        Args:
-            file_path: 비디오 파일 경로
+        Phase 19 (v0.2.0):
+          - RTSP → OpenCV 로 메타(해상도/fps) 한 번 조회 → release →
+                   ffmpeg subprocess pipe 로 실제 스트림 시작 (저지연 모드).
+                   OpenCV FFmpeg backend 의 내부 버퍼·재인코딩 오버헤드를
+                   완전히 우회해 THE RECORD (LibVLC) 수준 지연 달성.
+          - 파일 → 기존 cv2.VideoCapture (순차 재생 보장).
 
         Returns:
             성공 여부
         """
+        is_rtsp = file_path.startswith("rtsp://") or file_path.startswith("rtsps://")
+
+        # ---------- RTSP 경로 ----------
+        if is_rtsp:
+            with self._lock:
+                if not self._state.can_open:
+                    return False
+                self._state = DecoderState.OPENING
+                self._file_path = file_path
+
+            # 1) OpenCV 로 메타 조회 (handshake + 첫 프레임 확인)
+            probe_cap = _open_rtsp_with_retry(file_path)
+            if probe_cap is None or not probe_cap.isOpened():
+                with self._lock:
+                    self._state = DecoderState.ERROR
+                return False
+            try:
+                width = int(probe_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                height = int(probe_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                fps_raw = probe_cap.get(cv2.CAP_PROP_FPS)
+                fps_val = fps_raw if fps_raw > 0.0 else float(DEFAULT_FPS)
+                # 첫 프레임 읽어 유효성
+                ret, _ = probe_cap.read()
+                if not ret:
+                    with self._lock:
+                        self._state = DecoderState.ERROR
+                    return False
+            finally:
+                probe_cap.release()
+
+            if width < MIN_VIDEO_WIDTH or height < MIN_VIDEO_HEIGHT:
+                with self._lock:
+                    self._state = DecoderState.ERROR
+                return False
+
+            width = min(width, MAX_VIDEO_WIDTH)
+            height = min(height, MAX_VIDEO_HEIGHT)
+
+            # 2) ffmpeg subprocess pipe 시작
+            try:
+                self._start_ffmpeg_pipe(file_path, width, height)
+            except Exception:
+                _logger.exception("ffmpeg pipe 시작 실패: %s", file_path)
+                with self._lock:
+                    self._state = DecoderState.ERROR
+                return False
+
+            # 3) 상태 확정
+            with self._lock:
+                self._metadata = VideoFileMetadata(
+                    duration=0.0,
+                    fps=fps_val,
+                    resolution=VideoResolution(width=width, height=height),
+                    total_frames=0,
+                )
+                self._cap = None                  # OpenCV cap 사용 안 함
+                self._current_index = 0
+                self._stats = DecoderStats()
+                self._state = DecoderState.DECODING
+                self._is_rtsp = True
+                self._reader_frame_counter = 0
+
+            # 4) background reader 시작 — ffmpeg stdout 을 읽는 루프
+            self._start_rtsp_reader()
+            return True
+
+        # ---------- 파일 경로 ----------
         with self._lock:
             if not self._state.can_open:
                 return False
@@ -662,34 +759,19 @@ class VideoDecoder:
             self._state = DecoderState.OPENING
             self._file_path = file_path
 
-            # RTSP 실시간 스트림: TCP + 재시도 (Phase 17 S1)
-            is_rtsp = file_path.startswith("rtsp://") or file_path.startswith("rtsps://")
-            if is_rtsp:
-                cap = _open_rtsp_with_retry(file_path)
-            else:
-                cap = cv2.VideoCapture(file_path)
-
+            cap = cv2.VideoCapture(file_path)
             if cap is None or not cap.isOpened():
                 self._state = DecoderState.ERROR
                 return False
 
-            # 메타데이터 추출
             width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
             fps_raw = cap.get(cv2.CAP_PROP_FPS)
+            frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            fps_val = fps_raw if fps_raw > 0.0 else float(DEFAULT_FPS)
+            frame_count = max(frame_count, 0)
+            duration = frame_count / fps_val if fps_val > 0 else 0.0
 
-            # RTSP는 frame_count/duration 알 수 없음 (무한 스트림)
-            if is_rtsp:
-                frame_count = 0
-                fps_val = fps_raw if fps_raw > 0.0 else float(DEFAULT_FPS)
-                duration = 0.0
-            else:
-                frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-                fps_val = fps_raw if fps_raw > 0.0 else float(DEFAULT_FPS)
-                frame_count = max(frame_count, 0)
-                duration = frame_count / fps_val if fps_val > 0 else 0.0
-
-            # 유효성 검증
             if width < MIN_VIDEO_WIDTH or height < MIN_VIDEO_HEIGHT:
                 cap.release()
                 self._state = DecoderState.ERROR
@@ -709,16 +791,217 @@ class VideoDecoder:
             self._current_index = 0
             self._stats = DecoderStats()
             self._state = DecoderState.DECODING
+            self._is_rtsp = False
+            self._reader_frame_counter = 0
 
-            return True
+        return True
 
     def close(self) -> None:
         """디코더 닫기 및 리소스 해제."""
+        # reader thread 먼저 정리 (lock 밖, join timeout 2s)
+        self._stop_rtsp_reader()
+        # ffmpeg subprocess 종료
+        self._stop_ffmpeg_pipe()
         with self._lock:
             if self._cap is not None:
                 self._cap.release()
                 self._cap = None
             self._state = DecoderState.CLOSED
+            self._is_rtsp = False
+
+    # =========================================================================
+    # FFmpeg Subprocess Pipe (Phase 19 v0.2.0) — THE RECORD 수준 저지연 RTSP
+    # =========================================================================
+    def _start_ffmpeg_pipe(self, url: str, width: int, height: int) -> None:
+        """
+        ffmpeg 을 subprocess 로 띄워 RTSP 프레임을 raw BGR 로 stdout 에 흘린다.
+
+        플래그 조합은 THE RECORD LibVLC 의 `--rtsp-tcp + network-caching 20ms`
+        효과를 ffmpeg 에서 재현:
+          -rtsp_transport tcp   : UDP 손실 재전송 회피
+          -fflags nobuffer      : 프레임 버퍼 생성 안 함
+          -fflags +discardcorrupt: 손상 프레임 즉시 drop
+          -flags low_delay      : 디코더 저지연 모드
+          -max_delay 0          : demuxer 재정렬 대기 0
+          -reorder_queue_size 0 : RTP 재정렬 큐 0
+          -probesize 32         : 스트림 분석 최소화 (첫 프레임 지연 ↓)
+          -analyzeduration 0    : 분석 시간 0 (첫 프레임 지연 ↓)
+          -f rawvideo -pix_fmt bgr24 : OpenCV 호환 raw frame
+
+        번들: imageio-ffmpeg 패키지가 제공하는 ffmpeg.exe 사용. courtview.spec
+              의 collect_all("imageio_ffmpeg") 이 binary 를 번들에 포함.
+        """
+        import subprocess
+        from imageio_ffmpeg import get_ffmpeg_exe
+
+        ffmpeg_exe = get_ffmpeg_exe()
+        cmd = [
+            ffmpeg_exe,
+            "-rtsp_transport", "tcp",
+            "-fflags", "nobuffer+discardcorrupt",
+            "-flags", "low_delay",
+            "-max_delay", "0",
+            "-reorder_queue_size", "0",
+            "-probesize", "32",
+            "-analyzeduration", "0",
+            "-i", url,
+            "-f", "rawvideo",
+            "-pix_fmt", "bgr24",
+            "-an", "-sn",           # audio/subtitle 제거
+            "-loglevel", "error",
+            "-",
+        ]
+        creationflags = 0
+        if sys.platform == "win32":
+            # CREATE_NO_WINDOW — 콘솔 창 뜨지 않게
+            creationflags = 0x08000000
+
+        self._ffmpeg_proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            bufsize=0,              # unbuffered pipe
+            creationflags=creationflags,
+        )
+        self._ffmpeg_width = width
+        self._ffmpeg_height = height
+        _logger.info(
+            "ffmpeg pipe 시작: camera=%s %dx%d pid=%d",
+            self._camera_id, width, height, self._ffmpeg_proc.pid,
+        )
+
+    def _stop_ffmpeg_pipe(self) -> None:
+        """ffmpeg subprocess 정리."""
+        if self._ffmpeg_proc is None:
+            return
+        proc = self._ffmpeg_proc
+        self._ffmpeg_proc = None
+        try:
+            proc.terminate()
+            proc.wait(timeout=2.0)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+        try:
+            if proc.stdout:
+                proc.stdout.close()
+        except Exception:
+            pass
+        _logger.info("ffmpeg pipe 종료: camera=%s", self._camera_id)
+
+    # =========================================================================
+    # RTSP Background Reader (Phase 18 v0.1.5) — OpenCV 내부 버퍼 지연 제거
+    # =========================================================================
+    def _start_rtsp_reader(self) -> None:
+        """
+        RTSP 전용: cap.read() 를 끊임없이 호출해 OpenCV/FFmpeg 내부 버퍼의
+        오래된 프레임을 계속 drop 하면서 최신 프레임만 `_latest_frame` 에 유지.
+        decode_next() 는 이 캐시를 O(1) 로 반환 → 사용자 체감 지연은 카메라
+        발행 ~ reader 수신 시점차 (네트워크 + OpenCV 디코드 1 프레임 분).
+        """
+        if self._reader_thread is not None and self._reader_thread.is_alive():
+            return
+        self._reader_stop.clear()
+        self._new_frame_event.clear()
+        self._reader_thread = threading.Thread(
+            target=self._rtsp_reader_loop,
+            name=f"rtsp-reader-{self._camera_id or 'n/a'}",
+            daemon=True,
+        )
+        self._reader_thread.start()
+        _logger.info("RTSP reader 시작: camera_id=%s", self._camera_id)
+
+    def _stop_rtsp_reader(self) -> None:
+        if self._reader_thread is not None:
+            self._reader_stop.set()
+            try:
+                self._reader_thread.join(timeout=2.0)
+            except Exception:
+                pass
+            self._reader_thread = None
+            _logger.info("RTSP reader 종료: camera_id=%s", self._camera_id)
+
+    def _rtsp_reader_loop(self) -> None:
+        """
+        ffmpeg subprocess stdout 에서 raw BGR 프레임을 연속 수신.
+
+        Phase 19 (v0.2.0): OpenCV VideoCapture 대신 ffmpeg 직접 pipe.
+        ffmpeg 가 RTSP → 디코드 → raw BGR bytes 를 stdout 에 연속 흘려보냄.
+        각 프레임은 width × height × 3 바이트 (bgr24).
+
+        프레임 경계 결정:
+          ffmpeg 는 각 프레임을 **정확히** frame_size 바이트로 출력 (rawvideo 특성).
+          fread(frame_size) 가 bgr24 해상도 프레임 1개 완성 보장.
+
+        오래된 프레임 drop:
+          decode_next() 호출이 느려도 이 루프가 계속 pipe 에서 pull 하므로
+          kernel pipe buffer (기본 64 KB, 프레임 ~ MB 단위라 1 프레임 이하)
+          에 누적이 안 된다. 카메라가 보내는 프레임을 거의 실시간으로 수신.
+        """
+        if self._ffmpeg_proc is None or self._ffmpeg_proc.stdout is None:
+            return
+
+        proc = self._ffmpeg_proc
+        w = self._ffmpeg_width
+        h = self._ffmpeg_height
+        frame_size = w * h * 3  # bgr24 — 3 bytes per pixel
+        target_w, target_h = ANALYSIS_NORMALIZED_RESOLUTION
+        need_resize = (w > target_w) or (h > target_h)
+
+        stdout = proc.stdout
+
+        while not self._reader_stop.is_set():
+            t0 = time.monotonic()
+            # Read exactly frame_size bytes — ffmpeg 는 항상 완전 프레임 출력
+            data = bytearray()
+            need = frame_size
+            while need > 0 and not self._reader_stop.is_set():
+                try:
+                    chunk = stdout.read(need)
+                except Exception as e:
+                    _logger.debug("ffmpeg stdout read 예외: %s", e)
+                    chunk = b""
+                if not chunk:
+                    # EOF — ffmpeg 종료됨 (RTSP 끊김 or crash)
+                    _logger.warning(
+                        "ffmpeg pipe EOF: camera=%s (ffmpeg 종료됨)",
+                        self._camera_id,
+                    )
+                    return
+                data.extend(chunk)
+                need = frame_size - len(data)
+
+            if self._reader_stop.is_set():
+                return
+
+            dt = time.monotonic() - t0
+
+            # raw bytes → numpy ndarray (copy=True via .copy() 아래 _latest_frame)
+            try:
+                frame = np.frombuffer(bytes(data), dtype=np.uint8).reshape(h, w, 3)
+            except Exception as e:
+                _logger.warning("프레임 reshape 실패: %s (frame_size=%d)", e, len(data))
+                with self._lock:
+                    self._stats.frames_failed += 1
+                continue
+
+            # 4K → 1080p 리사이즈 (필요 시)
+            if need_resize:
+                frame = cv2.resize(frame, (target_w, target_h), interpolation=cv2.INTER_AREA)
+
+            with self._lock:
+                # frombuffer 는 읽기 전용 view — copy 해서 external 사용 안전
+                self._latest_frame = frame.copy()
+                self._latest_jpeg = None
+                self._reader_frame_counter += 1
+                self._stats.frames_decoded += 1
+                self._stats.consecutive_failures = 0
+                self._stats.last_frame_time = time.monotonic()
+                self._stats.decode_time_sec += dt
+                self._stats.bytes_read += frame.nbytes
+            self._new_frame_event.set()
 
     # =========================================================================
     # 프레임 디코딩
@@ -727,19 +1010,24 @@ class VideoDecoder:
     def decode_next(self) -> FrameData | None:
         """다음 프레임 디코딩.
 
-        lock 스코프를 최소화하여 네트워크 대기 시간 동안 다른 스레드가
-        블로킹되지 않도록 한다. 4K 입력은 분석 해상도(1080p)로 리사이즈.
+        Phase 18 v0.1.5:
+          - RTSP: background reader 가 유지하는 _latest_frame 을 O(1) 반환.
+                  새 프레임 없으면 최대 100 ms 대기. 지연 ≈ OpenCV 1 프레임 분.
+          - 파일: 기존 sync 방식 — cap.read() 로 순차 프레임 (순차 재생 보장).
 
         Returns:
-            FrameData 또는 None (EOF/오류)
+            FrameData 또는 None (EOF/오류/timeout)
         """
-        # lock 최소화: cap 참조만 복사
         with self._lock:
             if self._cap is None or self._state != DecoderState.DECODING:
                 return None
+            is_rtsp = self._is_rtsp
             cap = self._cap
 
-        # lock 밖에서 I/O 수행 (네트워크 대기 중 다른 스레드 블로킹 방지)
+        if is_rtsp:
+            return self._fetch_latest_rtsp_frame()
+
+        # --- 파일 경로: 기존 sync 동작 유지 ---
         t0 = time.monotonic()
         ret, frame = cap.read()
         dt = time.monotonic() - t0
@@ -751,7 +1039,7 @@ class VideoDecoder:
                 self._stats.decode_time_sec += dt
             return None
 
-        # 4K → 1080p 리사이즈 (분석 정규화 해상도)
+        # 4K → 1080p 리사이즈
         h, w = frame.shape[:2]
         target_w, target_h = ANALYSIS_NORMALIZED_RESOLUTION
         if w > target_w or h > target_h:
@@ -761,14 +1049,47 @@ class VideoDecoder:
             index = self._current_index
             self._current_index += 1
             self._stats.frames_decoded += 1
-            self._stats.consecutive_failures = 0  # 성공 시 리셋
-            self._stats.last_frame_time = time.monotonic()  # health 모니터링용
+            self._stats.consecutive_failures = 0
+            self._stats.last_frame_time = time.monotonic()
             self._stats.decode_time_sec += dt
             self._stats.bytes_read += frame.nbytes
-            # Phase 17 S4: 최신 프레임 캐시 (MJPEG 공유용)
             self._latest_frame = frame
-            self._latest_jpeg = None  # 무효화 — 다음 조회 시 재인코딩
+            self._latest_jpeg = None
 
+        timestamp = index / self.fps if self.fps > 0 else 0.0
+
+        return FrameData(
+            image=frame,
+            index=index,
+            timestamp=timestamp,
+            status=FrameStatus.VALID,
+            camera_id=self._camera_id,
+        )
+
+    def _fetch_latest_rtsp_frame(self) -> FrameData | None:
+        """
+        RTSP 모드: background reader 가 유지하는 최신 프레임 반환.
+
+        호출 시점엔 lock 보유하지 않은 상태 (caller 가 release 후 진입).
+        프레임 아직 없으면 new_frame_event 로 최대 100 ms 대기.
+        """
+        with self._lock:
+            frame = self._latest_frame
+
+        if frame is None:
+            # 새 프레임 올 때까지 대기 (lock 밖)
+            got = self._new_frame_event.wait(timeout=0.1)
+            if not got:
+                return None
+            with self._lock:
+                frame = self._latest_frame
+            if frame is None:
+                return None
+
+        # decode_next 1 회당 external index 1 증가 (기존 계약 유지)
+        with self._lock:
+            index = self._current_index
+            self._current_index += 1
         timestamp = index / self.fps if self.fps > 0 else 0.0
 
         return FrameData(
