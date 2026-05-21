@@ -340,6 +340,16 @@ class PlayerDetector:
             ObjectType,
         )
 
+        # ===== PLAYER-FLOW 진입 (50프레임 주기 또는 raw 5명 이상일 때) =====
+        verbose_pf = (frame_index % 50 == 0) or (len(detections) >= 5)
+        if verbose_pf:
+            logger.info(
+                "[PLAYER-FLOW F#%d] 1️⃣ 데이터 수신 → raw_detections=%d, "
+                "frames=%d cams (%s)",
+                frame_index, len(detections),
+                len(frames), list(frames.keys()),
+            )
+
         # DetectedObject → _PlayerCandidate 변환
         candidates_by_cam: dict[str, list[_PlayerCandidate]] = {}
 
@@ -469,6 +479,22 @@ class PlayerDetector:
                     attributes=attributes,
                 )
                 all_objects.append(obj)
+
+        # ===== PLAYER-FLOW 결과 =====
+        if verbose_pf:
+            # 카메라/팀별 카운트
+            cam_counts = {cid: len(c) for cid, c in candidates_by_cam.items()}
+            team_counts: dict[str, int] = {}
+            for obj in all_objects:
+                t = (obj.attributes or {}).get("team", "?") if obj.attributes else "?"
+                team_counts[t] = team_counts.get(t, 0) + 1
+            logger.info(
+                "[PLAYER-FLOW F#%d] 2️⃣ 결과 → fused=%d명 "
+                "카메라별=%s 팀별=%s (run_classify=%s, run_ocr=%s)",
+                frame_index, len(all_objects),
+                cam_counts, team_counts,
+                run_classify, run_ocr,
+            )
 
         return MultiViewDetectionResult(
             fused_objects=all_objects,
@@ -741,6 +767,23 @@ class PlayerDetector:
         )
 
         candidates: list[_PlayerCandidate] = []
+
+        # v0.5.8.3: 100프레임마다 inference 결과 직접 로그 — engine inference path 가
+        # 0건 반환하는 원인 추적용 (frame shape/dtype, results 개수, boxes 수).
+        if frame_index % 100 == 0:
+            n_res = len(results) if results else 0
+            n_box = (len(results[0].boxes) if (results and results[0].boxes is not None) else 0)
+            try:
+                fshape = getattr(frame, "shape", None)
+                fdtype = getattr(frame, "dtype", None)
+            except Exception:
+                fshape, fdtype = "?", "?"
+            import logging as _lg
+            _lg.getLogger(__name__).warning(
+                "[YOLO F#%d cam=%s] frame=%s/%s conf=%s imgsz=%s → results=%d boxes=%d",
+                frame_index, camera_id, fshape, fdtype,
+                config.confidence_threshold, config.input_size, n_res, n_box,
+            )
 
         if not results or len(results) == 0:
             return candidates

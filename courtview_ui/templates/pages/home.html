@@ -1,0 +1,1030 @@
+{% extends "components/layout.html" %}
+{% set active = "home" %}
+{% block title %}COURTVIEW — 홈{% endblock %}
+
+{% block styles %}
+<style>
+/* ================================================================
+   HOME · Editorial dashboard
+   Hero · stat bar · featured live + schedule rail · standings + bracket · system footer
+   ================================================================ */
+.h-root { color: var(--fg-0); }
+
+/* ---------- HERO ---------- */
+.h-hero {
+    padding: 40px 0 28px;
+    border-bottom: 1px solid var(--line-2);
+    position: relative;
+}
+.h-hero-issue {
+    position: absolute; top: 8px; right: 0;
+    font-family: var(--f-mono); font-size: 11px;
+    color: var(--fg-3); letter-spacing: 1.4px;
+    text-align: right; line-height: 1.6;
+}
+.h-hero-tagrow {
+    display: flex; gap: 8px; align-items: center;
+    font-family: var(--f-mono); font-size: 11px;
+    color: var(--fg-2); letter-spacing: 1px;
+}
+.h-hero-title {
+    font-family: var(--f-display); font-weight: 700;
+    font-size: 92px; letter-spacing: -3px; line-height: 0.92;
+    margin: 14px 0 0; max-width: 1100px;
+}
+.h-hero-title .hot { color: var(--hot); }
+.h-hero-meta {
+    display: flex; flex-wrap: wrap; gap: 32px;
+    margin-top: 18px;
+    font-family: var(--f-mono); font-size: 12px; color: var(--fg-1);
+}
+.h-hero-meta .lbl { color: var(--fg-3); }
+
+/* ---------- 5-col stat bar ---------- */
+.h-statbar {
+    display: grid; grid-template-columns: repeat(5, 1fr);
+    border-bottom: 1px solid var(--line-2);
+}
+.h-stat-cell {
+    padding: 20px 24px;
+    border-right: 1px solid var(--line-2);
+}
+.h-stat-cell:last-child { border-right: none; }
+.h-stat-label {
+    font-family: var(--f-mono); font-size: 10px;
+    color: var(--fg-2); letter-spacing: 1.2px;
+}
+.h-stat-num {
+    font-family: var(--f-display); font-weight: 700;
+    font-size: 44px; line-height: 1; margin-top: 4px;
+    letter-spacing: -1px; font-variant-numeric: tabular-nums;
+}
+.h-stat-num.hot { color: var(--hot); }
+.h-stat-num.good { color: var(--good); }
+.h-stat-num.bad { color: var(--bad); }
+.h-stat-num.cool { color: var(--cool); }
+
+/* ---------- featured live + schedule rail ---------- */
+.h-feature-row {
+    display: grid; grid-template-columns: 1.4fr 1fr;
+    gap: 1px; background: var(--line-2);
+    border-bottom: 1px solid var(--line-2);
+}
+.h-feature-cell {
+    background: var(--bg-1); padding: 28px 40px;
+}
+.h-feature-cell.rail { padding: 28px 32px; }
+.h-section-kicker {
+    display: flex; align-items: center; gap: 12px;
+    margin-bottom: 16px;
+}
+.h-section-kicker .label {
+    font-family: var(--f-mono); font-size: 10px;
+    color: var(--fg-2); letter-spacing: 2px;
+}
+.h-section-kicker .rule {
+    flex: 1; height: 1px; background: var(--line-2);
+}
+.h-section-kicker .meta {
+    font-family: var(--f-mono); font-size: 10px;
+    color: var(--fg-3); letter-spacing: 1px;
+}
+
+/* featured live scoreboard */
+.h-feat-board {
+    display: grid; grid-template-columns: 1fr auto 1fr;
+    gap: 28px; align-items: start;
+}
+.h-feat-side .side {
+    font-family: var(--f-mono); font-size: 10px;
+    color: var(--fg-2); letter-spacing: 1px;
+}
+.h-feat-side.away { text-align: right; }
+.h-feat-side .name {
+    font-family: var(--f-display); font-weight: 700;
+    font-size: 44px; letter-spacing: -1px; line-height: 1;
+    margin-top: 4px;
+}
+.h-feat-side .score {
+    font-family: var(--f-display); font-weight: 700;
+    font-size: 110px; line-height: 0.85; letter-spacing: -5px;
+    margin-top: 8px; font-variant-numeric: tabular-nums;
+}
+.h-feat-side.home .score { color: var(--hot); }
+.h-feat-side.away .score { color: var(--cool); }
+.h-feat-mid {
+    padding-top: 30px; text-align: center;
+    font-family: var(--f-mono);
+}
+.h-feat-mid .stage {
+    font-size: 10px; color: var(--fg-3); letter-spacing: 2px;
+}
+.h-feat-mid .vs {
+    font-family: var(--f-display); font-size: 32px;
+    color: var(--fg-3); font-weight: 700; margin-top: 6px;
+}
+.h-feat-mid .lead {
+    font-size: 11px; color: var(--hot); margin-top: 6px;
+    font-weight: 700;
+}
+
+/* mini stat strip under featured */
+.h-feat-strip {
+    margin-top: 24px;
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    border: 1px solid var(--line-2);
+}
+.h-feat-strip .cell {
+    padding: 10px 14px;
+    border-right: 1px solid var(--line-2);
+}
+.h-feat-strip .cell:last-child { border-right: none; }
+.h-feat-strip .k {
+    font-family: var(--f-mono); font-size: 10px;
+    color: var(--fg-2); letter-spacing: 1px; text-align: center;
+}
+.h-feat-strip .row {
+    display: flex; justify-content: space-between;
+    margin-top: 4px;
+    font-family: var(--f-mono); font-size: 13px; font-weight: 600;
+}
+
+/* leader card under featured */
+.h-feat-leader {
+    margin-top: 24px;
+    padding: 20px 24px;
+    background: var(--bg-2);
+    border-left: 3px solid var(--hot);
+}
+.h-feat-leader .lab {
+    font-family: var(--f-mono); font-size: 10px;
+    color: var(--fg-2); letter-spacing: 1.5px;
+}
+.h-feat-leader .nm {
+    font-family: var(--f-display); font-size: 28px;
+    font-weight: 700; margin-top: 4px; letter-spacing: -0.5px;
+}
+.h-feat-leader .nm .sub { color: var(--fg-3); font-weight: 700; }
+.h-feat-leader .stats {
+    display: flex; gap: 24px; margin-top: 8px;
+    font-family: var(--f-mono); font-size: 13px; color: var(--fg-2);
+}
+.h-feat-leader .stats b {
+    font-size: 18px; color: var(--fg-0); margin-right: 4px;
+}
+.h-feat-leader .stats b.hot { color: var(--hot); }
+.h-feat-leader .stats b.good { color: var(--good); }
+
+/* schedule rail */
+.h-rail-row {
+    padding: 14px 0;
+    border-bottom: 1px solid var(--line-2);
+    cursor: pointer;
+    transition: background 0.12s;
+}
+.h-rail-row:last-child { border-bottom: none; }
+.h-rail-row:hover { background: var(--hot-soft); }
+.h-rail-top {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 6px;
+}
+.h-rail-meta {
+    font-family: var(--f-mono); font-size: 11px; color: var(--fg-1);
+    letter-spacing: 0.5px;
+}
+.h-rail-team {
+    display: flex; justify-content: space-between; align-items: baseline;
+    margin-top: 2px;
+}
+.h-rail-team .nm {
+    font-family: var(--f-display); font-size: 18px; font-weight: 700;
+    letter-spacing: -0.3px;
+}
+.h-rail-team .sc {
+    font-family: var(--f-mono); font-size: 16px; font-weight: 700;
+    color: var(--fg-0); font-variant-numeric: tabular-nums;
+}
+.h-rail-team .sc.live { color: var(--hot); }
+.h-rail-team .sc.dim { color: var(--fg-3); }
+.h-rail-team .nm.win { color: var(--hot); }
+
+/* ---------- standings + bracket (4 cols) ---------- */
+.h-stand-row {
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    gap: 1px; background: var(--line-2);
+    border-bottom: 1px solid var(--line-2);
+}
+.h-stand-cell {
+    background: var(--bg-1);
+    padding: 28px 32px;
+}
+.h-stand-title {
+    display: flex; align-items: baseline; gap: 12px;
+    margin-bottom: 14px;
+}
+.h-stand-title .name {
+    font-family: var(--f-display); font-size: 28px;
+    font-weight: 700; letter-spacing: -0.5px;
+}
+.h-stand-title .meta {
+    font-family: var(--f-mono); font-size: 10px;
+    color: var(--fg-2); letter-spacing: 1px;
+}
+.h-stand-row-item {
+    display: grid;
+    grid-template-columns: 24px 1fr 50px 50px 60px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--line-2);
+    align-items: center;
+}
+.h-stand-row-item:last-child { border-bottom: none; }
+.h-stand-rank {
+    font-family: var(--f-mono); font-size: 11px;
+    font-weight: 700; color: var(--fg-3);
+}
+.h-stand-rank.q { color: var(--hot); }
+.h-stand-team {
+    font-family: var(--f-display); font-size: 16px;
+    font-weight: 700; color: var(--fg-1);
+}
+.h-stand-team.q { color: var(--fg-0); }
+.h-stand-num {
+    font-family: var(--f-mono); font-size: 12px;
+    text-align: center; font-variant-numeric: tabular-nums;
+}
+.h-stand-num.w { color: var(--good); }
+.h-stand-num.l { color: var(--bad); }
+.h-stand-num.diff { font-weight: 600; text-align: right; }
+.h-stand-num.diff.pos { color: var(--good); }
+.h-stand-num.diff.neg { color: var(--bad); }
+.h-stand-num.diff.zero { color: var(--fg-1); }
+
+/* bracket inside fourth column */
+.h-bracket-row {
+    padding: 12px 0;
+    border-bottom: 1px solid var(--line-2);
+}
+.h-bracket-row:last-child { border-bottom: none; }
+.h-bracket-top {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 6px;
+}
+.h-bracket-round {
+    font-family: var(--f-mono); font-size: 10px;
+    color: var(--fg-2); letter-spacing: 1.5px;
+}
+.h-bracket-team {
+    display: flex; justify-content: space-between; align-items: baseline;
+    margin-top: 2px;
+}
+.h-bracket-team .nm {
+    font-family: var(--f-display); font-size: 16px;
+    font-weight: 700; color: var(--fg-1); letter-spacing: -0.2px;
+}
+.h-bracket-team .nm.win { color: var(--hot); }
+.h-bracket-team .nm.tbd { color: var(--fg-3); font-style: italic; font-weight: 500; }
+.h-bracket-team .sc {
+    font-family: var(--f-mono); font-size: 14px; font-weight: 700;
+    color: var(--fg-0); font-variant-numeric: tabular-nums;
+}
+.h-bracket-team .sc.live { color: var(--hot); }
+.h-bracket-team .sc.dim { color: var(--fg-3); }
+
+/* ---------- system footer ---------- */
+.h-sys-row {
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    border-top: 1px solid var(--line-2);
+    margin-top: 0;
+}
+.h-sys-cell {
+    padding: 14px 18px;
+    border-right: 1px solid var(--line-2);
+}
+.h-sys-cell:last-child { border-right: none; }
+.h-sys-k {
+    font-family: var(--f-mono); font-size: 10px;
+    color: var(--fg-2); letter-spacing: 1.2px; text-transform: uppercase;
+}
+.h-sys-v {
+    font-family: var(--f-mono); font-size: 13px;
+    color: var(--fg-0); margin-top: 4px; font-weight: 600;
+}
+.h-sys-v.good { color: var(--good); }
+.h-sys-v.bad { color: var(--bad); }
+
+/* ---------- empty state ---------- */
+.h-empty {
+    padding: 80px 56px;
+    text-align: center;
+    border: 1px solid var(--line-2);
+    background: var(--bg-1);
+}
+.h-empty .kicker {
+    font-family: var(--f-mono); font-size: 11px;
+    color: var(--fg-2); letter-spacing: 2px;
+}
+.h-empty h2 {
+    font-family: var(--f-display); font-size: 56px; font-weight: 700;
+    letter-spacing: -2px; line-height: 0.95; margin: 12px 0 0;
+}
+.h-empty h2 .hot { color: var(--hot); }
+.h-empty p {
+    font-family: var(--f-mono); font-size: 12px; color: var(--fg-2);
+    margin: 22px auto 0; max-width: 540px; line-height: 1.7;
+}
+.h-empty .cta-row {
+    display: flex; gap: 10px; justify-content: center;
+    margin-top: 28px; flex-wrap: wrap;
+}
+
+/* ---------- empty placeholders inside sections ---------- */
+.h-empty-line {
+    font-family: var(--f-mono); font-size: 11px;
+    color: var(--fg-3); text-align: center;
+    padding: 24px 12px; letter-spacing: 1px;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="h-root">
+
+    <!-- ================================================================
+         EMPTY STATE — 대회 미등록
+         ================================================================ -->
+    <div id="empty-state" style="display:none;">
+        <div class="h-empty">
+            <div class="kicker">NO ACTIVE TOURNAMENT</div>
+            <h2>등록된 <span class="hot">대회</span>가<br>아직 없습니다.</h2>
+            <p>
+                bkdunk 앱에서 대회 · 팀 · 선수를 등록한 뒤<br>
+                [DB] 페이지에서 [☁ Cloud 동기화] 버튼을 눌러 불러오세요.
+            </p>
+            <div class="cta-row">
+                <a href="https://bkdunk.com" target="_blank" class="cv-btn primary" style="height:40px; padding:0 22px; font-size:12px; letter-spacing:1.2px;">BKDUNK 대회 등록 ↗</a>
+                <a href="/database" class="cv-btn ghost" style="height:40px; padding:0 22px; font-size:12px; letter-spacing:1.2px;">DB 관리</a>
+                <button type="button" onclick="seedMockTournament()" class="cv-btn ghost" style="height:40px; padding:0 22px; font-size:12px; letter-spacing:1.2px; border-color:var(--warn); color:var(--warn);">🌱 DEMO 데이터 시드</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================================================================
+         ACTIVE STATE — Editorial dashboard
+         ================================================================ -->
+    <div id="active-state" style="display:none;">
+
+        <!-- HERO -->
+        <div class="h-hero">
+            <div class="h-hero-issue">
+                <div id="h-issue">ISSUE · —</div>
+                <div id="h-today-date" style="margin-top:4px;">—</div>
+            </div>
+            <div class="h-hero-tagrow">
+                <span class="cv-tag hot" id="h-tcode">—</span>
+                <span id="h-tag-meta">— TEAMS · — STAGE</span>
+            </div>
+            <h1 class="h-hero-title" id="h-title">—</h1>
+            <div class="h-hero-meta">
+                <span><span class="lbl">WHEN —</span> <span id="h-when">—</span></span>
+                <span><span class="lbl">WHERE —</span> <span id="h-where">—</span></span>
+                <span><span class="lbl">FORMAT —</span> <span id="h-format">—</span></span>
+            </div>
+        </div>
+
+        <!-- STAT BAR -->
+        <div class="h-statbar">
+            <div class="h-stat-cell">
+                <div class="h-stat-label">TEAMS</div>
+                <div class="h-stat-num hot" id="t-teams">0</div>
+            </div>
+            <div class="h-stat-cell">
+                <div class="h-stat-label">TOTAL GAMES</div>
+                <div class="h-stat-num" id="t-total">0</div>
+            </div>
+            <div class="h-stat-cell">
+                <div class="h-stat-label">COMPLETED</div>
+                <div class="h-stat-num good" id="t-done">0</div>
+            </div>
+            <div class="h-stat-cell">
+                <div class="h-stat-label">IN-PLAY</div>
+                <div class="h-stat-num bad" id="t-live">0</div>
+            </div>
+            <div class="h-stat-cell">
+                <div class="h-stat-label">REMAINING</div>
+                <div class="h-stat-num cool" id="t-left">0</div>
+            </div>
+        </div>
+
+        <!-- FEATURED LIVE + TODAY RAIL -->
+        <div class="h-feature-row">
+            <!-- Featured live (or next today) -->
+            <div class="h-feature-cell" id="h-featured-cell">
+                <div class="h-section-kicker">
+                    <span class="label" id="h-featured-kicker">FEATURED · TODAY</span>
+                    <span class="rule"></span>
+                    <span id="h-featured-status"></span>
+                </div>
+                <div id="h-featured-body">
+                    <div class="h-empty-line">표시할 경기가 없습니다</div>
+                </div>
+            </div>
+
+            <!-- Schedule rail -->
+            <div class="h-feature-cell rail">
+                <div class="h-section-kicker">
+                    <span class="label">TODAY · <span id="today-date">—</span></span>
+                    <span class="rule"></span>
+                    <span class="meta" id="today-count">— GAMES</span>
+                </div>
+                <div id="today-rail"></div>
+            </div>
+        </div>
+
+        <!-- STANDINGS + BRACKET -->
+        <div class="h-stand-row" id="h-stand-row">
+            <!-- groups + bracket cell injected by JS -->
+        </div>
+
+        <!-- SYSTEM FOOTER -->
+        <div class="h-sys-row">
+            <div class="h-sys-cell">
+                <div class="h-sys-k">ENGINE</div>
+                <div class="h-sys-v good" id="sys-engine">IDLE</div>
+            </div>
+            <div class="h-sys-cell">
+                <div class="h-sys-k">GPU</div>
+                <div class="h-sys-v" id="sys-gpu">—</div>
+            </div>
+            <div class="h-sys-cell">
+                <div class="h-sys-k">VRAM</div>
+                <div class="h-sys-v" id="sys-vram">—</div>
+            </div>
+            <div class="h-sys-cell">
+                <div class="h-sys-k">SYNC</div>
+                <div class="h-sys-v" id="sys-sync">—</div>
+            </div>
+        </div>
+
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// =============================================================================
+// HOME — Editorial dashboard
+// localStorage 'cv_db' (DB 관리에서 bkdunk 동기화로 채움) 에서 대회 데이터 로드
+// =============================================================================
+let tournament = null;
+let matches = [];
+
+// 목데이터 마이그레이션 — 구버전 시드 감지 시 캐시 비움
+(function _purgeLegacyMockDB() {
+    try {
+        const raw = localStorage.getItem('cv_db');
+        if (!raw) return;
+        const db = JSON.parse(raw);
+        const mockTeams = new Set(['아울스','덩커스','업템포','청량','싱글벙글','블레이즈','스톰','타이탄','팬텀']);
+        const mockIds = new Set(['T001']);
+        const looksMocked = (db.tourneys || []).some(t =>
+            mockIds.has(t.id) ||
+            t.name === '2026 COURTVIEW 시범 대회' ||
+            t.venue === 'SPOIN 체육관' ||
+            (t.teams || []).some(x => mockTeams.has(x.name))
+        );
+        if (looksMocked) {
+            console.warn('[home] 구버전 목데이터 감지 — cv_db 캐시 정리');
+            localStorage.removeItem('cv_db');
+        }
+    } catch { localStorage.removeItem('cv_db'); }
+})();
+
+function _loadFromLocalDB() {
+    try {
+        const db = JSON.parse(localStorage.getItem('cv_db') || '{}');
+        const t = (db.tourneys || [])[0];
+        if (!t) return false;
+
+        tournament = {
+            id: t.id,
+            name: t.name || '-',
+            code: t.code || (t.name || '').split(' ')[0] || 'TOURNAMENT',
+            venue: t.venue || '-',
+            startDate: t.startDate || '',
+            endDate: t.endDate || '',
+            format: t.format || '',
+            teams: (t.teams || []).map(x => x.name),
+            groups: t.groups || {},
+            teamObjs: t.teams || [],
+            ruleSet: t.ruleSet || 'fiba',
+        };
+        matches = (t.matches || []).map(m => ({
+            id: m.id || '',
+            phase: m.phase || 'group',
+            group: m.group || '',
+            date: m.date || '',
+            time: m.time || '',
+            home: m.home || '',
+            away: m.away || '',
+            hs: m.hs ?? null,
+            as: m.as ?? null,
+            status: m.status || 'scheduled',
+        }));
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+function _todayMMDD() {
+    const d = new Date();
+    return `${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')}`;
+}
+
+function _todayLong() {
+    const d = new Date();
+    const mm = String(d.getMonth()+1).padStart(2,'0');
+    const dd = String(d.getDate()).padStart(2,'0');
+    return `${mm} · ${dd} · ${d.getFullYear()}`;
+}
+
+function _esc(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c =>
+        ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' })[c]);
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// HERO
+// ──────────────────────────────────────────────────────────────────────────────
+function renderHero() {
+    if (!tournament) return;
+
+    // ISSUE 번호 — 시작일~오늘 일수
+    let issueNum = 1;
+    if (tournament.startDate) {
+        try {
+            const start = new Date(tournament.startDate.replace(/\./g, '-'));
+            const now = new Date();
+            issueNum = Math.max(1, Math.floor((now - start) / 86400000) + 1);
+        } catch {}
+    }
+    document.getElementById('h-issue').textContent = `ISSUE · ${String(issueNum).padStart(3,'0')}`;
+    document.getElementById('h-today-date').textContent = _todayLong();
+
+    // 코드 + 메타
+    document.getElementById('h-tcode').textContent = tournament.code;
+    const stage = (matches.some(m => m.phase === 'final') || matches.some(m => m.phase === 'semi'))
+        ? 'KO STAGE' : 'GROUP STAGE';
+    document.getElementById('h-tag-meta').textContent =
+        `${tournament.teams.length} TEAMS · ${stage}`;
+
+    // 제목 — 단어 절반씩 분할, 뒷부분 hot
+    const words = (tournament.name || '').split(/\s+/).filter(Boolean);
+    const half = Math.ceil(words.length / 2);
+    const front = words.slice(0, half).join(' ');
+    const back  = words.slice(half).join(' ');
+    const titleEl = document.getElementById('h-title');
+    if (back) {
+        titleEl.innerHTML = `${_esc(front)}<br><span class="hot">${_esc(back)}</span>`;
+    } else {
+        titleEl.textContent = front || '—';
+    }
+
+    // 메타
+    const when = [tournament.startDate, tournament.endDate].filter(Boolean).join(' ~ ') || '—';
+    document.getElementById('h-when').textContent = when;
+    document.getElementById('h-where').textContent = tournament.venue || '—';
+    document.getElementById('h-format').textContent =
+        tournament.format || (tournament.ruleSet || 'fiba').toUpperCase();
+
+    // STAT BAR
+    const done = matches.filter(m => m.status === 'done').length;
+    const live = matches.filter(m => m.status === 'live').length;
+    const total = matches.length;
+    document.getElementById('t-teams').textContent = tournament.teams.length;
+    document.getElementById('t-total').textContent = total;
+    document.getElementById('t-done').textContent = done;
+    document.getElementById('t-live').textContent = live;
+    document.getElementById('t-left').textContent = Math.max(0, total - done - live);
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// FEATURED LIVE — 라이브 → 다음 today → 첫 today 순
+// ──────────────────────────────────────────────────────────────────────────────
+function renderFeatured() {
+    const today = _todayMMDD();
+    const live = matches.find(m => m.status === 'live');
+    const todayUpcoming = matches.find(m => m.date === today && m.status === 'scheduled');
+    const featured = live || todayUpcoming || matches.find(m => m.date === today);
+
+    const kicker = document.getElementById('h-featured-kicker');
+    const status = document.getElementById('h-featured-status');
+    const body = document.getElementById('h-featured-body');
+
+    if (!featured) {
+        kicker.textContent = 'FEATURED';
+        status.innerHTML = '';
+        body.innerHTML = '<div class="h-empty-line">오늘 진행 중 / 예정된 경기가 없습니다</div>';
+        return;
+    }
+
+    if (live) {
+        kicker.textContent = 'FEATURED · LIVE';
+        status.innerHTML = `<span class="cv-tag live"><span style="display:inline-block;width:6px;height:6px;background:var(--bad);border-radius:50%;margin-right:6px;"></span> LIVE</span>`;
+    } else {
+        kicker.textContent = 'FEATURED · NEXT';
+        status.innerHTML = `<span class="cv-tag" style="font-size:9px;">${_esc(featured.time || 'TBD')}</span>`;
+    }
+
+    const hs = featured.hs;
+    const as_ = featured.as;
+    const hasScore = hs != null && as_ != null;
+    const lead = hasScore ? Math.abs(hs - as_) : null;
+    const homeWin = hasScore && hs > as_;
+    const awayWin = hasScore && as_ > hs;
+
+    const phaseLabel = featured.phase === 'final' ? 'FINAL'
+        : featured.phase === 'semi' ? 'SEMIFINAL'
+        : (featured.group ? `GROUP ${featured.group}` : 'GROUP STAGE');
+
+    // 액션 — 라이브면 분석 화면으로, 아니면 confirmStart
+    const action = live
+        ? `onclick="location.href='/game/analysis'"`
+        : `onclick="confirmStart('${_esc(featured.home)}','${_esc(featured.away)}','${_esc(featured.group||'')}','${_esc(featured.time||'')}')"`;
+
+    body.innerHTML = `
+        <div class="h-feat-board" style="cursor:pointer;" ${action}>
+            <div class="h-feat-side home">
+                <div class="side">HOME · ${_esc(featured.group ? 'GROUP ' + featured.group : phaseLabel)}</div>
+                <div class="name">${_esc(featured.home)}</div>
+                <div class="score" style="${homeWin ? '' : awayWin ? 'color:var(--fg-2);' : ''}">${hasScore ? hs : '—'}</div>
+            </div>
+            <div class="h-feat-mid">
+                <div class="stage">${_esc(phaseLabel)}</div>
+                <div class="vs">—</div>
+                ${lead != null ? `<div class="lead">${homeWin ? '+' : '−'}${lead} ${homeWin ? 'LEAD' : 'TRAIL'}</div>` : ''}
+            </div>
+            <div class="h-feat-side away">
+                <div class="side">AWAY · ${_esc(featured.group ? 'GROUP ' + featured.group : phaseLabel)}</div>
+                <div class="name">${_esc(featured.away)}</div>
+                <div class="score" style="${awayWin ? '' : homeWin ? 'color:var(--fg-2);' : ''}">${hasScore ? as_ : '—'}</div>
+            </div>
+        </div>
+    `;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// TODAY SCHEDULE RAIL
+// ──────────────────────────────────────────────────────────────────────────────
+function renderRail() {
+    const today = _todayMMDD();
+    document.getElementById('today-date').textContent = today;
+
+    const todayMatches = matches.filter(m => m.date === today);
+    document.getElementById('today-count').textContent = `${todayMatches.length} GAMES`;
+
+    const rail = document.getElementById('today-rail');
+    if (!todayMatches.length) {
+        rail.innerHTML = '<div class="h-empty-line">오늘 예정된 경기가 없습니다</div>';
+        return;
+    }
+
+    rail.innerHTML = todayMatches.map(m => {
+        const isLive = m.status === 'live';
+        const isDone = m.status === 'done';
+        const hasScore = m.hs != null && m.as != null;
+        const homeWin = hasScore && m.hs > m.as;
+        const awayWin = hasScore && m.as > m.hs;
+        const groupLabel = m.group ? `GRP ${m.group}` : (m.phase === 'final' ? 'FINAL' : 'SEMI');
+
+        let statusBadge = '';
+        if (isLive) statusBadge = `<span class="cv-tag live" style="font-size:9px; padding:1px 6px;">LIVE</span>`;
+        else if (isDone) statusBadge = `<span style="font-family:var(--f-mono); font-size:10px; color:var(--fg-3); letter-spacing:1px;">FINAL</span>`;
+        else statusBadge = `<span style="font-family:var(--f-mono); font-size:10px; color:var(--cool); letter-spacing:1px;">SCHED</span>`;
+
+        const action = isLive ? `location.href='/game/analysis'`
+            : isDone ? `location.href='/game/result'`
+            : `confirmStart('${_esc(m.home)}','${_esc(m.away)}','${_esc(m.group||'')}','${_esc(m.time||'')}')`;
+
+        return `
+        <div class="h-rail-row" onclick="${action}">
+            <div class="h-rail-top">
+                <span class="h-rail-meta">${_esc(m.time || '—')} · ${_esc(groupLabel)}</span>
+                ${statusBadge}
+            </div>
+            <div class="h-rail-team">
+                <span class="nm ${homeWin ? 'win' : ''}">${_esc(m.home)}</span>
+                <span class="sc ${isLive ? 'live' : !hasScore ? 'dim' : ''}">${hasScore ? m.hs : '—'}</span>
+            </div>
+            <div class="h-rail-team">
+                <span class="nm ${awayWin ? 'win' : ''}">${_esc(m.away)}</span>
+                <span class="sc ${isLive ? 'live' : !hasScore ? 'dim' : ''}">${hasScore ? m.as : '—'}</span>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// STANDINGS + BRACKET (4 columns)
+// ──────────────────────────────────────────────────────────────────────────────
+function renderStandingsAndBracket() {
+    const root = document.getElementById('h-stand-row');
+    const groups = tournament?.groups || {};
+    const groupKeys = Object.keys(groups);
+    const done = matches.filter(m => m.phase === 'group' && m.status === 'done');
+
+    // 그룹별 standing 계산
+    const groupBlocks = groupKeys.slice(0, 3).map(g => {
+        const teams = groups[g] || [];
+        const st = teams.map(team => {
+            const pl = done.filter(m => (m.home === team || m.away === team) && m.group === g);
+            let w = 0, l = 0, pf = 0, pa = 0;
+            pl.forEach(m => {
+                const h = m.home === team;
+                const my = h ? m.hs : m.as;
+                const op = h ? m.as : m.hs;
+                pf += my; pa += op;
+                my > op ? w++ : l++;
+            });
+            return { team, gp: pl.length, w, l, pf, pa, diff: pf - pa };
+        }).sort((a, b) => b.w - a.w || b.diff - a.diff);
+
+        const rows = st.map((s, i) => {
+            const isQ = i < 2;
+            const diffClass = s.diff > 0 ? 'pos' : s.diff < 0 ? 'neg' : 'zero';
+            return `
+            <div class="h-stand-row-item">
+                <span class="h-stand-rank ${isQ ? 'q' : ''}">${String(i+1).padStart(2,'0')}</span>
+                <span class="h-stand-team ${isQ ? 'q' : ''}">${_esc(s.team)}</span>
+                <span class="h-stand-num w">${s.w}W</span>
+                <span class="h-stand-num l">${s.l}L</span>
+                <span class="h-stand-num diff ${diffClass}">${s.diff > 0 ? '+' : ''}${s.diff || 0}</span>
+            </div>`;
+        }).join('') || '<div class="h-empty-line">팀 정보 없음</div>';
+
+        return `
+        <div class="h-stand-cell">
+            <div class="h-stand-title">
+                <span class="name">GROUP ${_esc(g)}</span>
+                <span class="meta">TOP 2 ADVANCE</span>
+            </div>
+            ${rows}
+        </div>`;
+    });
+
+    // 빈 그룹 셀 채우기 (3개 미만일 때)
+    while (groupBlocks.length < 3) {
+        groupBlocks.push(`
+        <div class="h-stand-cell">
+            <div class="h-stand-title">
+                <span class="name" style="color:var(--fg-3);">—</span>
+                <span class="meta">NO GROUP</span>
+            </div>
+            <div class="h-empty-line">조 편성 정보 없음</div>
+        </div>`);
+    }
+
+    // 4번째 셀: FINALS bracket
+    const semis = matches.filter(m => m.phase === 'semi');
+    const final = matches.find(m => m.phase === 'final');
+    const bracketRows = [];
+
+    semis.forEach(m => bracketRows.push({
+        round: 'SF', a: m.home || 'TBD', b: m.away || 'TBD',
+        as: m.hs, bs: m.as, status: m.status,
+    }));
+    while (bracketRows.length < 2) {
+        bracketRows.push({ round: 'SF', a: 'TBD', b: 'TBD', as: null, bs: null, status: 'tbd' });
+    }
+    if (final) {
+        bracketRows.push({
+            round: 'F', a: final.home || 'TBD', b: final.away || 'TBD',
+            as: final.hs, bs: final.as, status: final.status,
+        });
+    } else {
+        bracketRows.push({ round: 'F', a: 'TBD', b: 'TBD', as: null, bs: null, status: 'tbd' });
+    }
+
+    const bracketHTML = bracketRows.map(r => {
+        const hasScore = r.as != null && r.bs != null;
+        const isLive = r.status === 'live';
+        const isDone = r.status === 'done';
+        const aWin = hasScore && r.as > r.bs;
+        const bWin = hasScore && r.bs > r.as;
+
+        let badge = '';
+        if (isLive) badge = `<span class="cv-tag live" style="font-size:9px; padding:1px 6px;">LIVE</span>`;
+        else if (isDone) badge = `<span style="font-family:var(--f-mono); font-size:10px; color:var(--fg-3); letter-spacing:1px;">FINAL</span>`;
+
+        const aClass = (r.a === 'TBD') ? 'tbd' : (aWin ? 'win' : '');
+        const bClass = (r.b === 'TBD') ? 'tbd' : (bWin ? 'win' : '');
+        const scClass = isLive ? 'live' : !hasScore ? 'dim' : '';
+
+        return `
+        <div class="h-bracket-row">
+            <div class="h-bracket-top">
+                <span class="h-bracket-round">${r.round}</span>
+                ${badge}
+            </div>
+            <div class="h-bracket-team">
+                <span class="nm ${aClass}">${_esc(r.a)}</span>
+                <span class="sc ${scClass}">${hasScore ? r.as : '—'}</span>
+            </div>
+            <div class="h-bracket-team">
+                <span class="nm ${bClass}">${_esc(r.b)}</span>
+                <span class="sc ${scClass}">${hasScore ? r.bs : '—'}</span>
+            </div>
+        </div>`;
+    }).join('');
+
+    const finalsCell = `
+    <div class="h-stand-cell">
+        <div class="h-stand-title">
+            <span class="name">FINALS</span>
+            <span class="meta">KO STAGE</span>
+        </div>
+        ${bracketHTML}
+    </div>`;
+
+    root.innerHTML = groupBlocks.join('') + finalsCell;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// SYSTEM FOOTER
+// ──────────────────────────────────────────────────────────────────────────────
+async function loadSystem() {
+    try {
+        const r = await fetch('/api/v1/game/status');
+        const d = await r.json();
+        const el = document.getElementById('sys-engine');
+        const state = (d.engine_state || 'IDLE').toUpperCase();
+        el.textContent = state;
+        el.className = 'h-sys-v ' + (state === 'IDLE' ? 'good' : state === 'ERROR' ? 'bad' : '');
+    } catch {}
+    try {
+        const r = await fetch('/api/v1/metrics/gpu');
+        const d = await r.json();
+        document.getElementById('sys-gpu').textContent = d.gpu_name || '—';
+        document.getElementById('sys-vram').textContent =
+            d.vram_used_mb ? `${d.vram_used_mb} / ${d.vram_total_mb} MB` : '—';
+    } catch {}
+    try {
+        const r = await fetch('/health');
+        const d = await r.json();
+        const el = document.getElementById('sys-sync');
+        if (d.engine === 'ok') {
+            el.textContent = 'OK'; el.className = 'h-sys-v good';
+        } else {
+            el.textContent = 'OFFLINE'; el.className = 'h-sys-v bad';
+        }
+    } catch {
+        const el = document.getElementById('sys-sync');
+        el.textContent = 'OFFLINE'; el.className = 'h-sys-v bad';
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// DEMO SEED — bkdunk 동기화 없이 로컬에서 대회 데이터 채우기 (DEV용)
+// _purgeLegacyMockDB() 필터를 회피: 영문 팀명 + 다른 대회명/venue/id 사용
+// ──────────────────────────────────────────────────────────────────────────────
+function seedMockTournament() {
+    if (!confirm('데모 대회 데이터를 cv_db 에 채우시겠습니까?\n(기존 cv_db 가 있으면 덮어씁니다)')) return;
+
+    const today = _todayMMDD();
+    const yest  = (() => { const d = new Date(); d.setDate(d.getDate()-1);
+        return `${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')}`; })();
+    const yest2 = (() => { const d = new Date(); d.setDate(d.getDate()-2);
+        return `${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')}`; })();
+    const tmrw  = (() => { const d = new Date(); d.setDate(d.getDate()+1);
+        return `${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')}`; })();
+
+    const mkPlayers = (prefix) => Array.from({length:12}, (_,i) => ({
+        number: i+1, name: `${prefix}${String(i+1).padStart(2,'0')}`, position: ['PG','SG','SF','PF','C'][i%5],
+    }));
+
+    const teams = [
+        // GROUP A
+        { name: 'FALCONS',  group: 'A', players: mkPlayers('FAL') },
+        { name: 'TITANS',   group: 'A', players: mkPlayers('TIT') },
+        { name: 'PHANTOMS', group: 'A', players: mkPlayers('PHA') },
+        { name: 'RIDERS',   group: 'A', players: mkPlayers('RID') },
+        // GROUP B
+        { name: 'VOLTS',    group: 'B', players: mkPlayers('VOL') },
+        { name: 'BLAZERS',  group: 'B', players: mkPlayers('BLZ') },
+        { name: 'STORM',    group: 'B', players: mkPlayers('STM') },
+        { name: 'CRUSADERS',group: 'B', players: mkPlayers('CRU') },
+        // GROUP C
+        { name: 'KINGS',    group: 'C', players: mkPlayers('KNG') },
+        { name: 'NOMADS',   group: 'C', players: mkPlayers('NMD') },
+        { name: 'DRIFTERS', group: 'C', players: mkPlayers('DRI') },
+        { name: 'WOLVES',   group: 'C', players: mkPlayers('WLV') },
+    ];
+
+    const groups = {
+        A: teams.filter(t => t.group === 'A').map(t => t.name),
+        B: teams.filter(t => t.group === 'B').map(t => t.name),
+        C: teams.filter(t => t.group === 'C').map(t => t.name),
+    };
+
+    const matches = [
+        // ── 어제그제 — DONE
+        { id:'M01', phase:'group', group:'A', date:yest2, time:'18:00', home:'FALCONS',  away:'PHANTOMS', hs:91, as:70, status:'done' },
+        { id:'M02', phase:'group', group:'A', date:yest2, time:'20:00', home:'TITANS',   away:'RIDERS',   hs:64, as:72, status:'done' },
+        { id:'M03', phase:'group', group:'B', date:yest2, time:'18:00', home:'VOLTS',    away:'STORM',    hs:88, as:79, status:'done' },
+        { id:'M04', phase:'group', group:'B', date:yest2, time:'20:00', home:'BLAZERS',  away:'CRUSADERS',hs:74, as:71, status:'done' },
+        { id:'M05', phase:'group', group:'C', date:yest2, time:'18:00', home:'KINGS',    away:'DRIFTERS', hs:82, as:75, status:'done' },
+        { id:'M06', phase:'group', group:'C', date:yest2, time:'20:00', home:'NOMADS',   away:'WOLVES',   hs:69, as:77, status:'done' },
+
+        // ── 어제 — DONE
+        { id:'M07', phase:'group', group:'A', date:yest,  time:'18:00', home:'FALCONS',  away:'TITANS',   hs:84, as:68, status:'done' },
+        { id:'M08', phase:'group', group:'A', date:yest,  time:'20:00', home:'PHANTOMS', away:'RIDERS',   hs:71, as:73, status:'done' },
+        { id:'M09', phase:'group', group:'B', date:yest,  time:'18:00', home:'VOLTS',    away:'BLAZERS',  hs:78, as:80, status:'done' },
+        { id:'M10', phase:'group', group:'B', date:yest,  time:'20:00', home:'STORM',    away:'CRUSADERS',hs:85, as:67, status:'done' },
+        { id:'M11', phase:'group', group:'C', date:yest,  time:'18:00', home:'KINGS',    away:'NOMADS',   hs:77, as:65, status:'done' },
+        { id:'M12', phase:'group', group:'C', date:yest,  time:'20:00', home:'DRIFTERS', away:'WOLVES',   hs:72, as:80, status:'done' },
+
+        // ── 오늘 — LIVE + SCHED + DONE
+        { id:'M13', phase:'group', group:'A', date:today, time:'14:00', home:'FALCONS',  away:'RIDERS',   hs:88, as:74, status:'done' },
+        { id:'M14', phase:'group', group:'B', date:today, time:'16:30', home:'VOLTS',    away:'BLAZERS',  hs:41, as:38, status:'live' },
+        { id:'M15', phase:'group', group:'C', date:today, time:'19:00', home:'KINGS',    away:'WOLVES',   hs:null, as:null, status:'scheduled' },
+        { id:'M16', phase:'group', group:'A', date:today, time:'21:00', home:'TITANS',   away:'PHANTOMS', hs:null, as:null, status:'scheduled' },
+
+        // ── 내일 — SCHED
+        { id:'M17', phase:'group', group:'B', date:tmrw,  time:'18:00', home:'STORM',    away:'BLAZERS',  hs:null, as:null, status:'scheduled' },
+        { id:'M18', phase:'group', group:'C', date:tmrw,  time:'20:00', home:'NOMADS',   away:'DRIFTERS', hs:null, as:null, status:'scheduled' },
+
+        // ── KO STAGE — TBD
+        { id:'SF1', phase:'semi',  group:'',  date:'',    time:'',      home:'',         away:'',         hs:null, as:null, status:'tbd' },
+        { id:'SF2', phase:'semi',  group:'',  date:'',    time:'',      home:'',         away:'',         hs:null, as:null, status:'tbd' },
+        { id:'F1',  phase:'final', group:'',  date:'',    time:'',      home:'',         away:'',         hs:null, as:null, status:'tbd' },
+    ];
+
+    const tourney = {
+        id: 'SMC-26',                                  // T001 회피
+        code: 'SMC-26',
+        name: '2026 SEOUL METRO CUP',                  // '시범 대회' 회피
+        venue: 'OLYMPIC PARK GYM · SEOUL',             // 'SPOIN 체육관' 회피
+        startDate: yest2.replace('.', '.'),
+        endDate: tmrw,
+        format: '12 TEAMS · GROUP + KO',
+        ruleSet: 'fiba',
+        teams: teams,
+        groups: groups,
+        matches: matches,
+    };
+
+    // 기존 cv_db 의 다른 대회는 보존하고 SMC-26 만 upsert
+    let db = {};
+    try { db = JSON.parse(localStorage.getItem('cv_db') || '{}'); } catch {}
+    db.tourneys = (db.tourneys || []).filter(t => t.id !== 'SMC-26');
+    db.tourneys.unshift(tourney);
+    localStorage.setItem('cv_db', JSON.stringify(db));
+
+    alert('데모 대회 데이터를 시드했습니다. 페이지를 새로고침합니다.');
+    location.reload();
+}
+window.seedMockTournament = seedMockTournament;
+
+// ──────────────────────────────────────────────────────────────────────────────
+// 경기 시작 — 매치 카드 클릭 → sessionStorage cv_match → /game/analysis
+// ──────────────────────────────────────────────────────────────────────────────
+function confirmStart(home, away, group, time) {
+    if (!confirm(`${home} vs ${away} (${time})\n\n이 경기를 시작하시겠습니까?`)) return;
+
+    let homeTeam = { name: home, players: [] };
+    let awayTeam = { name: away, players: [] };
+    let ruleSet = tournament?.ruleSet || 'fiba';
+
+    if (tournament?.teamObjs) {
+        const h = tournament.teamObjs.find(t => t.name === home);
+        const a = tournament.teamObjs.find(t => t.name === away);
+        if (h) homeTeam = h;
+        if (a) awayTeam = a;
+    }
+
+    sessionStorage.setItem('cv_match', JSON.stringify({
+        homeName: home, awayName: away,
+        homeTeam, awayTeam, ruleSet,
+    }));
+    location.href = '/game/analysis';
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// 초기화
+// ──────────────────────────────────────────────────────────────────────────────
+const hasData = _loadFromLocalDB();
+if (hasData) {
+    document.getElementById('empty-state').style.display = 'none';
+    document.getElementById('active-state').style.display = 'block';
+    renderHero();
+    renderFeatured();
+    renderRail();
+    renderStandingsAndBracket();
+    loadSystem();
+    setInterval(loadSystem, 15000);
+} else {
+    document.getElementById('empty-state').style.display = 'block';
+    document.getElementById('active-state').style.display = 'none';
+}
+</script>
+{% endblock %}

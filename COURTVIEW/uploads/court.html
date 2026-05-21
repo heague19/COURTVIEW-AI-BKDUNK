@@ -1,0 +1,183 @@
+{% extends "components/layout.html" %}
+{% set active = "court" %}
+{% block title %}COURTVIEW — 경기장 관리{% endblock %}
+
+{% block content %}
+<div class="page-header" style="display:flex; justify-content:space-between; align-items:flex-start;">
+    <div>
+        <div class="page-title">📍 경기장 관리</div>
+        <div class="page-subtitle">경기장 정보 및 카메라별 캘리브레이션 상태를 관리합니다</div>
+    </div>
+    <button class="btn btn-primary btn-sm" onclick="addVenue()">+ 경기장 등록</button>
+</div>
+
+<!-- 경기장 카드 그리드 -->
+<div id="venue-list" style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:20px;"></div>
+
+<!-- 캘리브레이션 현황 -->
+<div class="card" style="margin-bottom:16px;">
+    <div class="card-header">
+        <div class="card-title">📐 캘리브레이션 현황</div>
+        <button class="btn btn-secondary btn-sm" onclick="loadCalibrations()">🔄</button>
+    </div>
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>카메라</th>
+                    <th style="text-align:center;">상태</th>
+                    <th style="text-align:center;">품질</th>
+                    <th style="text-align:center;">재투영 오차</th>
+                    <th style="text-align:center;">포인트</th>
+                    <th style="text-align:center;">규격</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody id="calib-table"></tbody>
+        </table>
+    </div>
+</div>
+
+<!-- 새 경기장 등록 모달 -->
+<div id="venue-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.7); z-index:1000; align-items:center; justify-content:center;">
+    <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius-lg); padding:32px; max-width:450px; width:90%;">
+        <div class="card-header" style="margin-bottom:20px;">
+            <div class="card-title">📍 경기장 등록</div>
+            <button class="btn btn-secondary btn-sm" onclick="closeVenueModal()">✕</button>
+        </div>
+        <div class="form-group">
+            <label class="form-label">경기장 이름</label>
+            <input type="text" class="form-input" id="venue-name" placeholder="예: 강남 스포츠센터">
+        </div>
+        <div class="form-group">
+            <label class="form-label">주소</label>
+            <input type="text" class="form-input" id="venue-address" placeholder="예: 서울시 강남구 역삼동 123-4">
+        </div>
+        <div class="form-group">
+            <label class="form-label">코트 규격</label>
+            <select class="form-select" id="venue-standard">
+                <option value="fiba" selected>FIBA (국제규격) — 28×15m · 3점 6.75m</option>
+                <option value="nba">NBA — 28.65×15.24m · 3점 7.24m</option>
+                <option value="kbl">KBL (한국 프로) — 28×15m · 3점 6.75m</option>
+                <option value="nbl">NBL — 28×15m · 3점 6.75m</option>
+            </select>
+            <div style="font-size:11px; color:var(--text-muted); margin-top:6px; line-height:1.5;">
+                💡 <b>잘 모르시면 FIBA</b> 선택 — 대부분의 동호회·학교 체육관이 FIBA 규격입니다.<br>
+                실제 치수가 조금 달라도 <a href="/equipment" style="color:var(--accent-orange);">캘리브레이션</a> 단계에서 자동 보정됩니다.
+            </div>
+        </div>
+        <button class="btn btn-primary btn-block" onclick="saveVenue()">등록</button>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let venues = [];
+
+function init() {
+    loadVenues();
+    loadCalibrations();
+}
+
+// 경기장 목록
+function loadVenues() {
+    // 로컬 저장소에서 로드
+    try { venues = JSON.parse(localStorage.getItem('cv_venues') || '[]'); } catch { venues = []; }
+    renderVenues();
+}
+
+function renderVenues() {
+    const el = document.getElementById('venue-list');
+    if (!venues.length) {
+        el.innerHTML = '<div class="card" style="grid-column:span 2; text-align:center; color:var(--text-muted); padding:40px;">등록된 경기장이 없습니다. [+ 경기장 등록] 버튼을 눌러주세요.</div>';
+        return;
+    }
+    el.innerHTML = venues.map((v, i) => `
+        <div class="card" style="border-left:4px solid var(--accent-green);">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                <div>
+                    <div style="font-size:15px; font-weight:700; color:var(--accent-orange);">${v.name}</div>
+                    <div style="font-size:12px; color:var(--text-gray); margin-top:4px;">📍 ${v.address || '-'}</div>
+                </div>
+                <button class="btn btn-secondary btn-sm" onclick="deleteVenue(${i})" style="font-size:10px;">🗑</button>
+            </div>
+            <div style="display:flex; gap:16px; margin-top:12px; font-size:12px; color:var(--text-gray);">
+                <span>규격 ${(v.standard || 'FIBA').toUpperCase()}</span>
+                <span>등록일 ${new Date(v.created).toLocaleDateString('ko-KR')}</span>
+            </div>
+        </div>
+    `).join('');
+}
+
+function addVenue() {
+    document.getElementById('venue-modal').style.display = 'flex';
+}
+
+function closeVenueModal() {
+    document.getElementById('venue-modal').style.display = 'none';
+}
+
+function saveVenue() {
+    const name = document.getElementById('venue-name').value.trim();
+    const address = document.getElementById('venue-address').value.trim();
+    const standard = document.getElementById('venue-standard').value;
+    if (!name) { alert('경기장 이름을 입력하세요.'); return; }
+
+    // 한 체육관에 여러 코트가 있으면 "○○체육관 - 1번 코트" 식으로 각각 등록 (COURTVIEW 는 동시에 1 코트만 분석)
+    venues.push({ name, address, standard, created: new Date().toISOString() });
+    localStorage.setItem('cv_venues', JSON.stringify(venues));
+    closeVenueModal();
+    renderVenues();
+}
+
+function deleteVenue(idx) {
+    if (!confirm(`"${venues[idx].name}" 경기장을 삭제하시겠습니까?`)) return;
+    venues.splice(idx, 1);
+    localStorage.setItem('cv_venues', JSON.stringify(venues));
+    renderVenues();
+}
+
+// 캘리브레이션 현황
+async function loadCalibrations() {
+    const tbody = document.getElementById('calib-table');
+    const cams = ['cam_0','cam_1','cam_2','cam_3','cam_4','cam_5','cam_6','cam_7'];
+    const labels = ['CAM 1 (좌하)','CAM 2 (하중좌)','CAM 3 (하중우)','CAM 4 (우하)','CAM 5 (우상)','CAM 6 (상중우)','CAM 7 (상중좌)','CAM 8 (좌상)'];
+
+    let calibData = {};
+    try {
+        const resp = await fetch('/api/v1/camera/config');
+        const data = await resp.json();
+        if (data.data) calibData = data.data;
+    } catch {}
+
+    tbody.innerHTML = cams.map((cam, i) => {
+        const calib = calibData[cam];
+        const hasCalib = calib && calib.quality_score > 0;
+        const quality = hasCalib ? calib.quality_score : 0;
+        const error = hasCalib ? calib.mean_reproj_error_px : 0;
+        const points = hasCalib ? calib.total_points : 0;
+        const standard = hasCalib ? (calib.court_standard || 'fiba').toUpperCase() : '-';
+
+        const qualityColor = quality >= 0.8 ? 'var(--accent-green)' : quality >= 0.5 ? 'var(--accent-yellow)' : 'var(--accent-red)';
+        const statusBadge = hasCalib
+            ? '<span class="badge badge-complete">완료</span>'
+            : '<span class="badge" style="background:var(--bg-dark);color:var(--text-muted);">미완료</span>';
+
+        return `<tr>
+            <td style="font-weight:600;">${labels[i]}</td>
+            <td style="text-align:center;">${statusBadge}</td>
+            <td style="text-align:center;font-weight:700;color:${qualityColor};">${hasCalib ? (quality*100).toFixed(0)+'%' : '-'}</td>
+            <td style="text-align:center;color:var(--text-gray);">${hasCalib ? error.toFixed(2)+'px' : '-'}</td>
+            <td style="text-align:center;">${hasCalib ? points+'점' : '-'}</td>
+            <td style="text-align:center;font-size:11px;">${standard}</td>
+            <td style="text-align:center;">
+                <a href="/equipment/calibrate/${cam}" class="btn btn-secondary btn-sm" style="font-size:10px;">📐 ${hasCalib ? '재설정' : '설정'}</a>
+            </td>
+        </tr>`;
+    }).join('');
+}
+
+init();
+</script>
+{% endblock %}

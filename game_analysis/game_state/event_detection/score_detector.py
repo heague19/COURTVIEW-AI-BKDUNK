@@ -45,7 +45,14 @@ from shared.interfaces.game_interface import (
 logger: Final = logging.getLogger(__name__)
 
 _MAX_EVENT_HISTORY: Final[int] = 500
-_DEDUP_COOLDOWN_FRAMES: Final[int] = 30  # 중복 제거 쿨다운 (30프레임 = 1초@30fps)
+_DEDUP_COOLDOWN_FRAMES: Final[int] = 150  # 중복 제거 쿨다운 (150f = 5초@30fps)
+
+# 2026-05-11 STEP2 토글 (검증용) — GATE 4-3 above→below 시간 순서 가드
+#   True  : 진짜 슛 (above 먼저 → below 나중) 만 인정 — 기본/안전.
+#   False : 순서 무시 → 카메라 각도가 거꾸로 잡는 영상도 통과시킴.
+#           단, 리바운드/팁/드리블/패스 등 false positive 폭증 가능.
+#           플립으로 되돌리려면 다시 True 로.
+_GATE_4_3_STRICT: Final[bool] = False
 
 
 # =============================================================================
@@ -157,6 +164,10 @@ class _ScoringEvidence:
     rim_contact_count: int = 0          # 림 접촉 프레임 수
     descent_detected: bool = False       # 공 하강 감지
     peak_confidence: float = 0.0         # 최대 신뢰도
+    above_seen: bool = False             # ball_above_rim=True 한 번이라도 봤음
+    below_seen: bool = False             # ball_below_rim=True 한 번이라도 봤음
+    above_first_frame: int = -1          # above 가 처음 잡힌 frame (시간 순서 검증용)
+    below_first_frame: int = -1          # below 가 처음 잡힌 frame
     last_frame: int = 0
     shooter_tracking_id: int | None = None
     shooter_team_id: str | None = None
@@ -248,9 +259,22 @@ class ScoreDetector:
             SHOT_MADE 이벤트 (득점 확정 시) 또는 None
         """
         t0 = time.perf_counter()
+        # SCORE-FLOW 추적 — 가까운 림(<5m) 또는 증거 active 일 때만 verbose
+        # (원거리 일반 프레임 스팸 방지)
+        verbose = (data.ball_rim_distance_m < 5.0) or (self._evidence is not None)
+        if verbose:
+            logger.info(
+                "[SCORE-FLOW F#%d] 2️⃣ 데이터 수신 완료 → process_frame 진입 "
+                "(rim=%.2fm through=%s above=%s below=%s vy=%.2f conf=%.2f evidence=%s)",
+                data.frame_index, data.ball_rim_distance_m, data.ball_through_hoop,
+                data.ball_above_rim, data.ball_below_rim,
+                data.ball_vertical_velocity_ms, data.confidence,
+                "active" if self._evidence is not None else "none",
+            )
+
         with self._lock:
             try:
-                event = self._detect_score(data)
+                event = self._detect_score(data, verbose=verbose)
                 elapsed_ms = (time.perf_counter() - t0) * 1000.0
                 if event:
                     self._metrics.update_from_event_result(
@@ -265,35 +289,64 @@ class ScoreDetector:
                 logger.error("득점 감지 오류: %s", e)
                 return None
 
-    def _detect_score(self, data: ScoreFrameInput) -> GameEvent | None:
+    def _detect_score(
+        self, data: ScoreFrameInput, verbose: bool = False,
+    ) -> GameEvent | None:
         """
         득점 감지 내부 로직 (O(1) 연산).
 
         증거 누적 → 확정 판단 패턴.
         """
         cfg = self._config
+        fi = data.frame_index
 
         # 쿨다운 체크 (중복 제거)
-        if data.frame_index - self._last_score_frame < _DEDUP_COOLDOWN_FRAMES:
+        cooldown_gap = fi - self._last_score_frame
+        if cooldown_gap < _DEDUP_COOLDOWN_FRAMES:
+            if verbose:
+                logger.info(
+                    "[SCORE-FLOW F#%d] 3️⃣-A 쿨다운 GATE: ❌ %d/%df 미경과 "
+                    "(last_score=%d) → 증거 폐기 + None 반환",
+                    fi, cooldown_gap, _DEDUP_COOLDOWN_FRAMES, self._last_score_frame,
+                )
             self._evidence = None
             return None
+        if verbose and self._last_score_frame >= 0:
+            logger.info(
+                "[SCORE-FLOW F#%d] 3️⃣-A 쿨다운 GATE: ✓ %df 경과 (last_score=%d)",
+                fi, cooldown_gap, self._last_score_frame,
+            )
 
         # 새 증거 시작 조건: 공이 림 근처에 도달
         if self._evidence is None:
             if data.ball_rim_distance_m < 3.0:  # 림 근처 (픽셀 변환 오차 허용)
                 self._evidence = _ScoringEvidence(
-                    start_frame=data.frame_index,
+                    start_frame=fi,
                     shooter_tracking_id=data.shooter_tracking_id,
                     shooter_team_id=data.shooter_team_id,
                     associated_shot_id=data.associated_shot_id,
                 )
+                if verbose:
+                    logger.info(
+                        "[SCORE-FLOW F#%d] 3️⃣-B 증거 수집 시작 ✨ "
+                        "(rim=%.2fm < 3.0m, shooter=%s, team=%s)",
+                        fi, data.ball_rim_distance_m,
+                        data.shooter_tracking_id, data.shooter_team_id,
+                    )
             else:
+                if verbose:
+                    logger.info(
+                        "[SCORE-FLOW F#%d] 3️⃣-B 증거 미시작 (rim=%.2fm >= 3.0m) "
+                        "→ 4️⃣ 결과: None (림 너무 멀음)",
+                        fi, data.ball_rim_distance_m,
+                    )
                 return None
 
         ev = self._evidence
+        elapsed = fi - ev.start_frame
 
         # 증거 누적 (O(1))
-        ev.last_frame = data.frame_index
+        ev.last_frame = fi
 
         if data.ball_through_hoop:
             ev.ball_through_count += 1
@@ -310,6 +363,17 @@ class ScoreDetector:
         if data.confidence > ev.peak_confidence:
             ev.peak_confidence = data.confidence
 
+        # v0.4.5: 포물선 (위에서 아래로) 전이 추적 — noise FP 차단.
+        # 시간 순서 (above_first < below_first) 검증으로 noise 한층 더 차단.
+        if data.ball_above_rim:
+            ev.above_seen = True
+            if ev.above_first_frame < 0:
+                ev.above_first_frame = fi
+        if data.ball_below_rim:
+            ev.below_seen = True
+            if ev.below_first_frame < 0:
+                ev.below_first_frame = fi
+
         # 슈터 정보 업데이트 (첫 유효 값)
         if ev.shooter_tracking_id is None and data.shooter_tracking_id is not None:
             ev.shooter_tracking_id = data.shooter_tracking_id
@@ -318,26 +382,67 @@ class ScoreDetector:
         if ev.associated_shot_id is None and data.associated_shot_id is not None:
             ev.associated_shot_id = data.associated_shot_id
 
+        if verbose:
+            logger.info(
+                "[SCORE-FLOW F#%d] 3️⃣-C 증거 누적 (start=%d, %df 경과) → "
+                "through_cnt=%d net_max=%.2f rim_cnt=%d descent=%s "
+                "above=%s(@%d) below=%s(@%d) peak_conf=%.2f",
+                fi, ev.start_frame, elapsed,
+                ev.ball_through_count, ev.net_deflection_max, ev.rim_contact_count,
+                ev.descent_detected,
+                ev.above_seen, ev.above_first_frame,
+                ev.below_seen, ev.below_first_frame,
+                ev.peak_confidence,
+            )
+
         # 타임아웃 (최대 지연 프레임 초과 → 증거 폐기)
-        if data.frame_index - ev.start_frame > cfg.max_latency_frames:
+        if elapsed > cfg.max_latency_frames:
+            if verbose:
+                logger.warning(
+                    "[SCORE-FLOW F#%d] 3️⃣-D 타임아웃 GATE: ❌ %df > max_latency=%df "
+                    "→ 증거 폐기 + 4️⃣ 결과: None (조건 미달성)",
+                    fi, elapsed, cfg.max_latency_frames,
+                )
             if not ev.confirmed:
                 self._evidence = None
             return None
 
         # 득점 확정 판단
         if not ev.confirmed:
-            confirmed = self._evaluate_evidence(ev, cfg)
+            confirmed = self._evaluate_evidence(
+                ev, cfg, verbose=verbose, frame_index=fi,
+            )
             if confirmed:
                 ev.confirmed = True
                 event = self._create_score_event(ev, data)
-                self._last_score_frame = data.frame_index
+                self._last_score_frame = fi
                 self._evidence = None
+                if verbose:
+                    logger.info(
+                        "[SCORE-FLOW F#%d] 4️⃣ 결과: ✅ 성공 → SHOT_MADE 이벤트 발화 "
+                        "(conf=%.2f, points=%d)",
+                        fi,
+                        getattr(event, "confidence", 0.0),
+                        getattr(event, "points", 2),
+                    )
                 return event
+            else:
+                if verbose:
+                    logger.info(
+                        "[SCORE-FLOW F#%d] 4️⃣ 결과: ✗ 조건 미달 (증거 계속 누적, "
+                        "%d/%df 남음)",
+                        fi, cfg.max_latency_frames - elapsed,
+                        cfg.max_latency_frames,
+                    )
 
         return None
 
     def _evaluate_evidence(
-        self, ev: _ScoringEvidence, cfg: ScoreDetectorConfig,
+        self,
+        ev: _ScoringEvidence,
+        cfg: ScoreDetectorConfig,
+        verbose: bool = False,
+        frame_index: int = 0,
     ) -> bool:
         """
         증거 평가 — 득점 여부 판단.
@@ -347,18 +452,143 @@ class ScoreDetector:
           2. 네트 변형 (필수 또는 선택)
           3. 신뢰도 충족
         """
-        # 신뢰도 확인
+        if verbose:
+            logger.info(
+                "[SCORE-FLOW F#%d] 3️⃣-E 조건부 확인 진행 → _evaluate_evidence 진입",
+                frame_index,
+            )
+
+        # GATE 1: 신뢰도 확인
         if ev.peak_confidence < cfg.min_confidence:
+            if verbose:
+                logger.info(
+                    "[SCORE-FLOW F#%d]    ├─ GATE 1 confidence: ❌ peak=%.2f < min=%.2f",
+                    frame_index, ev.peak_confidence, cfg.min_confidence,
+                )
             return False
+        if verbose:
+            logger.info(
+                "[SCORE-FLOW F#%d]    ├─ GATE 1 confidence: ✓ peak=%.2f >= min=%.2f",
+                frame_index, ev.peak_confidence, cfg.min_confidence,
+            )
 
-        # 공 통과 확인
+        # GATE 2: 공 통과 확인
         if cfg.require_ball_through_hoop and ev.ball_through_count == 0:
+            if verbose:
+                logger.info(
+                    "[SCORE-FLOW F#%d]    ├─ GATE 2 through: ❌ require_through=True && count=0",
+                    frame_index,
+                )
             return False
+        if verbose:
+            logger.info(
+                "[SCORE-FLOW F#%d]    ├─ GATE 2 through: ✓ require=%s, count=%d",
+                frame_index, cfg.require_ball_through_hoop, ev.ball_through_count,
+            )
 
-        # 네트 변형 확인
+        # GATE 3: 네트 변형 확인
         if cfg.net_deflection_required and ev.net_deflection_max < cfg.net_deflection_min:
+            if verbose:
+                logger.info(
+                    "[SCORE-FLOW F#%d]    ├─ GATE 3 net_deflection: ❌ %.2f < min=%.2f",
+                    frame_index, ev.net_deflection_max, cfg.net_deflection_min,
+                )
+            return False
+        if verbose:
+            logger.info(
+                "[SCORE-FLOW F#%d]    ├─ GATE 3 net_deflection: ✓ required=%s (max=%.2f)",
+                frame_index, cfg.net_deflection_required, ev.net_deflection_max,
+            )
+
+        # GATE 4-1: above + below 둘 다 봤나 (v0.4.5 가드)
+        if not (ev.above_seen and ev.below_seen):
+            if verbose:
+                logger.info(
+                    "[SCORE-FLOW F#%d]    ├─ GATE 4-1 above/below seen: ❌ "
+                    "above=%s, below=%s",
+                    frame_index, ev.above_seen, ev.below_seen,
+                )
+            return False
+        if verbose:
+            logger.info(
+                "[SCORE-FLOW F#%d]    ├─ GATE 4-1 above/below seen: ✓ 둘 다 OK",
+                frame_index,
+            )
+
+        # GATE 4-2: above/below frame 인덱스 유효 (음수 ↔ 미관측)
+        if ev.above_first_frame < 0 or ev.below_first_frame < 0:
+            if verbose:
+                logger.info(
+                    "[SCORE-FLOW F#%d]    ├─ GATE 4-2 frame indices: ❌ "
+                    "above_first=%d, below_first=%d (음수)",
+                    frame_index, ev.above_first_frame, ev.below_first_frame,
+                )
             return False
 
+        # GATE 4-3: above 가 below 보다 시간상 먼저 (위→아래 궤적)
+        # 토글 비활성 시엔 시간 순서 무시 (리바운드/패스 false positive 위험 감수)
+        if _GATE_4_3_STRICT:
+            if ev.above_first_frame >= ev.below_first_frame:
+                if verbose:
+                    logger.info(
+                        "[SCORE-FLOW F#%d]    ├─ GATE 4-3 above→below 순서: ❌ "
+                        "above_first=%d >= below_first=%d (역순서, slut 아님 - rebound 등)",
+                        frame_index, ev.above_first_frame, ev.below_first_frame,
+                    )
+                return False
+            if verbose:
+                logger.info(
+                    "[SCORE-FLOW F#%d]    ├─ GATE 4-3 above→below 순서: ✓ "
+                    "above_first=%d < below_first=%d",
+                    frame_index, ev.above_first_frame, ev.below_first_frame,
+                )
+        else:
+            if verbose:
+                order_str = (
+                    "정상순서 (위→아래)"
+                    if ev.above_first_frame < ev.below_first_frame
+                    else "역순서 (아래→위)"
+                )
+                logger.info(
+                    "[SCORE-FLOW F#%d]    ├─ GATE 4-3 above→below 순서: "
+                    "⚠ BYPASS (toggle OFF) → above_first=%d below_first=%d %s",
+                    frame_index, ev.above_first_frame, ev.below_first_frame,
+                    order_str,
+                )
+
+        # GATE 5: 하강 속도 (vy < descent_velocity_min_ms 한 번이라도)
+        if not ev.descent_detected:
+            if verbose:
+                logger.info(
+                    "[SCORE-FLOW F#%d]    ├─ GATE 5 descent: ❌ vy < %.2f 한 번도 없음",
+                    frame_index, cfg.ball_descent_velocity_min_ms,
+                )
+            return False
+        if verbose:
+            logger.info(
+                "[SCORE-FLOW F#%d]    ├─ GATE 5 descent: ✓",
+                frame_index,
+            )
+
+        # GATE 6: through_count >= 2 (단일 frame FP 차단)
+        if ev.ball_through_count < 2:
+            if verbose:
+                logger.info(
+                    "[SCORE-FLOW F#%d]    ├─ GATE 6 through_count>=2: ❌ count=%d",
+                    frame_index, ev.ball_through_count,
+                )
+            return False
+        if verbose:
+            logger.info(
+                "[SCORE-FLOW F#%d]    ├─ GATE 6 through_count>=2: ✓ count=%d",
+                frame_index, ev.ball_through_count,
+            )
+
+        if verbose:
+            logger.info(
+                "[SCORE-FLOW F#%d]    └─ ✅ 모든 GATE 통과 → 득점 확정",
+                frame_index,
+            )
         return True
 
     def _create_score_event(

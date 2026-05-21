@@ -55,6 +55,9 @@ class UpdateInfo:
     mandatory: bool = False
     notes: str = ""
     released_at: str = ""
+    # v0.5.2+: 델타 업데이트 정보. 옛 버전 latest.json 엔 없으면 None.
+    delta_manifest_url: Optional[str] = None
+    delta_files_base_url: Optional[str] = None
 
 
 ProgressFn = Callable[[str, float], None]
@@ -81,7 +84,7 @@ def _download_with_progress(
     on_progress: Optional[ProgressFn] = None,
     timeout: float = 300.0,
 ) -> None:
-    """번들 zip 다운로드 + 진행률."""
+    """단일 stream GET (구버전 호환 — chunked 가 503/Range 미지원 시 폴백)."""
     req = Request(url, headers={"User-Agent": "COURTVIEW-Updater/1.0"})
     with urlopen(req, timeout=timeout) as resp:
         downloaded = 0
@@ -95,6 +98,118 @@ def _download_with_progress(
                 downloaded += len(chunk)
                 if on_progress and total_bytes > 0:
                     on_progress("download", downloaded / total_bytes)
+
+
+# v0.4.2: Range GET 기반 청크 다운로드
+# - 16MB 청크 단위 → 단일 7GB stream 보다 손상/끊김 회복력 높음
+# - 청크별 timeout 60s, 청크별 재시도 5회
+# - dest 가 이미 존재하면 그 지점부터 resume (HTTP Range 로 이어받기)
+# - 청크 받은 직후 size 검증 (Content-Range 헤더의 end-start+1 과 비교)
+_CHUNK_SIZE = 16 * 1024 * 1024  # 16 MB
+_CHUNK_TIMEOUT_SEC = 60.0
+_CHUNK_RETRY = 5
+
+
+def _download_chunked(
+    url: str,
+    dest: Path,
+    total_bytes: int,
+    on_progress: Optional[ProgressFn] = None,
+) -> None:
+    """청크별 Range GET 다운로드 + resume 지원.
+
+    Args:
+        url: 다운로드 URL (S3 presigned 또는 public)
+        dest: 출력 파일 경로
+        total_bytes: 기대 총 크기 (latest.json.size_bytes)
+        on_progress: 진행률 콜백
+
+    Raises:
+        RuntimeError: 어떤 청크라도 _CHUNK_RETRY 회 모두 실패 / 사이즈 불일치
+    """
+    if total_bytes <= 0:
+        # size 미상이면 청크 분할 불가 — 단일 stream 으로 폴백
+        _download_with_progress(url, dest, total_bytes, on_progress)
+        return
+
+    # resume — 기존 파일이 있고 size 가 total 미만이면 그 위치부터 시작
+    start_offset = 0
+    if dest.exists():
+        existing = dest.stat().st_size
+        if existing < total_bytes:
+            start_offset = existing
+            _logger.info(
+                "이어받기: %d / %d bytes (%.1f%%)",
+                existing, total_bytes, existing / total_bytes * 100,
+            )
+        else:
+            # 기존 파일이 total 이상이면 신뢰할 수 없음 → 새로 시작
+            dest.unlink(missing_ok=True)
+
+    # append 모드로 열기
+    mode = "ab" if start_offset > 0 else "wb"
+    downloaded = start_offset
+
+    with open(dest, mode) as f:
+        cursor = start_offset
+        while cursor < total_bytes:
+            end = min(cursor + _CHUNK_SIZE, total_bytes) - 1
+            chunk_size_expected = end - cursor + 1
+            chunk_data = _fetch_range(url, cursor, end, chunk_size_expected)
+            f.write(chunk_data)
+            f.flush()
+            cursor += len(chunk_data)
+            downloaded = cursor
+            if on_progress:
+                on_progress("download", downloaded / total_bytes)
+
+    # 최종 사이즈 검증
+    actual = dest.stat().st_size
+    if actual != total_bytes:
+        raise RuntimeError(
+            f"다운로드 사이즈 불일치: 기대 {total_bytes}, 실제 {actual}"
+        )
+
+
+def _fetch_range(url: str, start: int, end: int, expected_len: int) -> bytes:
+    """단일 Range 청크 GET — _CHUNK_RETRY 회 재시도."""
+    last_err: Optional[BaseException] = None
+    for attempt in range(1, _CHUNK_RETRY + 1):
+        try:
+            req = Request(
+                url,
+                headers={
+                    "User-Agent": "COURTVIEW-Updater/1.0",
+                    "Range": f"bytes={start}-{end}",
+                    # S3 가 캐시된 손상 응답을 다시 주지 않도록 cache-bust
+                    "Cache-Control": "no-cache",
+                },
+            )
+            with urlopen(req, timeout=_CHUNK_TIMEOUT_SEC) as resp:
+                # 206 Partial Content 가 정상. 200 이면 서버가 Range 미지원 → 단일 GET 폴백
+                status = getattr(resp, "status", None) or resp.getcode()
+                if status not in (206, 200):
+                    raise RuntimeError(f"unexpected HTTP status {status}")
+                # Content-Range 헤더 일관성 검증
+                cr = resp.headers.get("Content-Range") or ""
+                data = resp.read()
+
+            if len(data) != expected_len:
+                raise RuntimeError(
+                    f"청크 사이즈 불일치: 기대 {expected_len}, 실제 {len(data)} "
+                    f"(Range bytes={start}-{end}, Content-Range={cr!r})"
+                )
+            return data
+        except Exception as e:  # noqa: BLE001
+            last_err = e
+            _logger.warning(
+                "청크 다운로드 실패 (bytes=%d-%d, 시도 %d/%d): %s",
+                start, end, attempt, _CHUNK_RETRY, e,
+            )
+            time.sleep(min(2.0 * attempt, 10.0))
+    raise RuntimeError(
+        f"청크 {start}-{end} 다운로드 {_CHUNK_RETRY}회 실패: {last_err}"
+    )
 
 
 def _verify_sha256(path: Path, expected: str) -> bool:
@@ -134,6 +249,7 @@ def check_for_update() -> Optional[UpdateInfo]:
         return None
 
     try:
+        delta = data.get("delta") or {}
         info = UpdateInfo(
             version=data["version"],
             url=data["url"],
@@ -142,6 +258,8 @@ def check_for_update() -> Optional[UpdateInfo]:
             mandatory=bool(data.get("mandatory", False)),
             notes=data.get("notes", ""),
             released_at=data.get("released_at", ""),
+            delta_manifest_url=delta.get("manifest_url"),
+            delta_files_base_url=delta.get("files_base_url"),
         )
     except (KeyError, TypeError, ValueError) as e:
         _logger.warning("latest.json 파싱 실패: %s", e)
@@ -175,27 +293,62 @@ def apply_update(
         _logger.warning("frozen 아님 — 업데이트 불가")
         return False
 
-    # 다운로드 임시 경로
+    # v0.5.2+: 델타 업데이트 우선 시도 — 변경된 파일만 다운로드 (수십 MB).
+    # 실패 시 기존 zip 폴백으로 자동 진행.
+    if info.delta_manifest_url and info.delta_files_base_url:
+        _logger.info(
+            "델타 업데이트 시도: manifest=%s",
+            info.delta_manifest_url,
+        )
+        try:
+            from launcher_delta_updater import apply_delta_update
+            ok, msg = apply_delta_update(
+                install_root=install,
+                manifest_url=info.delta_manifest_url,
+                files_base_url=info.delta_files_base_url,
+                on_progress=on_progress,
+            )
+            if ok:
+                _logger.info("델타 업데이트 성공: %s", msg)
+                # v0.5.5: helper bat 가 spawn 됐고 3초 후 file lock 풀려야 swap 가능.
+                # 현재 프로세스 즉시 sys.exit → file lock 해제 → bat 가 swap + 새 EXE 실행.
+                if on_progress:
+                    on_progress("restart", 1.0)
+                _logger.info("델타 swap 스케줄됨 — 즉시 종료 (helper bat 이 새 EXE 실행)")
+                sys.exit(0)
+            _logger.warning("델타 업데이트 실패 (%s) — 옛 zip 방식 폴백", msg)
+        except Exception:
+            _logger.exception("델타 업데이트 예외 — 옛 zip 방식 폴백")
+
+    # 다운로드 임시 경로 (옛 zip 방식)
     tmp_dir = Path(tempfile.mkdtemp(prefix="courtview_upd_"))
     tmp_zip = tmp_dir / f"courtview-{info.version}.zip"
 
     try:
-        # 1~2. 다운로드 + SHA-256 검증 (실패 시 재다운 최대 3회)
-        # 현장 학습/디스크 I/O 경합으로 TCP 가 잡지 못한 비트 손상 발생 시 자동 회복.
+        # 1~2. 다운로드 + SHA-256 검증
+        # v0.4.2: 16MB 청크 Range GET + 청크별 5회 재시도 + resume 으로 7GB 손상 확률 ↓
+        # 그래도 sha256 불일치 시 zip 자체 재다운 3회까지.
         MAX_ATTEMPTS = 3
         verified = False
         for attempt in range(1, MAX_ATTEMPTS + 1):
             if on_progress:
                 on_progress("download", 0.0)
             if attempt == 1:
-                _logger.info("다운로드 시작: %s", info.url)
+                _logger.info("다운로드 시작 (chunked): %s", info.url)
             else:
                 _logger.warning(
-                    "SHA-256 불일치 — 재다운로드 시도 %d/%d", attempt, MAX_ATTEMPTS,
+                    "SHA-256 불일치 — 전체 재다운로드 %d/%d", attempt, MAX_ATTEMPTS,
                 )
                 tmp_zip.unlink(missing_ok=True)
 
-            _download_with_progress(info.url, tmp_zip, info.size_bytes, on_progress)
+            try:
+                _download_chunked(info.url, tmp_zip, info.size_bytes, on_progress)
+            except Exception as exc:  # noqa: BLE001
+                _logger.warning(
+                    "청크 다운로드 실패 (%s) — 단일 stream 폴백 시도", exc,
+                )
+                tmp_zip.unlink(missing_ok=True)
+                _download_with_progress(info.url, tmp_zip, info.size_bytes, on_progress)
 
             if on_progress:
                 on_progress("verify", 0.0)

@@ -72,8 +72,8 @@ _JERSEY_REGEX: Final[re.Pattern[str]] = re.compile(JERSEY_NUMBER_PATTERN)
 
 # YOLO 모델 자동 감지 glob 패턴 (최신 버전 우선, reverse=True)
 # CV-Digit_v1/v2/v3/v4/v4.1 → CV-Digit_v99까지 자동 업그레이드
-_DIGIT_MODEL_GLOB: Final[str] = "CV-Digit_v*.cv"
-_CLS_MODEL_GLOB: Final[str] = "CV-JerseyCls_v*.cv"
+_DIGIT_MODEL_GLOB: Final[str] = "CV-Digit_v*.pt"  # v0.5.1: .cv 오타 → .pt 정정
+_CLS_MODEL_GLOB: Final[str] = "CV-JerseyCls_v*.pt"
 
 # 학습 디렉토리 폴백 (weights/ 미존재 시)
 _DEFAULT_CLS_PT_PATH: Final[str] = "D:/SPOIN/training/runs/jersey_cls_v1/weights/best.pt"

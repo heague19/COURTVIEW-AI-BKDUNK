@@ -1,0 +1,32 @@
+api:
+  listen: "127.0.0.1:1984"
+  origin: "*"
+
+rtsp:
+  listen: "127.0.0.1:8554"
+
+webrtc:
+  listen: ":8555"
+  candidates:
+    - 127.0.0.1:8555
+
+log:
+  level: debug
+
+streams:
+  cam_0:
+    - ffmpeg:rtsp://169.254.24.11:554/11#video=h264
+  cam_1:
+    - ffmpeg:rtsp://169.254.24.12:554/11#video=h264
+  cam_2:
+    - ffmpeg:rtsp://169.254.24.14:554/11#video=h264
+  cam_7:
+    - ffmpeg:rtsp://169.254.24.131:554/11#video=h264
+  cam_3:
+    - ffmpeg:rtsp://169.254.24.15:554/11#video=h264
+  cam_5:
+    - ffmpeg:rtsp://169.254.24.18:554/11#video=h264
+  cam_6:
+    - ffmpeg:rtsp://169.254.24.19:554/11#video=h264
+  cam_4:
+    - ffmpeg:rtsp://169.254.24.16:554/11#video=h264

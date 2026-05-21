@@ -283,12 +283,68 @@ class FramePipeline:
         stage_times: dict[str, float] = {}
         budget_ms = self._cadence_config.frame_budget_ms
 
+        # Plan E STEP 2 (2026-05-13): 파이프라인 진입 — frame_ingestion 으로부터 수신
+        try:
+            from infrastructure.diagnostics.flow_logger import log_flow
+            log_flow(
+                "PIPE-IN",
+                "frame_pipeline 수신 #%d → %d 카메라 프레임 → detection_fusion 호출",
+                frame_index, len(frames),
+            )
+        except Exception:
+            pass
+
+        # ===== PIPE 1️⃣ 데이터 수신 (50f 주기) =====
+        verbose_pipe = (frame_index % 50 == 0)
+        if verbose_pipe:
+            _shapes = ", ".join(
+                f"{cid}={f.shape[1]}x{f.shape[0]}"
+                for cid, f in frames.items()
+            ) if frames else "(빈)"
+            _logger.info(
+                "[PIPE F#%d] 1️⃣ 데이터 수신 → %d 카메라 [%s] ts=%.3f",
+                frame_index, len(frames), _shapes, timestamp,
+            )
+
         # === Stage1: 감지 융합 ===
         t_det = time.perf_counter()
         detection_result = self._detection_fusion.fuse(
             frames, frame_index=frame_index, timestamp=timestamp,
         )
         stage_times["detection_fusion"] = (time.perf_counter() - t_det) * 1000.0
+        # Plan E STEP 2 (2026-05-13): 감지 결과 흐름
+        try:
+            from infrastructure.diagnostics.flow_logger import log_flow as _lf
+            _pr = getattr(detection_result, "player_result", None)
+            _br = getattr(detection_result, "ball_result", None)
+            _hr = getattr(detection_result, "hoop_result", None)
+            _np = len(getattr(_pr, "fused_objects", []) or []) if _pr else 0
+            _nb = len(getattr(_br, "fused_objects", []) or []) if _br else 0
+            _nh = len(getattr(_hr, "fused_objects", []) or []) if _hr else 0
+            _lf(
+                "DET",
+                "detection_fusion 결과 수신 #%d → player=%d ball=%d hoop=%d (%.1fms) → pose_fusion 호출",
+                frame_index, _np, _nb, _nh, stage_times["detection_fusion"],
+            )
+        except Exception:
+            pass
+        if verbose_pipe:
+            # detection_result 구조 — player/ball/hoop 카운트
+            try:
+                pr = getattr(detection_result, "player_result", None)
+                br = getattr(detection_result, "ball_result", None)
+                hr = getattr(detection_result, "hoop_result", None)
+                np_ = len(getattr(pr, "fused_objects", []) or []) if pr else -1
+                nb_ = len(getattr(br, "fused_objects", []) or []) if br else -1
+                nh_ = len(getattr(hr, "fused_objects", []) or []) if hr else -1
+                _logger.info(
+                    "[PIPE F#%d] 2️⃣ detection_fusion 완료 %.1fms → "
+                    "player_fused=%d ball_fused=%d hoop_fused=%d",
+                    frame_index, stage_times["detection_fusion"],
+                    np_, nb_, nh_,
+                )
+            except Exception:
+                pass
 
         # === Stage1: 포즈 추정 (backends 실제 추론) + 멀티뷰 3D 융합 ===
         t_pose = time.perf_counter()
@@ -519,9 +575,33 @@ class FramePipeline:
                         elapsed_ms, budget_ms, frame_index,
                         self._budget_exceeded_count,
                     )
+                # F1 진단 (2026-05-14): budget 초과 시 stage 별 소요 시간 출력 (silence-immune).
+                # 어느 stage 가 병목인지 즉시 식별. 첫 5회 + 30회마다 1회 throttle.
+                try:
+                    from infrastructure.diagnostics.flow_logger import log_flow
+                    _sorted = sorted(stage_times.items(), key=lambda kv: -kv[1])
+                    _summary = " ".join(f"{k}={v:.0f}ms" for k, v in _sorted)
+                    log_flow(
+                        "STAGE-TIME",
+                        "frame#%d total=%.0fms (>%.0fms): %s",
+                        frame_index, elapsed_ms, budget_ms, _summary,
+                        first_n=5, every=30,
+                    )
+                except Exception:
+                    pass
             self._history.append(result)
             if len(self._history) > _MAX_PIPELINE_HISTORY:
                 self._history = self._history[-_MAX_PIPELINE_HISTORY:]
+
+        # ===== PIPE 3️⃣ 결과 반환 (50f 주기) =====
+        if verbose_pipe:
+            _logger.info(
+                "[PIPE F#%d] 3️⃣ process_frame 결과 반환 → 총 %.1fms "
+                "(stages=%s) %s",
+                frame_index, elapsed_ms,
+                {k: round(v, 1) for k, v in stage_times.items()},
+                "⚠ 예산초과" if exceeded else "✓",
+            )
 
         return result
 

@@ -29,9 +29,18 @@ ffmpeg-python==0.2.0
 imageio==2.33.1
 imageio-ffmpeg>=0.6.0  # RTSP ffmpeg subprocess pipe (v0.2.0+) — 번들에 ffmpeg.exe 포함
 
+# Network Discovery (Plan G, 2026-05-13) — mDNS / Zero-configuration networking
+# 카메라 표준 서비스 광고 (_rtsp._tcp, _axis-video._tcp 등) 자동 발견.
+# 미설치 시 mdns_discovery.py 가 graceful skip — 코드 동작에 영향 없음.
+zeroconf>=0.130
+
 # Multi-view
 scipy==1.11.4
 scikit-learn==1.4.0
+
+# Cloud (v0.4.0 — S3 자동 업로드: 녹화 영상 + 데이터셋)
+boto3>=1.34.0
+zstandard>=0.22.0  # tar.zst / .jsonl.zst 압축 — 데이터셋 번들
 
 # Utilities
 python-dotenv==1.0.0

@@ -1,0 +1,717 @@
+{% extends "components/layout.html" %}
+{% set active = "replay" %}
+{% block title %}COURTVIEW — REPLAY 뷰어{% endblock %}
+
+{% block content %}
+<style>
+    .rv-shell {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 360px;
+        gap: 16px;
+        margin-top: 18px;
+    }
+    @media (max-width: 1100px) {
+        .rv-shell { grid-template-columns: 1fr; }
+    }
+
+    /* 좌측: 비디오 + HUD */
+    .rv-main { display: flex; flex-direction: column; gap: 12px; }
+    .rv-meta {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        font-family: var(--f-mono);
+        font-size: 11px;
+        color: var(--fg-2);
+        letter-spacing: 1px;
+        flex-wrap: wrap;
+    }
+    .rv-meta .lbl { color: var(--fg-3); margin-right: 4px; }
+    .rv-meta select {
+        background: var(--bg-1);
+        border: 1px solid var(--line-2);
+        color: var(--fg-1);
+        padding: 4px 8px;
+        font-family: var(--f-mono);
+        font-size: 11px;
+        letter-spacing: 1px;
+    }
+    .rv-meta a {
+        color: var(--fg-2);
+        text-decoration: none;
+        border-bottom: 1px solid var(--line-3);
+        padding-bottom: 2px;
+    }
+    .rv-meta a:hover { color: var(--hot); }
+    .rv-stop-btn {
+        margin-left: auto;
+        padding: 6px 14px;
+        background: transparent;
+        border: 1px solid var(--warn);
+        color: var(--warn);
+        font-family: var(--f-mono);
+        font-size: 11px;
+        letter-spacing: 1px;
+        cursor: pointer;
+    }
+    .rv-stop-btn:hover { background: var(--warn); color: var(--bg-0); }
+
+    .rv-video-frame {
+        position: relative;
+        background: #000;
+        aspect-ratio: 16 / 9;
+        overflow: hidden;
+        border: 1px solid var(--line-2);
+    }
+    .rv-video-frame video {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        background: #000;
+    }
+    .rv-hud {
+        position: absolute;
+        top: 12px;
+        left: 12px;
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        font-family: var(--f-mono);
+        font-size: 14px;
+        background: rgba(0,0,0,0.55);
+        backdrop-filter: blur(4px);
+        padding: 8px 14px;
+        letter-spacing: 1px;
+        color: #fff;
+        pointer-events: none;
+    }
+    .rv-hud .team { color: #ddd; min-width: 48px; text-align: center; }
+    .rv-hud .score { color: var(--hot); font-weight: 700; font-size: 18px; min-width: 28px; text-align: center; }
+    .rv-hud .sep { color: #777; }
+
+    .rv-progress {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-family: var(--f-mono);
+        font-size: 11px;
+        color: var(--fg-2);
+        letter-spacing: 1px;
+    }
+    .rv-progress .bar {
+        flex: 1;
+        height: 4px;
+        background: var(--line-3);
+        overflow: hidden;
+    }
+    .rv-progress .bar > div {
+        height: 100%;
+        background: var(--hot);
+        width: 0%;
+        transition: width 0.4s ease;
+    }
+    .rv-progress.done .bar > div { background: var(--cool); }
+
+    /* 팀 통계 카드 (필요 시 작게) */
+    .rv-stats {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px;
+        font-family: var(--f-mono);
+        font-size: 11px;
+    }
+    .rv-stat-cell {
+        border: 1px solid var(--line-2);
+        padding: 10px 12px;
+        background: var(--bg-2);
+    }
+    .rv-stat-cell .lbl {
+        color: var(--fg-3);
+        font-size: 9px;
+        letter-spacing: 1.5px;
+        margin-bottom: 4px;
+    }
+    .rv-stat-cell .val { color: var(--fg-1); font-size: 14px; }
+
+    /* 우측: 이벤트 피드 */
+    .rv-side {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        max-height: calc(100vh - 200px);
+    }
+    .rv-side-head {
+        font-family: var(--f-mono);
+        font-size: 11px;
+        color: var(--fg-3);
+        letter-spacing: 1.5px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .rv-side-head .count {
+        margin-left: auto;
+        color: var(--hot);
+    }
+    .rv-feed {
+        flex: 1;
+        overflow-y: auto;
+        border: 1px solid var(--line-2);
+        background: var(--bg-2);
+        min-height: 320px;
+    }
+    .rv-feed-empty {
+        padding: 30px 16px;
+        text-align: center;
+        font-family: var(--f-mono);
+        font-size: 11px;
+        color: var(--fg-3);
+        letter-spacing: 1px;
+    }
+    .rv-event {
+        padding: 9px 12px;
+        border-bottom: 1px solid var(--line-3);
+        cursor: pointer;
+        font-size: 12px;
+        line-height: 1.4;
+        transition: background 0.1s ease;
+    }
+    .rv-event:hover { background: var(--bg-1); }
+    .rv-event.recent { border-left: 2px solid var(--hot); }
+    .rv-event-head {
+        display: flex;
+        gap: 8px;
+        font-family: var(--f-mono);
+        font-size: 10px;
+        color: var(--fg-2);
+        letter-spacing: 0.5px;
+        margin-bottom: 2px;
+    }
+    .rv-event-head .frame { color: var(--fg-3); }
+    .rv-event-head .conf { margin-left: auto; color: var(--cool); }
+    .rv-event-body { color: var(--fg-1); font-size: 12px; }
+    .rv-event-body .icon { margin-right: 6px; }
+    .rv-event-body .player { color: var(--hot); margin-left: 4px; }
+    .rv-event-body .subtype { color: var(--fg-3); font-size: 11px; margin-left: 4px; }
+
+    .rv-status-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 3px 8px;
+        font-family: var(--f-mono);
+        font-size: 10px;
+        letter-spacing: 1px;
+        border: 1px solid var(--line-2);
+    }
+    .rv-status-pill.ws-on  { color: var(--cool); border-color: var(--cool); }
+    .rv-status-pill.ws-off { color: var(--warn); border-color: var(--warn); }
+    .rv-status-pill .dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: currentColor;
+    }
+</style>
+
+<div id="app">
+    <!-- 메타 + 카메라 선택 -->
+    <div class="rv-meta">
+        <span><span class="lbl">SESSION —</span><span id="rv-session-id">{{ session_id }}</span></span>
+        <span><span class="lbl">QTR —</span><select id="rv-quarter"></select></span>
+        <span><span class="lbl">CAM —</span><select id="rv-cam"></select></span>
+        <span id="rv-ws-pill" class="rv-status-pill ws-off"><span class="dot"></span><span id="rv-ws-text">WS 연결 중…</span></span>
+        <span><a href="/replay">← 세션 목록</a></span>
+        <button id="rv-stop" class="rv-stop-btn" title="분석 중단">■ STOP</button>
+    </div>
+
+    <div class="rv-shell">
+        <!-- 좌측: 비디오 + HUD + 프로그레스 -->
+        <div class="rv-main">
+            <div class="rv-video-frame">
+                <video id="rv-video" controls playsinline preload="metadata"></video>
+                <div class="rv-hud">
+                    <span class="team" id="rv-home-name">HOME</span>
+                    <span class="score" id="rv-home-score">0</span>
+                    <span class="sep">—</span>
+                    <span class="score" id="rv-away-score">0</span>
+                    <span class="team" id="rv-away-name">AWAY</span>
+                </div>
+            </div>
+
+            <div class="rv-progress" id="rv-progress">
+                <span><span class="lbl" style="color:var(--fg-3)">ENGINE —</span> <span id="rv-prog-text">대기 중…</span></span>
+                <div class="bar"><div id="rv-prog-bar"></div></div>
+                <span id="rv-prog-fps" style="color:var(--fg-3)"></span>
+            </div>
+
+            <div class="rv-stats">
+                <div class="rv-stat-cell">
+                    <div class="lbl">EVENTS</div>
+                    <div class="val" id="rv-stat-events">0</div>
+                </div>
+                <div class="rv-stat-cell">
+                    <div class="lbl">FRAMES PROCESSED</div>
+                    <div class="val" id="rv-stat-frames">0</div>
+                </div>
+                <div class="rv-stat-cell">
+                    <div class="lbl">SCORES</div>
+                    <div class="val" id="rv-stat-scores">0</div>
+                </div>
+                <div class="rv-stat-cell">
+                    <div class="lbl">FOULS / VIOLATIONS</div>
+                    <div class="val" id="rv-stat-fouls">0</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 우측: 이벤트 피드 -->
+        <div class="rv-side">
+            <div class="rv-side-head">
+                <span>EVENT FEED</span>
+                <span class="count" id="rv-feed-count">0</span>
+            </div>
+            <div class="rv-feed" id="rv-feed">
+                <div class="rv-feed-empty">
+                    아직 감지된 이벤트가 없습니다 — 분석 진행 시 여기 실시간 표시됩니다.
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+(function () {
+    'use strict';
+
+    const fetcher    = (window.Auth && window.Auth.fetch) ? window.Auth.fetch : fetch;
+    const sessionId  = {{ session_id | tojson }};
+
+    // 페이로드 — replay 페이지에서 분석 시작 시 sessionStorage 에 저장한 것
+    let storedPayload = null;
+    try {
+        const raw = sessionStorage.getItem('cv_replay_payload');
+        if (raw) storedPayload = JSON.parse(raw);
+    } catch {}
+
+    // DOM
+    const camSel     = document.getElementById('rv-cam');
+    const qSel       = document.getElementById('rv-quarter');
+    const video      = document.getElementById('rv-video');
+    const homeScore  = document.getElementById('rv-home-score');
+    const awayScore  = document.getElementById('rv-away-score');
+    const homeName   = document.getElementById('rv-home-name');
+    const awayName   = document.getElementById('rv-away-name');
+    const feed       = document.getElementById('rv-feed');
+    const feedCount  = document.getElementById('rv-feed-count');
+    const progText   = document.getElementById('rv-prog-text');
+    const progBar    = document.getElementById('rv-prog-bar');
+    const progFps    = document.getElementById('rv-prog-fps');
+    const progBox    = document.getElementById('rv-progress');
+    const wsPill     = document.getElementById('rv-ws-pill');
+    const wsText     = document.getElementById('rv-ws-text');
+    const stopBtn    = document.getElementById('rv-stop');
+    const statEv     = document.getElementById('rv-stat-events');
+    const statFr     = document.getElementById('rv-stat-frames');
+    const statSc     = document.getElementById('rv-stat-scores');
+    const statFo     = document.getElementById('rv-stat-fouls');
+
+    // 팀 이름 — 페이로드에 있으면 표시
+    if (storedPayload) {
+        if (storedPayload.home_team_name) homeName.textContent = storedPayload.home_team_name;
+        if (storedPayload.away_team_name) awayName.textContent = storedPayload.away_team_name;
+    }
+
+    // 통계
+    let stat = { events: 0, frames: 0, scores: 0, fouls: 0 };
+    function refreshStats() {
+        statEv.textContent = stat.events;
+        statFr.textContent = stat.frames;
+        statSc.textContent = stat.scores;
+        statFo.textContent = stat.fouls;
+    }
+    refreshStats();
+
+    // ── 세션 상세 로드 → 카메라/쿼터 셀렉터 채우기 ────────────────────
+    function escapeHtml(s) {
+        return String(s ?? '').replace(/[&<>"']/g, (c) => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        }[c]));
+    }
+
+    let quartersDetail = {};
+    async function loadSessionDetail() {
+        try {
+            const r = await fetcher(`/api/v1/recording/sessions/${encodeURIComponent(sessionId)}`);
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            const j = await r.json();
+            if (!j.success) throw new Error(j.message || '응답 실패');
+            quartersDetail = (j.data && j.data.quarters_detail) || {};
+            renderSelectors();
+        } catch (e) {
+            progText.textContent = `세션 로드 실패: ${e.message || e}`;
+        }
+    }
+
+    function renderSelectors() {
+        const quarters = Object.keys(quartersDetail).sort();
+        if (quarters.length === 0) {
+            qSel.innerHTML = '<option>—</option>';
+            camSel.innerHTML = '<option>—</option>';
+            progText.textContent = '이 세션에 영상 파일이 없습니다.';
+            return;
+        }
+
+        // 쿼터 셀렉터 — URL 파라미터 우선
+        const urlParams = new URLSearchParams(location.search);
+        const qParam = urlParams.get('q');
+        qSel.innerHTML = quarters.map(q =>
+            `<option value="${escapeHtml(q)}" ${q === qParam ? 'selected' : ''}>${escapeHtml(q)}</option>`
+        ).join('');
+        if (!qSel.value) qSel.value = quarters[0];
+
+        renderCamSelector();
+
+        qSel.addEventListener('change', () => {
+            renderCamSelector();
+            loadVideo();
+        });
+        camSel.addEventListener('change', loadVideo);
+
+        loadVideo();
+    }
+
+    function renderCamSelector() {
+        const cams = Object.keys(quartersDetail[qSel.value] || {})
+            .sort((a, b) => {
+                const ai = parseInt(a.split('_')[1] || '0', 10);
+                const bi = parseInt(b.split('_')[1] || '0', 10);
+                return ai - bi;
+            });
+        if (cams.length === 0) {
+            camSel.innerHTML = '<option>—</option>';
+            return;
+        }
+        const urlParams = new URLSearchParams(location.search);
+        const camParam = urlParams.get('cam');
+        camSel.innerHTML = cams.map(c =>
+            `<option value="${escapeHtml(c)}" ${c === camParam ? 'selected' : ''}>${escapeHtml(c)}</option>`
+        ).join('');
+        if (!camSel.value) camSel.value = cams[0];
+    }
+
+    function loadVideo() {
+        const cam = camSel.value;
+        const q   = qSel.value;
+        if (!cam || cam === '—' || !q || q === '—') return;
+        const src = `/api/v1/recording/sessions/${encodeURIComponent(sessionId)}/video?cam=${encodeURIComponent(cam)}&q=${encodeURIComponent(q)}`;
+        if (video.src !== location.origin + src && !video.src.endsWith(src)) {
+            video.src = src;
+            video.load();
+        }
+    }
+
+    // ── WebSocket 이벤트 구독 ────────────────────────────────────────
+    let ws = null;
+    let stopped = false;
+
+    function connectWS() {
+        const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const url   = `${proto}//${location.host}/ws/live`;
+        try {
+            ws = new WebSocket(url);
+        } catch (e) {
+            wsPill.classList.remove('ws-on');
+            wsPill.classList.add('ws-off');
+            wsText.textContent = `WS 실패: ${e.message || e}`;
+            return;
+        }
+        ws.onopen = () => {
+            wsPill.classList.remove('ws-off');
+            wsPill.classList.add('ws-on');
+            wsText.textContent = 'WS 연결됨';
+        };
+        ws.onclose = () => {
+            wsPill.classList.remove('ws-on');
+            wsPill.classList.add('ws-off');
+            wsText.textContent = 'WS 끊김';
+            // 분석이 끝나서 끊긴 경우엔 재연결 안 함
+            if (!stopped) setTimeout(connectWS, 2000);
+        };
+        ws.onerror = () => {
+            wsPill.classList.remove('ws-on');
+            wsPill.classList.add('ws-off');
+            wsText.textContent = 'WS 오류';
+        };
+        ws.onmessage = (e) => {
+            try {
+                handleMessage(JSON.parse(e.data));
+            } catch {}
+        };
+    }
+
+    const _icons = {
+        score: '🏀',
+        free_throw: '🆓',
+        rebound: '🔁',
+        steal: '🧤',
+        violation: '⚠️',
+        foul: '⚖️',
+        possession_start: '↪',
+        possession_change: '↔',
+        turnover: '✗',
+        timeout: '⏸',
+    };
+
+    function _eventLabel(t) {
+        const map = {
+            score: '득점',
+            free_throw: '자유투',
+            rebound: '리바운드',
+            steal: '스틸',
+            violation: '바이올레이션',
+            foul: '파울',
+            possession_start: '공격권 시작',
+            possession_change: '공격권 전환',
+            turnover: '턴오버',
+            timeout: '작전타임',
+        };
+        return map[t] || t;
+    }
+
+    function handleMessage(msg) {
+        const t = msg.type;
+        if (t === 'frame') {
+            stat.frames = msg.frame_index || stat.frames;
+            const fps = msg.processing_time_ms > 0 ? (1000 / msg.processing_time_ms).toFixed(1) : '~';
+            progText.textContent = `분석 중 — F#${msg.frame_index || '?'}, 감지 ${msg.total_objects || 0}개`;
+            progFps.textContent  = `${fps} fps`;
+            // 비디오 길이 대비 진행률 — 추정 (frame_index / 가정 1800f)
+            // 더 정확한 진행률은 백엔드가 total_frames 보내줘야 함. 일단 frame_index 기반.
+            refreshStats();
+            return;
+        }
+        if (t === 'event') {
+            stat.events++;
+            const evt = msg.event_type;
+            if (evt === 'score' || evt === 'free_throw') {
+                if (msg.score_after) {
+                    homeScore.textContent = msg.score_after.home;
+                    awayScore.textContent = msg.score_after.away;
+                }
+                if (evt === 'score') stat.scores++;
+            } else if (evt === 'foul' || evt === 'violation') {
+                stat.fouls++;
+            }
+            appendEvent(msg);
+            refreshStats();
+            return;
+        }
+        if (t === 'game_status') {
+            if (msg.status === 'completed' || msg.status === 'stopped') {
+                onAnalysisDone(msg.status);
+            }
+            return;
+        }
+        if (t === 'engine_started') {
+            progText.textContent = '엔진 시작됨';
+            return;
+        }
+    }
+
+    function appendEvent(msg) {
+        if (feed.querySelector('.rv-feed-empty')) feed.innerHTML = '';
+
+        const evt = msg.event_type || 'event';
+        const icon = _icons[evt] || '•';
+        const label = _eventLabel(evt);
+        const sub = msg.subtype ? `(${msg.subtype})` : '';
+        const pName = msg.player?.name || msg.offender?.name || '';
+        const pJersey = msg.player?.jersey || msg.offender?.jersey || '';
+        const playerLbl = pName ? `#${pJersey} ${pName}` : (msg.player_id ? `P${msg.player_id}` : '');
+        const conf = msg.confidence != null ? `${(msg.confidence * 100).toFixed(0)}%` : '';
+        const fi = msg.frame_index != null ? `F#${msg.frame_index}` : '';
+        const cam = msg.camera_id || '';
+
+        // 이전 'recent' 클래스 제거
+        feed.querySelectorAll('.rv-event.recent').forEach(el => el.classList.remove('recent'));
+
+        const div = document.createElement('div');
+        div.className = 'rv-event recent';
+        div.dataset.frame = msg.frame_index || '';
+        div.innerHTML = `
+            <div class="rv-event-head">
+                <span class="frame">${escapeHtml(fi)}</span>
+                <span>${escapeHtml(cam)}</span>
+                <span class="conf">${escapeHtml(conf)}</span>
+            </div>
+            <div class="rv-event-body">
+                <span class="icon">${icon}</span>${escapeHtml(label)}
+                ${sub ? `<span class="subtype">${escapeHtml(sub)}</span>` : ''}
+                ${playerLbl ? `<span class="player">${escapeHtml(playerLbl)}</span>` : ''}
+            </div>
+        `;
+        // 클릭 시 비디오 seek (fps 가정 30 — 정확치 않으므로 best-effort)
+        div.addEventListener('click', () => {
+            const f = parseInt(div.dataset.frame, 10);
+            if (!isNaN(f) && video.duration && isFinite(video.duration)) {
+                // 영상 길이에 frame 비율 안 맞으면 어림으로 30fps 가정
+                const t = f / 30.0;
+                if (t < video.duration) {
+                    video.currentTime = t;
+                    video.play().catch(() => {});
+                }
+            }
+        });
+        feed.insertBefore(div, feed.firstChild);
+        feedCount.textContent = stat.events;
+        // 1000개 넘으면 오래된 것부터 제거
+        while (feed.children.length > 1000) feed.removeChild(feed.lastChild);
+    }
+
+    function onAnalysisDone(status) {
+        stopped = true;
+        progBox.classList.add('done');
+        progText.textContent = status === 'completed' ? '✓ 분석 완료' : '■ 분석 중단됨';
+        progBar.style.width = '100%';
+        if (ws) try { ws.close(); } catch {}
+        // 2026-05-19: ETA polling 중단
+        if (progressPollHandle) {
+            clearInterval(progressPollHandle);
+            progressPollHandle = null;
+        }
+    }
+
+    // 2026-05-19: 분석 진행률 polling (정확한 frame_total / ETA / fps).
+    // /api/v1/tasks/progress 는 ProgressReporter.snapshot() 결과 반환.
+    // WS frame 메시지만으론 frame_total 모르므로 5초 polling 으로 보강.
+    let progressPollHandle = null;
+    function formatEta(sec) {
+        if (!isFinite(sec) || sec <= 0) return '계산 중…';
+        if (sec < 60)   return `${Math.round(sec)}초`;
+        if (sec < 3600) return `${Math.floor(sec/60)}분 ${Math.round(sec%60)}초`;
+        return `${Math.floor(sec/3600)}시간 ${Math.floor((sec%3600)/60)}분`;
+    }
+    async function pollProgress() {
+        if (stopped) return;
+        try {
+            const r = await fetch('/api/v1/tasks/progress');
+            if (!r.ok) return;
+            const p = await r.json();
+            // p = {frame_current, frame_total, progress_pct, phase, phase_pct, fps, eta_sec}
+            if (p.frame_total && p.frame_total > 0) {
+                const pct = Math.min(100, Math.max(0, p.progress_pct || 0));
+                progText.textContent =
+                    `${pct.toFixed(1)}% — F#${p.frame_current}/${p.frame_total} · 남은 시간 ${formatEta(p.eta_sec)}`;
+                progBar.style.width = pct.toFixed(1) + '%';
+            } else if (p.frame_current > 0) {
+                // total 없으면 frame_current 만 표시
+                progText.textContent = `분석 중 — F#${p.frame_current} · ${formatEta(p.eta_sec)}`;
+            }
+            if (p.fps && p.fps > 0) {
+                progFps.textContent = `${p.fps.toFixed(2)} fps`;
+            }
+        } catch {}
+    }
+    // 페이지 진입 시 즉시 1회 + 5초마다 polling
+    pollProgress();
+    progressPollHandle = setInterval(pollProgress, 5000);
+
+    // STOP 버튼
+    // 2026-05-21: 종료 → finalize → /game/result 이동 흐름 추가.
+    // game_analysis.html:1614-1673 의 정식 흐름과 동일.
+    stopBtn.addEventListener('click', async () => {
+        if (!confirm('분석을 중단할까요? 진행 중인 분석이 즉시 멈춥니다.\n(POSTGAME 처리로 응답까지 시간이 걸릴 수 있어요)')) return;
+        stopBtn.disabled = true;
+
+        // 즉시 UI 갱신 — 응답 대기 동안 freeze 보이지 않게
+        stopped = true;
+        progBox.classList.add('done');
+        progText.textContent = '🛑 분석 종료 중… (POSTGAME 파이프라인 처리)';
+        progBar.style.width = '100%';
+        if (progressPollHandle) { clearInterval(progressPollHandle); progressPollHandle = null; }
+        if (ws) try { ws.close(); } catch {}
+
+        // 응답 OK / 4xx / 네트워크 오류 모두 분리 보고용 helper
+        // fetch 는 4xx 에서 throw 안 함 — r.ok / r.status 로 판정.
+        const safeCall = async (url, timeoutMs, body, ok404 = false) => {
+            const ctl = new AbortController();
+            const tid = setTimeout(() => ctl.abort(), timeoutMs);
+            try {
+                const opts = { method: 'POST', signal: ctl.signal };
+                if (body !== undefined) {
+                    opts.headers = { 'Content-Type': 'application/json' };
+                    opts.body = JSON.stringify(body);
+                }
+                const r = await fetcher(url, opts);
+                if (r.ok) return { ok: true, status: r.status };
+                if (ok404 && r.status === 404) return { ok: true, status: 404 };
+                let detail = '';
+                try { detail = (await r.text()).slice(0, 200); } catch {}
+                return { ok: false, status: r.status, error: `HTTP ${r.status} ${detail}` };
+            } catch (e) {
+                return { ok: false, error: String(e?.message || e) };
+            } finally {
+                clearTimeout(tid);
+            }
+        };
+
+        // A) recording/stop (REPLAY 는 녹화 X 라 404 정상)
+        progText.textContent = '⏳ 녹화 종료 중…';
+        await safeCall('/api/v1/recording/stop', 60000, undefined, true);
+
+        // B) game/stop — POSTGAME 동기 처리 포함, 길게 걸림
+        progText.textContent = '⏳ 분석 종료 중… (영상 길수록 오래 걸림)';
+        const gameRes = await safeCall('/api/v1/game/stop', 120000);
+
+        // C) finalize/game — events.json/highlights 등 패키지 생성
+        // session_id 명시 전달: REPLAY 는 recording_service 가 import_* 세션을 모름.
+        // 백엔드 finalize_service._resolve_session_dir(explicit_session_id=…) 가 사용.
+        progText.textContent = '⏳ 결과 패키징 중…';
+        const finalizePayload = {
+            session_id: sessionId || '',
+            match_id: sessionId || '',
+            league: 'fiba',
+            home_team: { name: 'HOME', short_code: 'HOM', players: [] },
+            away_team: { name: 'AWAY', short_code: 'AWA', players: [] },
+            final_home: 0,
+            final_away: 0,
+            ended_at: Date.now() / 1000,
+        };
+        const finalizeRes = await safeCall('/api/v1/finalize/game', 180000, finalizePayload);
+
+        // D) 결과 보고 + navigation
+        if (!gameRes.ok || !finalizeRes.ok) {
+            const msgs = [];
+            if (!gameRes.ok)     msgs.push('• 분석 종료: ' + gameRes.error);
+            if (!finalizeRes.ok) msgs.push('• 결과 패키징: ' + finalizeRes.error);
+            const proceed = confirm(
+                '⚠ 일부 종료 처리 실패 (백엔드는 계속 처리 중일 수 있음):\n\n' +
+                msgs.join('\n') +
+                '\n\n그래도 결과 페이지로 이동할까요?'
+            );
+            if (!proceed) {
+                progText.textContent = '■ 종료 처리 실패';
+                stopBtn.disabled = false;
+                return;
+            }
+        }
+
+        progText.textContent = '✓ 완료 — 결과 페이지로 이동…';
+        const url = sessionId
+            ? `/game/result?session_id=${encodeURIComponent(sessionId)}`
+            : '/game/result';
+        setTimeout(() => { window.location.href = url; }, 600);
+    });
+
+    // 페이지 떠날 때 WS 닫기
+    window.addEventListener('beforeunload', () => {
+        if (ws) try { ws.close(); } catch {}
+    });
+
+    // 시작
+    loadSessionDetail();
+    connectWS();
+})();
+</script>
+{% endblock %}

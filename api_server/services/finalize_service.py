@@ -73,6 +73,8 @@ class UIFinalizePayload:
     # 시작/종료 wall-clock
     started_at: float = 0.0
     ended_at: float = 0.0
+    # 2026-05-21: REPLAY 모드 — recording_service 가 import_* 세션을 모르므로 UI 가 명시 지정.
+    session_id: str = ""
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> UIFinalizePayload:
@@ -89,6 +91,7 @@ class UIFinalizePayload:
             operator_events=list(d.get("operator_events") or []),
             started_at=float(d.get("started_at") or 0.0),
             ended_at=float(d.get("ended_at") or time.time()),
+            session_id=str(d.get("session_id") or ""),
         )
 
 
@@ -143,7 +146,9 @@ class GameFinalizeService:
 
         with self._lock:
             # 1. 세션 디렉토리 확인
-            session_dir = self._resolve_session_dir()
+            # UI 가 session_id 명시 지정한 경우 (REPLAY 모드) 우선 사용 →
+            # recording_service 의 stale _last_session 회피.
+            session_dir = self._resolve_session_dir(explicit_session_id=ui.session_id)
             if session_dir is None:
                 return FinalizeResult(
                     success=False,
@@ -206,8 +211,29 @@ class GameFinalizeService:
     # =========================================================================
     # 내부: 세션 해석
     # =========================================================================
-    def _resolve_session_dir(self) -> Path | None:
-        """활성 세션 디렉토리 반환. 없으면 가장 최근 세션 폴더."""
+    def _resolve_session_dir(self, explicit_session_id: str = "") -> Path | None:
+        """세션 디렉토리 해석.
+
+        우선순위:
+            1. explicit_session_id (REPLAY 모드 — UI 가 import_* 세션 지정)
+            2. 활성 녹화 세션 (LIVE 모드)
+            3. 방금 종료한 세션 (_last_session)
+        """
+        # 1. 명시 지정 — REPLAY 처럼 recording_service 가 모르는 세션
+        if explicit_session_id:
+            try:
+                root = Path(self._recording_service._config.session_root)
+                p = (root / explicit_session_id).resolve()
+                if p.exists() and p.is_dir():
+                    return p
+                _logger.warning(
+                    "explicit session_id 지정됐지만 폴더 없음: %s (fallback to recording_service)",
+                    explicit_session_id,
+                )
+            except Exception:
+                _logger.exception("explicit session_id 해석 실패")
+
+        # 2 + 3. recording_service 폴백
         try:
             st = self._recording_service.get_status()
             if st.get("active") and st.get("session_dir"):
@@ -330,10 +356,17 @@ class GameFinalizeService:
         ui: UIFinalizePayload,
         snapshot: dict[str, Any],
     ) -> str:
-        """operator 이벤트 + 엔진 탐지 이벤트 병합 타임라인."""
+        """operator 이벤트 + 엔진 탐지 이벤트 병합 타임라인.
+
+        2026-05-21: snapshot["events"] (export_service 가 채움) → engine_events 로 dump.
+        이전엔 operator_events 만 dump 했고 engine 측 결과는 사라지던 갭 fix.
+        """
+        engine_events = snapshot.get("events") or []
         data = {
             "schema_version": SCHEMA_VERSION,
             "operator_events": ui.operator_events,
+            "engine_events": engine_events,
+            "engine_events_count": len(engine_events),
         }
         return self._dump(finalize_dir / "events.json", data)
 

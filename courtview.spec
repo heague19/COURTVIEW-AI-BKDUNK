@@ -103,7 +103,16 @@ hidden_imports += [
     "launcher_splash",
     "launcher_version",
     "launcher_updater",
+    "launcher_manifest",     # v0.5.2: 델타 업데이트 sha256 manifest
+    "launcher_delta_updater",  # v0.5.2: 델타 다운로드 + atomic swap
     "launcher_workers",   # 자식 프로세스 target 함수 (frozen 호환)
+    # v0.5.6: REPLAY 분석 GUI — 녹화 영상 후분석
+    "tools.replay_analyzer_gui",
+    "tools.replay",
+    "tools.replay.format_detector",
+    "tools.replay.multi_file_ingestion",
+    "tools.replay.calibration_dialog",
+    "tools.replay.replay_runner",
     "tkinter",     # 스플래시용
     "tkinter.ttk",
     "onnx",         # warmup 이 shape 추출에 사용
@@ -118,6 +127,28 @@ hidden_imports += [
 
 # OpenCV
 hidden_imports += ["cv2"]
+
+# v0.4.1: scipy / sklearn 하위 모듈 — sklearn → scipy.stats → scipy.sparse.csgraph 의
+# C 확장 (_shortest_path 등) 이 동적 import 라 PyInstaller 가 누락. 명시적으로 전부 수집.
+for pkg in ("scipy", "sklearn"):
+    try:
+        hidden_imports += collect_submodules(pkg)
+    except Exception:
+        hidden_imports.append(pkg)
+
+# v0.4.3: PyInstaller scipy hook 이 _shortest_path.pyd 누락하는 버그 회피용 hidden imports.
+# 실제 .pyd 강제 포함은 extra_binaries 정의 후 (아래) 처리.
+hidden_imports += [
+    "scipy.sparse.csgraph._shortest_path",
+    "scipy.sparse.csgraph._tools",
+    "scipy.sparse.csgraph._traversal",
+    "scipy.sparse.csgraph._matching",
+    "scipy.sparse.csgraph._flow",
+    "scipy.sparse.csgraph._min_spanning_tree",
+    "scipy.sparse.csgraph._reordering",
+    "scipy.sparse.csgraph._validation",
+    "scipy.sparse.csgraph._laplacian",
+]
 
 
 # =============================================================================
@@ -135,7 +166,8 @@ extra_binaries = []
 TRT_PKGS = ("tensorrt", "tensorrt_cu13", "tensorrt_cu13_libs", "tensorrt_cu13_bindings",
             "tensorrt_cu12", "tensorrt_cu12_libs", "tensorrt_cu12_bindings")
 
-for pkg in ("torch", "torchvision", "ultralytics", "imageio_ffmpeg") + TRT_PKGS:
+for pkg in ("torch", "torchvision", "ultralytics", "imageio_ffmpeg",
+            "scipy", "sklearn") + TRT_PKGS:
     try:
         datas, binaries, hi = collect_all(pkg)
         extra_datas += datas
@@ -156,6 +188,28 @@ for libs_pkg in ("tensorrt_libs", "tensorrt_cu13_libs", "tensorrt_cu12_libs"):
     except Exception:
         pass
 
+# v0.4.3: PyInstaller scipy hook 이 csgraph/_shortest_path.pyd 만 누락하는 버그.
+# 그 1개만 명시적으로 추가 (전체 forced-include 는 PyInstaller dedup 중 SIGSEGV 발생).
+import site as _site_spec
+from pathlib import Path as _Path_spec
+
+def _find_shortest_path_pyd() -> tuple | None:
+    for sp in _site_spec.getsitepackages() + [_site_spec.getusersitepackages()]:
+        sp_path = _Path_spec(sp)
+        candidate = sp_path / "scipy" / "sparse" / "csgraph"
+        if not candidate.exists():
+            continue
+        for pyd in candidate.glob("_shortest_path*.pyd"):
+            return (str(pyd), "scipy/sparse/csgraph")
+    return None
+
+_sp_pyd = _find_shortest_path_pyd()
+if _sp_pyd:
+    extra_binaries.append(_sp_pyd)
+    print(f"  [scipy_pyd_force] _shortest_path.pyd 추가: {_sp_pyd[0]}")
+else:
+    print("  [scipy_pyd_force] _shortest_path.pyd 미발견 (scipy 미설치?)")
+
 
 # =============================================================================
 # 데이터 파일 — 소스 디렉토리 그대로 번들
@@ -170,6 +224,12 @@ project_datas = [
     (os.path.join(UI_DIR, "templates"), "courtview_ui/templates"),
     (os.path.join(UI_DIR, "static"), "courtview_ui/static"),
     (os.path.join(UI_DIR, "app.py"), "courtview_ui"),
+    # v0.3.0: go2rtc 서브프로세스 (RTSP→WebRTC 게이트웨이) + 설정
+    ("vendor/go2rtc/go2rtc.exe", "vendor/go2rtc"),
+    ("vendor/go2rtc/go2rtc.yaml", "vendor/go2rtc"),
+    # v0.5.6: REPLAY 분석 GUI — EXE 단독으로 녹화 영상 후분석 가능
+    ("tools/replay_analyzer_gui.py", "tools"),
+    ("tools/replay", "tools/replay"),
 ]
 
 # build.py 가 생성한 버전 파일 (있으면 번들에 포함)

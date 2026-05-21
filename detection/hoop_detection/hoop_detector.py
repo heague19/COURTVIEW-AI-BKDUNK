@@ -1056,6 +1056,9 @@ class HoopDetector(IHoopDetector[HoopDetectorConfig]):
             골대 후보 목록
         """
         config = self._config
+        # v0.4.4: unified_mode 시 self._model = None — predict 차단.
+        if self._model is None:
+            return []
         results = self._model.predict(
             frame,
             device=self._effective_device,

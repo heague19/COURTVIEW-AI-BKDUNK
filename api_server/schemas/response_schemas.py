@@ -216,6 +216,21 @@ class CameraStatusResponse(BaseModel):
     fps: float = 0.0
     calibrated: bool = False
     calibration_quality: float = 0.0
+    # Plan A (2026-05-13): "relay" / "direct" / "unknown" — go2rtc 경유 여부.
+    transport_mode: str = "unknown"
+
+
+class Go2rtcHealthResponse(BaseModel):
+    """
+    go2rtc 서비스 + 카메라 transport_mode 통합 헬스 응답 (Plan A).
+
+    go2rtc:  Go2rtcService.get_health() 결과 (running / api_ready / 카운터)
+    cameras: 카메라별 [camera_id, label, connected, transport_mode]
+    summary: {total, relay, direct, unknown} — UI 가 direct>0 보고 경고 배너 표시
+    """
+    go2rtc: dict = Field(default_factory=dict)
+    cameras: list[dict] = Field(default_factory=list)
+    summary: dict = Field(default_factory=dict)
 
 
 class CameraStatusAllResponse(BaseModel):
@@ -280,6 +295,7 @@ __all__ = [
     "CameraCalibrationResponse",
     "ManualCalibrationResponse",
     "CameraAITestResponse",
+    "Go2rtcHealthResponse",
 ]
 
 __version__ = "1.0.0"

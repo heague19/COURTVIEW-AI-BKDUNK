@@ -1,0 +1,867 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>COURTVIEW — 전광판</title>
+    <link rel="stylesheet" href="/static/css/theme.css">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <script src="/static/js/auth-guard.js?v=20260421"></script>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: #000;
+            color: #fff;
+        }
+        .sb-root {
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            overflow: hidden;
+            background: #000;
+            color: #fff;
+        }
+
+        /* Editorial 배경 — 115° 줄무늬 + 단일 800px 원 */
+        .sb-bg-stripes {
+            position: absolute; inset: 0; pointer-events: none;
+            background: repeating-linear-gradient(115deg, transparent 0 80px, rgba(255,90,31,0.025) 80px 82px);
+        }
+        .sb-bg-ring {
+            position: absolute; inset: 0; pointer-events: none;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .sb-bg-ring > div {
+            width: 800px; height: 800px;
+            border: 1px solid rgba(255, 90, 31, 0.08);
+            border-radius: 50%;
+        }
+
+        /* 헤더 — Editorial: 좌측 brand+meta, 우측 ON AIR + 4K + 시계 */
+        .sb-header {
+            height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 40px;
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+            position: relative;
+            z-index: 1;
+        }
+        .sb-header-left {
+            display: flex; align-items: center; gap: 16px;
+        }
+        .sb-brand {
+            font-family: var(--f-display);
+            font-size: 18px; font-weight: 700; letter-spacing: 1px;
+        }
+        .sb-brand .hot { color: var(--hot); }
+        .sb-vsep {
+            width: 1px; height: 20px; background: rgba(255,255,255,0.15);
+        }
+        .sb-meta {
+            font-family: var(--f-mono);
+            font-size: 11px; color: var(--fg-2); letter-spacing: 1px;
+        }
+        .sb-header-right {
+            display: flex; align-items: center; gap: 14px;
+            font-family: var(--f-mono); font-size: 11px; color: var(--fg-1);
+        }
+        .sb-onair {
+            display: inline-flex; align-items: center; gap: 8px;
+            padding: 5px 12px;
+            border: 1.5px solid var(--bad);
+            color: var(--bad);
+            font-family: var(--f-display);
+            font-size: 11px; font-weight: 700; letter-spacing: 2.5px;
+        }
+        .sb-onair-dot {
+            width: 7px; height: 7px;
+            background: var(--bad);
+            border-radius: 50%;
+            animation: cv-onair-pulse 1.4s ease-in-out infinite;
+        }
+        @keyframes cv-onair-pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.35; }
+        }
+        .sb-divider {
+            color: var(--fg-3);
+        }
+
+        /* 메인 스코어 영역 */
+        .sb-main {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            z-index: 1;
+        }
+
+        .sb-score-grid {
+            display: grid;
+            grid-template-columns: 1fr auto 1fr;
+            gap: 80px;
+            align-items: center;
+            padding: 0 80px;
+            max-width: 1700px;
+            width: 100%;
+        }
+
+        /* 팀 박스 */
+        .sb-team {
+            text-align: center;
+        }
+        .sb-team-side {
+            font-family: var(--f-mono);
+            font-size: 14px; color: var(--fg-2);
+            letter-spacing: 3px;
+            margin-bottom: 12px;
+        }
+        .sb-team-name {
+            font-family: var(--f-display);
+            font-size: 80px; font-weight: 700;
+            letter-spacing: -2px;
+            line-height: 1;
+        }
+        .sb-team.home .sb-team-name { color: var(--hot); }
+        .sb-team.away .sb-team-name { color: var(--cool); }
+
+        /* v0.5.8.2: 코트 체인지 — 3쿼터부터 양 팀 코트 위치 좌우 swap.
+           시청자 입장에서 좌우 영상 방향과 점수판 위치 일치. 색상은 팀 색 유지(home=hot/away=cool).
+           메인 스코어 grid + 하단 쿼터 box-score grid 둘 다 동시 swap. */
+        body.swap-courts .sb-score-grid > .sb-team.home { grid-column: 3; }
+        body.swap-courts .sb-score-grid > .sb-team.away { grid-column: 1; }
+        /* 하단 쿼터 그리드: TEAM | Q1 Q2 Q3 Q4 | TOTAL — 행 단위 swap (CSS order 사용 X, JS 에서 row 재배치) */
+
+        .sb-team-score {
+            font-family: var(--f-display);
+            font-size: 320px; font-weight: 700;
+            line-height: 0.85;
+            color: #fff;
+            letter-spacing: -14px;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .sb-team-meta {
+            font-family: var(--f-mono);
+            font-size: 14px; color: var(--fg-1);
+            letter-spacing: 2px;
+            margin-top: 8px;
+        }
+
+        /* 중앙 (쿼터 + 게임클락 + SHOT CLOCK) */
+        .sb-center {
+            text-align: center;
+        }
+        .sb-center-label {
+            font-family: var(--f-mono);
+            font-size: 16px; color: var(--fg-2);
+            letter-spacing: 3px;
+        }
+        .sb-quarter {
+            font-family: var(--f-display);
+            font-size: 130px; font-weight: 700;
+            color: var(--hot);
+            line-height: 1;
+        }
+        .sb-clock {
+            font-family: var(--f-mono);
+            font-size: 80px; font-weight: 700;
+            color: var(--warn);
+            letter-spacing: -2px;
+            margin-top: 12px;
+            line-height: 1;
+            font-variant-numeric: tabular-nums;
+        }
+        .sb-clock.warn { color: var(--bad); animation: pulse-red 0.8s ease-in-out infinite; }
+        @keyframes pulse-red {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .sb-shot-label {
+            font-family: var(--f-mono);
+            font-size: 14px; color: var(--fg-2);
+            letter-spacing: 2px;
+            margin-top: 18px;
+        }
+        .sb-shot-clock {
+            font-family: var(--f-mono);
+            font-size: 64px; font-weight: 700;
+            color: var(--bad);
+            letter-spacing: -1px;
+            line-height: 1;
+            margin-top: 4px;
+            font-variant-numeric: tabular-nums;
+        }
+        .sb-shot-clock.critical { animation: pulse-red 0.5s ease-in-out infinite; }
+
+        /* 하단 — Editorial 쿼터 그리드 (TEAM | Q1 Q2 Q3 Q4 | TOTAL) */
+        .sb-quarter-grid {
+            display: grid;
+            grid-template-columns: 200px repeat(4, 1fr) 200px;
+            border-top: 1px solid rgba(255,255,255,0.08);
+            position: relative;
+            z-index: 1;
+        }
+        .sb-qg-th {
+            padding: 10px 20px;
+            border-right: 1px solid rgba(255,255,255,0.06);
+            font-family: var(--f-mono);
+            font-size: 11px; color: var(--fg-2);
+            letter-spacing: 2px;
+            text-align: center;
+        }
+        .sb-qg-th.left { text-align: left; }
+        .sb-qg-th.last { border-right: none; }
+        .sb-qg-cell {
+            padding: 16px 20px;
+            border-top: 1px solid rgba(255,255,255,0.06);
+            border-right: 1px solid rgba(255,255,255,0.06);
+            text-align: center;
+            font-family: var(--f-mono);
+            font-size: 18px; font-weight: 500;
+            color: #fff;
+            font-variant-numeric: tabular-nums;
+        }
+        .sb-qg-cell.last { border-right: none; }
+        .sb-qg-cell.team {
+            text-align: left;
+            font-family: var(--f-display);
+            font-size: 22px; font-weight: 700;
+        }
+        .sb-qg-cell.team.home { color: var(--hot); }
+        .sb-qg-cell.team.away { color: var(--cool); }
+        .sb-qg-cell.total {
+            font-size: 26px; font-weight: 700;
+        }
+
+        /* 모드 전환 */
+        .sb-mode {
+            display: none;
+        }
+        .sb-mode.active {
+            display: flex;
+        }
+        .sb-mode.mode-score {
+            flex: 1;
+            flex-direction: column;
+        }
+
+        /* 오프라인 알림 — Editorial */
+        .sb-offline {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            z-index: 10;
+            padding: 5px 12px;
+            border: 1px solid var(--bad);
+            color: var(--bad);
+            background: rgba(255,59,92,0.08);
+            font-family: var(--f-mono);
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 1.5px;
+            display: none;
+        }
+        .sb-offline.show { display: block; }
+    </style>
+</head>
+<body>
+<div class="sb-root">
+    <!-- Editorial 배경 — 줄무늬 + 단일 원 -->
+    <div class="sb-bg-stripes"></div>
+    <div class="sb-bg-ring"><div></div></div>
+
+    <!-- 오프라인 알림 -->
+    <div class="sb-offline" id="sb-offline">⚠ SYNC LOST</div>
+
+    <!-- 헤더 -->
+    <div class="sb-header">
+        <div class="sb-header-left">
+            <span class="sb-brand">COURT<span class="hot">VIEW</span></span>
+            <span class="sb-vsep"></span>
+            <span class="sb-meta" id="sb-venue">SMC-26 · SEMIFINAL · OLYMPIC PARK</span>
+        </div>
+        <div class="sb-header-right">
+            <span class="sb-onair">
+                <span class="sb-onair-dot"></span>
+                ON AIR
+            </span>
+            <span class="sb-divider">|</span>
+            <span>4K · 60FPS</span>
+            <span class="sb-divider">|</span>
+            <span id="sb-wallclock">--:--:--</span>
+        </div>
+    </div>
+
+    <!-- 모드 1: 기본 스코어보드 -->
+    <div class="sb-mode mode-score active">
+        <div class="sb-main">
+            <div class="sb-score-grid">
+                <!-- 홈팀 -->
+                <div class="sb-team home">
+                    <div class="sb-team-side">HOME · <span id="sb-home-record">—</span></div>
+                    <div class="sb-team-name" id="sb-home-name">HOME</div>
+                    <div class="sb-team-score" id="sb-home-score">0</div>
+                    <div class="sb-team-meta">FOULS <span id="sb-home-foul">0</span> · TO <span id="sb-home-to">0</span></div>
+                </div>
+
+                <!-- 중앙 -->
+                <div class="sb-center">
+                    <div class="sb-center-label">QUARTER</div>
+                    <div class="sb-quarter" id="sb-quarter">Q1</div>
+                    <div class="sb-clock" id="sb-clock">10:00</div>
+                    <div class="sb-shot-label">SHOT CLOCK</div>
+                    <div class="sb-shot-clock" id="sb-shot-clock">24</div>
+                </div>
+
+                <!-- 어웨이팀 -->
+                <div class="sb-team away">
+                    <div class="sb-team-side">AWAY · <span id="sb-away-record">—</span></div>
+                    <div class="sb-team-name" id="sb-away-name">AWAY</div>
+                    <div class="sb-team-score" id="sb-away-score">0</div>
+                    <div class="sb-team-meta">FOULS <span id="sb-away-foul">0</span> · TO <span id="sb-away-to">0</span></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 하단 — 쿼터 스코어 그리드 -->
+        <div class="sb-quarter-grid">
+            <div class="sb-qg-th left">TEAM</div>
+            <div class="sb-qg-th">Q1</div>
+            <div class="sb-qg-th">Q2</div>
+            <div class="sb-qg-th">Q3</div>
+            <div class="sb-qg-th">Q4</div>
+            <div class="sb-qg-th last">TOTAL</div>
+
+            <div class="sb-qg-cell team home" id="sb-qg-home-name">HOME</div>
+            <div class="sb-qg-cell" id="sb-qg-home-q1">—</div>
+            <div class="sb-qg-cell" id="sb-qg-home-q2">—</div>
+            <div class="sb-qg-cell" id="sb-qg-home-q3">—</div>
+            <div class="sb-qg-cell" id="sb-qg-home-q4">—</div>
+            <div class="sb-qg-cell total last" id="sb-qg-home-total">0</div>
+
+            <div class="sb-qg-cell team away" id="sb-qg-away-name">AWAY</div>
+            <div class="sb-qg-cell" id="sb-qg-away-q1">—</div>
+            <div class="sb-qg-cell" id="sb-qg-away-q2">—</div>
+            <div class="sb-qg-cell" id="sb-qg-away-q3">—</div>
+            <div class="sb-qg-cell" id="sb-qg-away-q4">—</div>
+            <div class="sb-qg-cell total last" id="sb-qg-away-total">0</div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════
+         모드 2: 쿼터 브레이크 — 스탯 리더 (Phase 18-A6)
+         ═══════════════════════════════════════════════════════════ -->
+    <div class="sb-mode mode-stats" style="flex:1; flex-direction:column; padding:40px 60px; overflow:auto; position:relative; z-index:1;">
+        <div style="text-align:center; margin-bottom:30px;">
+            <div style="font-family:var(--f-mono); font-size:14px; color:var(--fg-2); letter-spacing:3px;" id="sb-stats-q-label">Q1 END</div>
+            <div style="font-family:var(--f-display); font-size:72px; font-weight:700; color:var(--hot); letter-spacing:-2px; margin-top:6px;">STATS LEADERS</div>
+        </div>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:24px; flex:1;">
+            <div class="stats-leader-col">
+                <div class="stats-cat">PTS · 득점 리더</div>
+                <div id="sb-leader-pts"></div>
+            </div>
+            <div class="stats-leader-col">
+                <div class="stats-cat">AST · 어시스트 리더</div>
+                <div id="sb-leader-ast"></div>
+            </div>
+            <div class="stats-leader-col">
+                <div class="stats-cat">3P% · 3점 성공률 리더</div>
+                <div id="sb-leader-3p"></div>
+            </div>
+        </div>
+
+        <!-- 현재 스코어 미니 바 -->
+        <div style="display:flex; justify-content:center; align-items:center; gap:40px; padding-top:24px; margin-top:auto; border-top:1px solid rgba(255,255,255,0.08); font-family:var(--f-display); font-size:36px; font-weight:700;">
+            <span style="color:var(--hot);">
+                <span id="sb-stats-home-name">HOME</span>
+                &nbsp;<span id="sb-stats-home-score" style="font-variant-numeric:tabular-nums;">0</span>
+            </span>
+            <span style="font-family:var(--f-mono); font-size:14px; color:var(--fg-2); letter-spacing:3px;">VS</span>
+            <span style="color:var(--cool);">
+                <span id="sb-stats-away-score" style="font-variant-numeric:tabular-nums;">0</span>&nbsp;
+                <span id="sb-stats-away-name">AWAY</span>
+            </span>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════
+         모드 3: VAR / 판정 클립
+         ═══════════════════════════════════════════════════════════ -->
+    <div class="sb-mode mode-var" style="flex:1; flex-direction:column; padding:20px; overflow:hidden; position:relative; z-index:1;">
+        <div style="text-align:center; padding:12px 0;">
+            <div style="font-family:var(--f-mono); font-size:12px; color:var(--bad); letter-spacing:3px; font-weight:700;">⚖ REFEREE REVIEW</div>
+            <div style="font-family:var(--f-display); font-size:42px; font-weight:700; color:#fff; letter-spacing:-1px; margin-top:4px;" id="sb-var-title">판정 검토 중</div>
+        </div>
+
+        <div style="flex:1; display:flex; align-items:center; justify-content:center; background:#000; border:1.5px solid var(--bad); overflow:hidden; position:relative;">
+            <video id="sb-var-video" controls autoplay
+                   style="max-width:100%; max-height:100%; background:#000;"
+                   src=""></video>
+            <div id="sb-var-placeholder" style="font-family:var(--f-mono); color:var(--fg-2); font-size:14px; letter-spacing:2px;">
+                CLIP STANDBY...
+            </div>
+        </div>
+
+        <div style="text-align:center; padding:12px 0; font-family:var(--f-mono); font-size:13px; color:var(--fg-2); letter-spacing:1px;" id="sb-var-caption">
+            (판정 세부 정보)
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════
+         모드 4: 하이라이트
+         ═══════════════════════════════════════════════════════════ -->
+    <div class="sb-mode mode-highlight" style="flex:1; flex-direction:column; padding:20px; overflow:hidden; position:relative; z-index:1;">
+        <div style="text-align:center; padding:12px 0;">
+            <div style="font-family:var(--f-mono); font-size:13px; color:var(--warn); letter-spacing:4px; font-weight:700;">✨ HIGHLIGHTS</div>
+            <div style="font-family:var(--f-display); font-size:32px; font-weight:700; color:#fff; letter-spacing:-1px; margin-top:4px;" id="sb-hl-title">최고의 순간</div>
+        </div>
+
+        <div style="flex:1; display:flex; align-items:center; justify-content:center; background:#000; border:1.5px solid var(--warn); overflow:hidden;">
+            <video id="sb-hl-video" autoplay muted loop
+                   style="max-width:100%; max-height:100%;"></video>
+        </div>
+
+        <div style="text-align:center; padding:10px 0; font-family:var(--f-mono); font-size:13px; color:var(--fg-2); letter-spacing:1px;" id="sb-hl-caption"></div>
+    </div>
+
+</div>
+
+<style>
+.stats-leader-col {
+    background: var(--bg-2);
+    border: 1px solid var(--line-2);
+    padding: 20px;
+}
+.stats-cat {
+    font-family: var(--f-mono);
+    font-size: 12px;
+    color: var(--hot);
+    text-align: center;
+    letter-spacing: 2px;
+    font-weight: 700;
+    margin-bottom: 14px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--line-2);
+}
+.leader-row {
+    display: grid;
+    grid-template-columns: 32px 1fr auto;
+    gap: 12px;
+    align-items: center;
+    padding: 10px 6px;
+    border-bottom: 1px solid var(--line-2);
+}
+.leader-row:last-child { border-bottom: none; }
+.leader-rank {
+    font-family: var(--f-display);
+    font-size: 28px;
+    font-weight: 700;
+    text-align: center;
+    line-height: 1;
+}
+.leader-rank.r1 { color: var(--hot); }
+.leader-rank.r2 { color: #c0c0c0; }
+.leader-rank.r3 { color: #cd7f32; }
+.leader-name {
+    font-family: var(--f-display);
+    font-size: 18px;
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: -0.5px;
+}
+.leader-team {
+    font-family: var(--f-mono);
+    font-size: 11px;
+    color: var(--fg-2);
+    letter-spacing: 1px;
+}
+.leader-value {
+    font-family: var(--f-display);
+    font-size: 32px;
+    font-weight: 700;
+    color: var(--hot);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    line-height: 1;
+}
+.leader-value-sub {
+    font-family: var(--f-mono);
+    font-size: 11px;
+    color: var(--fg-2);
+    text-align: right;
+    margin-top: 2px;
+}
+</style>
+
+<script src="/static/js/auth-client.js?v=20260421"></script>
+<script src="/static/js/ops.js?v=20260421"></script>
+<script>
+// =============================================================================
+// 전광판 상태 — operator에서 WebSocket broker + localStorage 폴백
+// =============================================================================
+const SAVE_KEY = 'cv_live_state';
+
+// Ops broker 에서 받은 state 메모리 캐시 (operator authoritative)
+let _remoteState = null;
+
+function loadState() {
+    if (_remoteState) return _remoteState;
+    try {
+        return JSON.parse(localStorage.getItem(SAVE_KEY) || '{}');
+    } catch { return {}; }
+}
+
+function render() {
+    const s = loadState();
+    const homeName = s.homeName || 'HOME';
+    const awayName = s.awayName || 'AWAY';
+    document.getElementById('sb-home-name').textContent = homeName;
+    document.getElementById('sb-away-name').textContent = awayName;
+    document.getElementById('sb-home-score').textContent = s.homeScore ?? 0;
+    document.getElementById('sb-away-score').textContent = s.awayScore ?? 0;
+
+    // v0.5.8.2: 3쿼터부터 코트 체인지 → 메인 score grid 위치 좌우 swap (CSS class).
+    // OT(5+) 는 4쿼터 코트 그대로 이어지므로 swap 유지.
+    document.body.classList.toggle('swap-courts', (s.quarter || 1) >= 3);
+
+    // 팀 시리즈 레코드 (예: 3-0)
+    const homeRecEl = document.getElementById('sb-home-record');
+    const awayRecEl = document.getElementById('sb-away-record');
+    if (homeRecEl) homeRecEl.textContent = s.homeRecord || '—';
+    if (awayRecEl) awayRecEl.textContent = s.awayRecord || '—';
+
+    const q = s.quarter || 1;
+    const qLabel = q >= 5 ? `OT${q - 4}` : `Q${q}`;
+    document.getElementById('sb-quarter').textContent = qLabel;
+
+    // 게임 클락 + 작전타임/휴식 오버레이
+    const gc = s.gameClock ?? 600;
+    const clockEl = document.getElementById('sb-clock');
+
+    if (s.timeoutRemaining > 0) {
+        clockEl.textContent = `T/O ${s.timeoutRemaining}s`;
+        clockEl.style.color = 'var(--warn)';
+        clockEl.classList.remove('warn');
+    } else if (s.breakRemaining > 0) {
+        const label = s.breakKind === 'halftime' ? 'HALFTIME' : 'BREAK';
+        const bm = Math.floor(s.breakRemaining / 60);
+        const bs = s.breakRemaining % 60;
+        clockEl.textContent = `${label} ${String(bm).padStart(2,'0')}:${String(bs).padStart(2,'0')}`;
+        clockEl.style.color = 'var(--cool)';
+        clockEl.classList.remove('warn');
+    } else {
+        const m = Math.floor(gc / 60);
+        const sec = gc % 60;
+        if (gc <= 60) {
+            clockEl.textContent = `${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}.0`;
+        } else {
+            clockEl.textContent = `${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+        }
+        clockEl.style.color = '';
+        clockEl.classList.toggle('warn', gc <= 10);
+    }
+
+    // 샷 클락
+    const sc = s.shotClock ?? 24;
+    const scEl = document.getElementById('sb-shot-clock');
+    if (s.shotClockOn === false || sc === 0) {
+        scEl.textContent = '—';
+        scEl.style.opacity = '0.4';
+        scEl.classList.remove('critical');
+    } else {
+        scEl.textContent = sc;
+        scEl.style.opacity = '1';
+        scEl.classList.toggle('critical', sc <= 5);
+    }
+
+    // 팀 파울 (메타 인라인)
+    document.getElementById('sb-home-foul').textContent = s.homeFoul ?? 0;
+    document.getElementById('sb-away-foul').textContent = s.awayFoul ?? 0;
+
+    // 타임아웃 (현재 쿼터 기준)
+    const homeTOKey = q <= 2 ? 'homeTO_first' : (q >= 5 ? 'homeTO_ot' : 'homeTO_second');
+    const awayTOKey = q <= 2 ? 'awayTO_first' : (q >= 5 ? 'awayTO_ot' : 'awayTO_second');
+    const homeToMax = q <= 2 ? 2 : (q >= 5 ? 1 : 3);
+    const awayToMax = q <= 2 ? 2 : (q >= 5 ? 1 : 3);
+    document.getElementById('sb-home-to').textContent =
+        `${s[homeTOKey] ?? 0}/${homeToMax}`;
+    document.getElementById('sb-away-to').textContent =
+        `${s[awayTOKey] ?? 0}/${awayToMax}`;
+
+    // 쿼터 그리드 — 각 쿼터별 점수 + TOTAL
+    document.getElementById('sb-qg-home-name').textContent = homeName;
+    document.getElementById('sb-qg-away-name').textContent = awayName;
+    const homeQ = Array.isArray(s.homeQuarterScores) ? s.homeQuarterScores : [];
+    const awayQ = Array.isArray(s.awayQuarterScores) ? s.awayQuarterScores : [];
+    let homeTotal = 0, awayTotal = 0;
+    for (let i = 0; i < 4; i++) {
+        const hv = homeQ[i];
+        const av = awayQ[i];
+        const showH = (i + 1) <= q;
+        const showA = (i + 1) <= q;
+        document.getElementById(`sb-qg-home-q${i+1}`).textContent =
+            (showH && hv != null) ? hv : '—';
+        document.getElementById(`sb-qg-away-q${i+1}`).textContent =
+            (showA && av != null) ? av : '—';
+        if (typeof hv === 'number') homeTotal += hv;
+        if (typeof av === 'number') awayTotal += av;
+    }
+    document.getElementById('sb-qg-home-total').textContent =
+        s.homeScore ?? homeTotal;
+    document.getElementById('sb-qg-away-total').textContent =
+        s.awayScore ?? awayTotal;
+}
+
+// 헤더 우측 — wallclock (HH:MM:SS)
+function _tickWallclock() {
+    const el = document.getElementById('sb-wallclock');
+    if (!el) return;
+    const d = new Date();
+    el.textContent = [d.getHours(), d.getMinutes(), d.getSeconds()]
+        .map(n => String(n).padStart(2, '0')).join(':');
+}
+_tickWallclock();
+setInterval(_tickWallclock, 1000);
+
+// Ops broker 수신 — operator에서 보낸 state를 메모리에 저장 후 렌더
+Ops.subscribe('game_state', (data) => {
+    if (data.gs) {
+        _remoteState = data.gs;
+        try { localStorage.setItem(SAVE_KEY, JSON.stringify(data.gs)); } catch {}
+        render();
+    }
+});
+
+// 시퀀스 타이머 — 중첩 시퀀스 방지
+let _sequenceTimers = [];
+function _clearSequence() {
+    _sequenceTimers.forEach(t => clearTimeout(t));
+    _sequenceTimers = [];
+}
+function _schedule(ms, fn) {
+    _sequenceTimers.push(setTimeout(fn, ms));
+}
+
+function activateMode(modeName, payload) {
+    document.querySelectorAll('.sb-mode').forEach(el => el.classList.remove('active'));
+    const target = document.querySelector(`.sb-mode.mode-${modeName}`);
+    if (target) target.classList.add('active');
+
+    if (modeName === 'stats' && payload) {
+        renderStatsLeaders(payload);
+    } else if (modeName === 'var' && payload) {
+        const video = document.getElementById('sb-var-video');
+        const placeholder = document.getElementById('sb-var-placeholder');
+        if (payload.clip_url) {
+            video.src = payload.clip_url;
+            video.style.display = '';
+            placeholder.style.display = 'none';
+        }
+        document.getElementById('sb-var-title').textContent = payload.title || '판정 검토 중';
+        document.getElementById('sb-var-caption').textContent = payload.caption || '';
+    } else if (modeName === 'highlight' && payload) {
+        const video = document.getElementById('sb-hl-video');
+        document.getElementById('sb-hl-title').textContent = payload.title || '최고의 순간';
+        document.getElementById('sb-hl-caption').textContent = payload.caption || '';
+
+        if (payload.clip_url) {
+            // 명시적 URL 지정 시
+            video.src = payload.clip_url;
+            video.load(); video.play().catch(() => {});
+        } else {
+            // 자동 fetch — DESK api_server 에서 최신 하이라이트 조회
+            video.removeAttribute('src');
+            fetchLatestHighlight().then(hl => {
+                if (!hl) return;
+                video.src = hl.video_url;
+                video.load();
+                video.play().catch(() => {});
+                if (hl.description) {
+                    document.getElementById('sb-hl-caption').textContent = hl.description;
+                }
+            }).catch(err => console.warn('[scoreboard] highlight fetch 실패', err));
+        }
+    }
+}
+
+// DESK api_server 에서 최신 하이라이트 1개 조회 (M2 자동 재생용)
+async function fetchLatestHighlight() {
+    const base = window.DESK_BASE_URL || '';  // 분리 배포 대비 (기본: 동일 origin)
+    const url = `${base}/api/v1/video/highlights?limit=1`;
+    try {
+        const resp = await fetch(url, { credentials: 'omit' });
+        if (!resp.ok) return null;
+        const list = await resp.json();
+        if (!Array.isArray(list) || list.length === 0) return null;
+        const hl = list[0];
+        // video_url 이 상대 경로면 DESK base 붙이기
+        if (hl.video_url && !hl.video_url.startsWith('http')) {
+            hl.video_url = base + hl.video_url;
+        }
+        return hl;
+    } catch { return null; }
+}
+
+// 경기 종료 — 전광판 창 자동 닫기
+Ops.subscribe('game_ended', (data) => {
+    console.log('[scoreboard] 경기 종료 수신 — 창 닫기', data);
+    setTimeout(() => { try { window.close(); } catch {} }, 400);
+});
+
+Ops.subscribe('scoreboard_mode', (data) => {
+    console.log('[scoreboard] scoreboard_mode 수신', data);
+    const modeName = data?.mode || 'score';
+
+    // 시퀀스 실행 — 작전타임/쿼터 종료 단계별 자동 전환
+    if (modeName === 'sequence') {
+        _clearSequence();
+        const seq = data.payload || {};
+        console.log('[scoreboard] sequence 시작', seq);
+        if (seq.type === 'timeout') {
+            runTimeoutSequence(seq.team);
+        } else if (seq.type === 'quarter_end') {
+            runQuarterEndSequence(seq.quarter, seq.leaders);
+        }
+        return;
+    }
+
+    // 단순 모드 전환 — 진행 중인 시퀀스 취소
+    _clearSequence();
+    activateMode(modeName, data.payload);
+});
+
+// 작전타임 시퀀스: 10초 대기(스코어보드 유지) → 하이라이트
+function runTimeoutSequence(team) {
+    const teamName = team === 'home'
+        ? (loadState().homeName || 'HOME')
+        : (loadState().awayName || 'AWAY');
+    activateMode('score');
+    // 10초 후 하이라이트
+    _schedule(10000, () => {
+        activateMode('highlight', {
+            title: `${teamName} TIMEOUT`,
+            caption: '작전 타임',
+            clip_url: null,  // 하이라이트 클립 자동 선택 (엔진 구현 시)
+        });
+    });
+}
+
+// 쿼터 종료 시퀀스: 10초 대기 → 팀 스탯 20초 → 리더 20초 → 하이라이트
+function runQuarterEndSequence(quarter, leaders) {
+    console.log('[scoreboard] runQuarterEndSequence', { quarter, leaders });
+    activateMode('score');
+
+    // Phase 1: 10초 스코어 유지
+    _schedule(10000, () => {
+        console.log('[scoreboard] Phase 2: 팀 스탯 20초');
+        activateMode('stats', {
+            pts: (leaders?.pts || []).slice(0, 1),
+            ast: (leaders?.ast || []).slice(0, 1),
+            threept: (leaders?.threept || []).slice(0, 1),
+            _mode: 'team_summary',
+        });
+    });
+
+    // Phase 3 (+30초 = 10+20): 20초 카테고리 리더 TOP3
+    _schedule(30000, () => {
+        console.log('[scoreboard] Phase 3: 리더 TOP3 20초');
+        activateMode('stats', leaders || {});
+    });
+
+    // Phase 4 (+50초): 하이라이트 (다음 쿼터 시작까지)
+    _schedule(50000, () => {
+        console.log('[scoreboard] Phase 4: 하이라이트');
+        activateMode('highlight', {
+            title: `${quarter}Q 하이라이트`,
+            caption: '다음 쿼터 시작 대기',
+            clip_url: null,
+        });
+    });
+}
+
+function renderStatsLeaders(payload) {
+    const s = loadState();
+    document.getElementById('sb-stats-q-label').textContent = `${s.quarter >= 5 ? 'OT' : 'Q' + s.quarter} END`;
+    document.getElementById('sb-stats-home-name').textContent = s.homeName || 'HOME';
+    document.getElementById('sb-stats-away-name').textContent = s.awayName || 'AWAY';
+    document.getElementById('sb-stats-home-score').textContent = s.homeScore || 0;
+    document.getElementById('sb-stats-away-score').textContent = s.awayScore || 0;
+
+    // payload: { pts:[{rank,name,team,value,sub}], ast:[...], threept:[...] }
+    const categories = [
+        ['pts', 'sb-leader-pts', '점'],
+        ['ast', 'sb-leader-ast', '개'],
+        ['threept', 'sb-leader-3p', '%'],
+    ];
+    categories.forEach(([key, elId, unit]) => {
+        const el = document.getElementById(elId);
+        const list = payload[key] || [];
+        if (list.length === 0) {
+            el.innerHTML = `
+                <div style="text-align:center;padding:40px 20px;font-family:var(--f-mono);color:var(--fg-2);letter-spacing:1px;">
+                    <div style="font-family:var(--f-display);font-size:14px;color:var(--fg-3);letter-spacing:2px;">NO DATA</div>
+                    <div style="font-size:13px;margin-top:10px;">기록 수집 중</div>
+                    <div style="font-size:10px;margin-top:6px;color:var(--fg-3);">기록지 입력 시 자동 표시</div>
+                </div>`;
+            return;
+        }
+        el.innerHTML = list.slice(0, 3).map((p, i) => `
+            <div class="leader-row">
+                <div class="leader-rank r${i+1}">${i+1}</div>
+                <div>
+                    <div class="leader-name">${p.name || '선수'}</div>
+                    <div class="leader-team">${p.team || ''}${p.number ? ' · #' + p.number : ''}</div>
+                </div>
+                <div>
+                    <div class="leader-value">${p.value}</div>
+                    ${p.sub ? `<div class="leader-value-sub">${p.sub}</div>` : ''}
+                </div>
+            </div>
+        `).join('');
+    });
+}
+
+// 주기적 렌더 (clock이 gs 안에서 operator가 감소시키므로 여기선 단순 재렌더)
+render();
+setInterval(render, 500);
+window.addEventListener('storage', (e) => {
+    if (e.key === SAVE_KEY) render();
+});
+
+// 엔진 연결 상태 (끊기면 offline 배지)
+async function checkSync() {
+    try {
+        const r = await fetch('/health');
+        const data = await r.json();
+        const off = document.getElementById('sb-offline');
+        if (data.engine !== 'ok') {
+            off.classList.add('show');
+        } else {
+            off.classList.remove('show');
+        }
+    } catch {
+        document.getElementById('sb-offline').classList.add('show');
+    }
+}
+checkSync();
+setInterval(checkSync, 5000);
+
+// 풀스크린 단축키 (F11 대신 F로)
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'f' || e.key === 'F') {
+        if (document.fullscreenElement) document.exitFullscreen();
+        else document.documentElement.requestFullscreen();
+    }
+});
+</script>
+</body>
+</html>

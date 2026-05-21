@@ -47,8 +47,13 @@ SetupIconFile=
 WizardStyle=modern
 
 ; --- 압축 ---
-Compression=lzma2/max
-SolidCompression=yes
+; v0.5.7.6: SolidCompression=yes + lzma2/max 가 262MB+ dll (TensorRT, torch) 일부에서
+; 결정론적으로 압축 해제 손상 유발 (사용자 0.5.7.5 install 2회 연속 같은 .dll CRC 실패).
+; solid 블록 안에서 한 dll 글리치가 chain corruption → 다른 파일까지 깨뜨림.
+; 해결: solid 끄고 per-file lzma2/normal — 파일별 독립 압축으로 격리.
+; 트레이드: zip 사이즈 ~5.86 GB → ~6.2 GB (4-6%↑) 받지만 무결성 보장.
+Compression=lzma2/normal
+SolidCompression=no
 LZMANumBlockThreads=4
 
 ; --- 디스크 분할 (번들 9.43 GB > Inno 단일 .exe 4.2 GB 한계) ---

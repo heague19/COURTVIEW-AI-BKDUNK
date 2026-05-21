@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}COURTVIEW{% endblock %}</title>
+    <link rel="stylesheet" href="/static/css/theme.css">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- 페이지 가드: 토큰 없으면 /로 리다이렉트 (가장 먼저 실행) -->
+    <script src="/static/js/auth-guard.js?v=20260421"></script>
+    {% block head %}{% endblock %}
+    {% block styles %}{% endblock %}
+</head>
+<body>
+    <div class="app-layout">
+        <!-- 타이틀바 -->
+        <div class="titlebar">
+            <div class="titlebar-logo">
+                <span class="brand">COURT</span><span class="accent">VIEW</span>
+                <span style="font-size:10px; color:var(--text-dark); margin-left:4px">&reg;</span>
+            </div>
+            <div class="titlebar-status">
+                <span id="engine-status">
+                    <span class="status-dot offline" id="engine-dot"></span>
+                    <span id="engine-label">엔진 연결 중...</span>
+                </span>
+                <span id="fps-display" style="color:var(--accent-orange)"></span>
+                <span id="clock-display"></span>
+            </div>
+        </div>
+
+        <!-- 바디 (사이드바 + 콘텐츠) -->
+        <div class="app-body">
+            <!-- 사이드바 -->
+            <nav class="sidebar">
+                <div class="sidebar-profile">
+                    <div class="profile-avatar">CV</div>
+                    <div class="profile-info">
+                        <div class="profile-name" id="user-name">COURTVIEW</div>
+                        <div class="profile-role" id="user-role">AI 분석 시스템</div>
+                    </div>
+                </div>
+
+                <a href="/game/analysis" class="sidebar-cta">
+                    <span>🏀</span> <span>경기 분석</span>
+                </a>
+
+                <div class="nav-section">
+                    <div class="nav-label">메뉴</div>
+                    <a href="/home" class="nav-item {% if active == 'home' %}active{% endif %}">
+                        <span class="icon">🏠</span> <span>홈</span>
+                    </a>
+                    <a href="/game/analysis" class="nav-item {% if active == 'analysis' %}active{% endif %}">
+                        <span class="icon">🏀</span> <span>경기 분석</span>
+                    </a>
+                    <a href="/game/result" class="nav-item {% if active == 'result' %}active{% endif %}">
+                        <span class="icon">📊</span> <span>경기 결과</span>
+                    </a>
+                </div>
+
+                <div class="nav-section">
+                    <div class="nav-label">관리</div>
+                    <a href="/database" class="nav-item {% if active == 'database' %}active{% endif %}">
+                        <span class="icon">🗄</span> <span>DB 관리</span>
+                    </a>
+                    <a href="/equipment" class="nav-item {% if active == 'equipment' %}active{% endif %}">
+                        <span class="icon">📷</span> <span>장비 관리</span>
+                    </a>
+                    <a href="/court" class="nav-item {% if active == 'court' %}active{% endif %}">
+                        <span class="icon">📍</span> <span>경기장 관리</span>
+                    </a>
+                    <a href="/referee" class="nav-item {% if active == 'referee' %}active{% endif %}">
+                        <span class="icon">🏁</span> <span>심판 관리</span>
+                    </a>
+                    <a href="/license" class="nav-item {% if active == 'license' %}active{% endif %}">
+                        <span class="icon">🔑</span> <span>라이선스</span>
+                    </a>
+                </div>
+
+                <div class="nav-section">
+                    <div class="nav-label">지원</div>
+                    <a href="/settings" class="nav-item {% if active == 'settings' %}active{% endif %}">
+                        <span class="icon">⚙️</span> <span>설정</span>
+                    </a>
+                    <a href="#" class="nav-item" onclick="event.preventDefault(); Auth && Auth.logout && Auth.logout();">
+                        <span class="icon">🚪</span> <span>로그아웃</span>
+                    </a>
+                </div>
+
+                <div class="sidebar-footer">
+                    &copy; 2024 SPOIN Inc.
+                </div>
+            </nav>
+
+            <!-- 메인 콘텐츠 -->
+            <main class="main-content">
+                {% block content %}{% endblock %}
+            </main>
+        </div>
+    </div>
+
+    <!-- 공통 JS -->
+    <script src="/static/js/auth-client.js?v=20260421"></script>
+    <script src="/static/js/api.js?v=20260421"></script>
+    <script src="/static/js/websocket.js?v=20260421"></script>
+    <script src="/static/js/ops.js?v=20260421"></script>
+    <!-- v0.3.1: go2rtc 공식 <video-stream> web component (ES module).
+         video-rtc.js + video-stream.js 조합 — WebRTC/MSE/HLS/MJPEG fallback,
+         재연결·코덱 협상 battle-tested. -->
+    <script type="module" src="/static/js/video-stream.js?v=20260424"></script>
+    <script>
+        // 엔진 상태 체크
+        async function checkEngine() {
+            try {
+                const resp = await fetch('/health');
+                const data = await resp.json();
+                const dot = document.getElementById('engine-dot');
+                const label = document.getElementById('engine-label');
+                if (data.engine === 'ok') {
+                    dot.className = 'status-dot online';
+                    label.textContent = '엔진 연결됨';
+                } else {
+                    dot.className = 'status-dot offline';
+                    label.textContent = '엔진 미연결';
+                }
+            } catch {
+                document.getElementById('engine-dot').className = 'status-dot offline';
+                document.getElementById('engine-label').textContent = '엔진 미연결';
+            }
+        }
+
+        // 시계
+        function updateClock() {
+            const now = new Date();
+            document.getElementById('clock-display').textContent =
+                now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+        }
+
+        checkEngine();
+        setInterval(checkEngine, 5000);
+        updateClock();
+        setInterval(updateClock, 1000);
+
+        // 사이드바 프로필: 로그인된 유저 표시
+        (function renderProfile() {
+            try {
+                const u = window.Auth ? Auth.getUser() : {};
+                const displayName = u.display_name || u.nickname || u.name || u.email || 'COURTVIEW';
+                const email = u.email || '';
+                const roles = Array.isArray(u.roles) ? u.roles : [];
+                const primaryRole = roles[0] || 'AI 분석 시스템';
+
+                const nameEl = document.getElementById('user-name');
+                const roleEl = document.getElementById('user-role');
+                if (nameEl) nameEl.textContent = displayName;
+                if (roleEl) roleEl.textContent = email && primaryRole !== 'AI 분석 시스템' ? primaryRole : email || primaryRole;
+
+                // 아바타 이니셜
+                const avatar = document.querySelector('.profile-avatar');
+                if (avatar && displayName) {
+                    const initials = displayName.slice(0, 2).toUpperCase();
+                    avatar.textContent = initials;
+                }
+            } catch (e) {
+                console.warn('[layout] 프로필 렌더 실패:', e);
+            }
+        })();
+    </script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

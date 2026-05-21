@@ -79,7 +79,7 @@ TRAIN_CFG = dict(
     close_mosaic=5,
     # 하드웨어
     amp=True,
-    cache="ram",            # RAM 캐싱 (32GB 여유 → val 5K=~1.7GB, train 45K=~21GB)
+    cache=False,            # .npy 캐시 끄기 (외장 NTFS 메타데이터 손상 회피)
     verbose=True,
 )
 

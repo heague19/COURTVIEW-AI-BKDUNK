@@ -75,42 +75,44 @@ def current_version() -> str:
     return get_version_info().get("version", "0.0.0-dev")
 
 
-def parse_version(v: str) -> tuple[int, int, int, str]:
+def parse_version(v: str) -> tuple[tuple[int, ...], str]:
     """
-    "1.2.3" 또는 "1.2.3-beta" → (1, 2, 3, "beta")
-    비교용. 단순 semver — major/minor/patch + pre-release.
+    "1.2.3" / "1.2.3.4" / "1.2.3-beta" → ((nums...), pre)
+
+    v0.5.7.4: 핫픽스용 4-component 버전 (0.5.7.1 같은 .N 패치)을 지원.
+    이전 버전은 첫 3개만 보고 0.5.7.1 vs 0.5.7.3 을 동일로 판정 → 업데이트 누락.
     """
     pre = ""
     core = v.strip().lstrip("v")
     if "-" in core:
         core, pre = core.split("-", 1)
-    parts = core.split(".")
-    nums = []
-    for p in parts[:3]:
+    nums: list[int] = []
+    for p in core.split("."):
         try:
             nums.append(int(p))
         except ValueError:
             nums.append(0)
-    while len(nums) < 3:
-        nums.append(0)
-    return (nums[0], nums[1], nums[2], pre)
+    return (tuple(nums), pre)
 
 
 def is_newer(candidate: str, current: str) -> bool:
-    """candidate > current 면 True (semver 기준)."""
-    c = parse_version(candidate)
-    r = parse_version(current)
-    # major.minor.patch 비교
-    if c[:3] != r[:3]:
-        return c[:3] > r[:3]
-    # 동일하면 pre-release 가 "없는 쪽" 이 승 (1.2.3 > 1.2.3-beta)
-    if c[3] == r[3]:
+    """candidate > current 면 True (semver + 가변 길이 컴포넌트)."""
+    c_nums, c_pre = parse_version(candidate)
+    r_nums, r_pre = parse_version(current)
+    # 길이 다르면 0 패딩 후 비교 (0.5.7 == 0.5.7.0 < 0.5.7.1)
+    n = max(len(c_nums), len(r_nums))
+    c_padded = c_nums + (0,) * (n - len(c_nums))
+    r_padded = r_nums + (0,) * (n - len(r_nums))
+    if c_padded != r_padded:
+        return c_padded > r_padded
+    # 숫자 동일하면 pre-release 가 "없는 쪽" 이 승 (1.2.3 > 1.2.3-beta)
+    if c_pre == r_pre:
         return False
-    if not c[3]:
+    if not c_pre:
         return True
-    if not r[3]:
+    if not r_pre:
         return False
-    return c[3] > r[3]
+    return c_pre > r_pre
 
 
 __all__ = ["get_version_info", "current_version", "parse_version", "is_newer"]

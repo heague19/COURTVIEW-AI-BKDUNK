@@ -1,0 +1,176 @@
+{% extends "components/layout.html" %}
+{% set active = "referee" %}
+{% block title %}COURTVIEW — 심판 관리{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="page-title">🏁 AI 심판 설정</div>
+    <div class="page-subtitle">AI 심판 규칙 세트 및 판정 민감도를 설정합니다</div>
+</div>
+
+<!-- 규칙 세트 선택 -->
+<div class="card" style="margin-bottom:16px;">
+    <div class="card-title" style="margin-bottom:16px;">규칙 세트</div>
+    <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:12px;">
+        <div class="rule-card active" onclick="selectRule('fiba')" id="rule-fiba">
+            <div style="font-size:24px; margin-bottom:8px;">🌍</div>
+            <div style="font-size:14px; font-weight:700;">FIBA</div>
+            <div style="font-size:11px; color:var(--text-gray); margin-top:4px;">국제 농구 연맹</div>
+            <div style="font-size:10px; color:var(--text-muted); margin-top:8px;">10분 쿼터 · 3PT 6.75m · 개인파울 5회</div>
+        </div>
+        <div class="rule-card" onclick="selectRule('nba')" id="rule-nba">
+            <div style="font-size:24px; margin-bottom:8px;">🇺🇸</div>
+            <div style="font-size:14px; font-weight:700;">NBA</div>
+            <div style="font-size:11px; color:var(--text-gray); margin-top:4px;">미국 프로 농구</div>
+            <div style="font-size:10px; color:var(--text-muted); margin-top:8px;">12분 쿼터 · 3PT 7.24m · 개인파울 6회</div>
+        </div>
+        <div class="rule-card" onclick="selectRule('kbl')" id="rule-kbl">
+            <div style="font-size:24px; margin-bottom:8px;">🇰🇷</div>
+            <div style="font-size:14px; font-weight:700;">KBL</div>
+            <div style="font-size:11px; color:var(--text-gray); margin-top:4px;">한국 프로 농구</div>
+            <div style="font-size:10px; color:var(--text-muted); margin-top:8px;">10분 쿼터 · 3PT 6.75m · 외국인 2명</div>
+        </div>
+        <div class="rule-card" onclick="selectRule('nbl')" id="rule-nbl">
+            <div style="font-size:24px; margin-bottom:8px;">🇦🇺</div>
+            <div style="font-size:14px; font-weight:700;">NBL</div>
+            <div style="font-size:11px; color:var(--text-gray); margin-top:4px;">호주 프로 농구</div>
+            <div style="font-size:10px; color:var(--text-muted); margin-top:8px;">10분 쿼터 · 3PT 6.75m · OT 3회 제한</div>
+        </div>
+    </div>
+</div>
+
+<!-- AI 심판 규칙 현황 -->
+<div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px;">
+    <!-- 바이올레이션 12종 -->
+    <div class="card">
+        <div class="card-header">
+            <div class="card-title">⚠️ 바이올레이션 (12종)</div>
+            <span style="font-size:12px; color:var(--accent-orange);" id="violation-count">12/12 활성</span>
+        </div>
+        <div id="violation-list" style="max-height:300px; overflow-y:auto;"></div>
+    </div>
+
+    <!-- 파울 11종 -->
+    <div class="card">
+        <div class="card-header">
+            <div class="card-title">🚨 파울 (11종)</div>
+            <span style="font-size:12px; color:var(--accent-orange);" id="foul-count">11/11 활성</span>
+        </div>
+        <div id="foul-list" style="max-height:300px; overflow-y:auto;"></div>
+    </div>
+</div>
+
+<!-- 판정 민감도 -->
+<div class="card">
+    <div class="card-title" style="margin-bottom:16px;">판정 민감도</div>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px;">
+        <div>
+            <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:6px;">
+                <span class="form-label">최소 신뢰도</span>
+                <span style="color:var(--accent-orange);" id="conf-value">70%</span>
+            </div>
+            <input type="range" min="30" max="95" value="70" style="width:100%;" oninput="document.getElementById('conf-value').textContent=this.value+'%'">
+            <div style="display:flex; justify-content:space-between; font-size:10px; color:var(--text-muted);">
+                <span>민감 (오탐 ↑)</span><span>엄격 (미탐 ↑)</span>
+            </div>
+        </div>
+        <div>
+            <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:6px;">
+                <span class="form-label">리플레이 임계값</span>
+                <span style="color:var(--accent-orange);" id="replay-value">85%</span>
+            </div>
+            <input type="range" min="50" max="99" value="85" style="width:100%;" oninput="document.getElementById('replay-value').textContent=this.value+'%'">
+            <div style="display:flex; justify-content:space-between; font-size:10px; color:var(--text-muted);">
+                <span>자주 리플레이</span><span>거의 안 함</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.rule-card {
+    background: var(--bg-card);
+    border: 2px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 16px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.rule-card:hover { border-color: var(--border-outer); }
+.rule-card.active {
+    border-color: var(--accent-orange);
+    background: rgba(255,153,51,0.08);
+}
+.rule-toggle {
+    display: flex; align-items: center; gap: 8px; padding: 8px;
+    border-bottom: 1px solid rgba(68,68,68,0.3); font-size: 12px;
+}
+.rule-toggle label { cursor: pointer; flex: 1; }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const VIOLATIONS = [
+    { id: 'traveling', name: '트래블링', rule: 'Rule 25' },
+    { id: 'double_dribble', name: '더블 드리블', rule: 'Rule 24' },
+    { id: 'carry', name: '캐리', rule: 'Rule 24' },
+    { id: 'kick_ball', name: '킥볼', rule: 'Rule 26' },
+    { id: 'three_second', name: '3초 바이올레이션 (공격)', rule: 'Rule 26' },
+    { id: 'def_three_sec', name: '3초 바이올레이션 (수비)', rule: 'NBA Rule 10' },
+    { id: 'five_second', name: '5초 바이올레이션', rule: 'Rule 26' },
+    { id: 'eight_second', name: '8초 바이올레이션', rule: 'Rule 28' },
+    { id: 'backcourt', name: '백코트 바이올레이션', rule: 'Rule 30' },
+    { id: 'out_of_bounds', name: '아웃 오브 바운즈', rule: 'Rule 23' },
+    { id: 'goaltending', name: '골텐딩', rule: 'Rule 31' },
+    { id: 'shot_clock', name: '24초 바이올레이션', rule: 'Rule 29' },
+];
+
+const FOULS = [
+    { id: 'contact', name: '접촉 파울', rule: 'Rule 33-34' },
+    { id: 'blocking', name: '블로킹 파울', rule: 'Rule 33' },
+    { id: 'charging', name: '차징 파울', rule: 'Rule 33' },
+    { id: 'hand_check', name: '핸드체크', rule: 'Rule 33' },
+    { id: 'holding', name: '홀딩 파울', rule: 'Rule 33' },
+    { id: 'illegal_screen', name: '불법 스크린', rule: 'Rule 33' },
+    { id: 'reach_in', name: '리치인 파울', rule: 'Rule 33' },
+    { id: 'severity', name: '파울 심각도 분석', rule: '자동' },
+    { id: 'flagrant', name: '플래그런트 파울', rule: 'Rule 36' },
+    { id: 'shooting_foul', name: '슈팅 파울', rule: 'Rule 34' },
+    { id: 'technical', name: '테크니컬 파울', rule: 'Rule 36' },
+];
+
+function renderRules() {
+    document.getElementById('violation-list').innerHTML = VIOLATIONS.map(v =>
+        `<div class="rule-toggle">
+            <input type="checkbox" checked id="v-${v.id}">
+            <label for="v-${v.id}">${v.name}</label>
+            <span style="font-size:10px; color:var(--text-muted);">${v.rule}</span>
+        </div>`
+    ).join('');
+
+    document.getElementById('foul-list').innerHTML = FOULS.map(f =>
+        `<div class="rule-toggle">
+            <input type="checkbox" checked id="f-${f.id}">
+            <label for="f-${f.id}">${f.name}</label>
+            <span style="font-size:10px; color:var(--text-muted);">${f.rule}</span>
+        </div>`
+    ).join('');
+}
+
+function selectRule(rule) {
+    document.querySelectorAll('.rule-card').forEach(c => c.classList.remove('active'));
+    document.getElementById('rule-' + rule).classList.add('active');
+
+    // NBA만 수비 3초 활성화
+    const defThree = document.getElementById('v-def_three_sec');
+    if (defThree) {
+        defThree.checked = (rule === 'nba');
+        defThree.disabled = (rule !== 'nba');
+    }
+}
+
+renderRules();
+</script>
+{% endblock %}

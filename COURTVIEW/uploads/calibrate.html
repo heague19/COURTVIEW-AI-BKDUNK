@@ -1,0 +1,735 @@
+{% extends "components/layout.html" %}
+{% set active = "equipment" %}
+{% block title %}COURTVIEW — 캘리브레이션{% endblock %}
+
+{% block content %}
+<div class="page-header" style="display:flex; justify-content:space-between; align-items:flex-start;">
+    <div>
+        <div class="page-title">📐 캘리브레이션 — {{ camera_id }}</div>
+        <div class="page-subtitle">카메라 영상 위에 코트 교차점을 클릭하여 좌표를 설정합니다 (최소 4점) &nbsp;|&nbsp; <span style="color:var(--accent-orange);">S</span> 스킵 &nbsp; <span style="color:var(--accent-orange);">우클릭</span> 삭제 &nbsp; <span style="color:var(--accent-orange);">Ctrl+Z</span> 되돌리기</div>
+    </div>
+    <div style="display:flex; gap:8px;">
+        <button class="btn btn-secondary btn-sm" onclick="resetPoints()">🔄 초기화</button>
+        <a href="/equipment" class="btn btn-secondary btn-sm">← 장비 관리</a>
+    </div>
+</div>
+
+<div style="display:grid; grid-template-columns:1fr 300px; gap:20px;">
+    <!-- ============================================================
+         좌측: 카메라 스냅샷 + 클릭 영역
+         ============================================================ -->
+    <div>
+        <div class="card" style="padding:8px; position:relative;">
+            <!-- 스냅샷 + 클릭 캔버스 -->
+            <div style="position:relative; aspect-ratio:16/9; background:var(--bg-dark); border-radius:var(--radius-sm); overflow:hidden; cursor:crosshair;" id="canvas-container">
+                <canvas id="calibCanvas" style="width:100%; height:100%; display:block;"></canvas>
+
+                <!-- 현재 선택 중인 포인트 이름 -->
+                <div style="position:absolute; top:8px; left:8px; background:rgba(0,0,0,0.8); padding:4px 10px; border-radius:4px; font-size:12px;">
+                    <span style="color:var(--text-gray);">선택:</span>
+                    <span style="color:var(--accent-orange); font-weight:600;" id="current-point-label">포인트를 선택하세요</span>
+                </div>
+
+                <!-- 찍은 포인트 수 -->
+                <div style="position:absolute; top:8px; right:8px; background:rgba(0,0,0,0.8); padding:4px 10px; border-radius:4px; font-size:12px;">
+                    <span id="point-count" style="color:var(--accent-orange); font-weight:700;">0</span>
+                    <span style="color:var(--text-gray);">/ 25 포인트</span>
+                </div>
+            </div>
+
+            <!-- 품질 결과 -->
+            <div id="quality-result" style="display:none; margin-top:8px; padding:12px; background:var(--bg-dark); border-radius:var(--radius-sm);">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <div>
+                        <span style="font-size:13px; font-weight:600;">품질 점수:</span>
+                        <span id="quality-score" style="font-size:18px; font-weight:800; color:var(--accent-green); margin-left:8px;"></span>
+                    </div>
+                    <div>
+                        <span style="font-size:12px; color:var(--text-gray);">재투영 오차:</span>
+                        <span id="reproj-error" style="font-size:14px; font-weight:600; color:var(--accent-yellow); margin-left:4px;"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 저장 버튼 -->
+        <div style="display:flex; gap:8px; margin-top:12px;">
+            <button class="btn btn-primary btn-lg" style="flex:1;" onclick="saveCalibration()" id="btn-save" disabled>
+                📐 캘리브레이션 저장 (4점 이상 필요)
+            </button>
+        </div>
+    </div>
+
+    <!-- ============================================================
+         우측: 키포인트 목록
+         ============================================================ -->
+    <div>
+        <!-- 코트 규격 -->
+        <div class="card" style="padding:12px; margin-bottom:12px;">
+            <div class="form-group" style="margin:0;">
+                <label class="form-label">코트 규격</label>
+                <select class="form-select" id="court-standard" onchange="updateCourtStandard()">
+                    <option value="fiba" selected>FIBA (28m × 15m)</option>
+                    <option value="nba">NBA (28.65m × 15.24m)</option>
+                    <option value="kbl">KBL (28m × 15m)</option>
+                    <option value="nbl">NBL (28m × 15m)</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- 코트 미니맵 (3D 원근) -->
+        <div class="card" style="padding:12px; margin-bottom:12px;">
+            <div style="font-size:11px; font-weight:600; color:var(--text-gray); margin-bottom:8px;">코트 미니맵</div>
+            <canvas id="minimap" width="280" height="180" style="width:100%; background:var(--bg-dark); border-radius:var(--radius-sm);"></canvas>
+        </div>
+
+        <!-- 키포인트 목록 -->
+        <div class="card" style="padding:12px;">
+            <div style="font-size:11px; font-weight:600; color:var(--text-gray); margin-bottom:8px;">
+                키포인트 (클릭하여 선택 → 스냅샷 위 클릭)
+            </div>
+            <div style="max-height:calc(100vh - 520px); overflow-y:auto;" id="keypoint-list"></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// =============================================================================
+// 키포인트 정의 (CALIBRATION_KEYPOINTS.md 기반)
+// =============================================================================
+const KEYPOINTS = [
+    // 코트 코너 (4)
+    { id: 0, name: 'corner_TL', label: '좌상단 코너', x: 0.0, y: 0.0, group: '코너' },
+    { id: 1, name: 'corner_TR', label: '우상단 코너', x: 28.0, y: 0.0, group: '코너' },
+    { id: 2, name: 'corner_BL', label: '좌하단 코너', x: 0.0, y: 15.0, group: '코너' },
+    { id: 3, name: 'corner_BR', label: '우하단 코너', x: 28.0, y: 15.0, group: '코너' },
+    // 하프라인 + 센터 (3)
+    { id: 4, name: 'half_T', label: '하프라인 상단', x: 14.0, y: 0.0, group: '하프' },
+    { id: 5, name: 'half_B', label: '하프라인 하단', x: 14.0, y: 15.0, group: '하프' },
+    { id: 6, name: 'center', label: '센터서클 중심', x: 14.0, y: 7.5, group: '하프' },
+    // 왼쪽 페인트 (4)
+    { id: 7, name: 'paint_L_TL', label: '좌 페인트 좌상', x: 5.8, y: 5.05, group: '좌 페인트' },
+    { id: 8, name: 'paint_L_TR', label: '좌 페인트 우상', x: 0.0, y: 5.05, group: '좌 페인트' },
+    { id: 9, name: 'paint_L_BL', label: '좌 페인트 좌하', x: 5.8, y: 9.95, group: '좌 페인트' },
+    { id: 10, name: 'paint_L_BR', label: '좌 페인트 우하', x: 0.0, y: 9.95, group: '좌 페인트' },
+    // 오른쪽 페인트 (4)
+    { id: 11, name: 'paint_R_TL', label: '우 페인트 좌상', x: 22.2, y: 5.05, group: '우 페인트' },
+    { id: 12, name: 'paint_R_TR', label: '우 페인트 우상', x: 28.0, y: 5.05, group: '우 페인트' },
+    { id: 13, name: 'paint_R_BL', label: '우 페인트 좌하', x: 22.2, y: 9.95, group: '우 페인트' },
+    { id: 14, name: 'paint_R_BR', label: '우 페인트 우하', x: 28.0, y: 9.95, group: '우 페인트' },
+    // 왼쪽 3점 (5)
+    { id: 15, name: 'tpt_L_base_T', label: '좌 3PT 베이스 상', x: 0.0, y: 0.9, group: '좌 3PT' },
+    { id: 16, name: 'tpt_L_base_B', label: '좌 3PT 베이스 하', x: 0.0, y: 14.1, group: '좌 3PT' },
+    { id: 17, name: 'tpt_L_peak', label: '좌 3PT 정점', x: 8.325, y: 7.5, group: '좌 3PT' },
+    { id: 18, name: 'tpt_L_arc_T', label: '좌 3PT 아크 상', x: null, y: null, group: '좌 3PT', optional: true },
+    { id: 19, name: 'tpt_L_arc_B', label: '좌 3PT 아크 하', x: null, y: null, group: '좌 3PT', optional: true },
+    // 오른쪽 3점 (5)
+    { id: 20, name: 'tpt_R_base_T', label: '우 3PT 베이스 상', x: 28.0, y: 0.9, group: '우 3PT' },
+    { id: 21, name: 'tpt_R_base_B', label: '우 3PT 베이스 하', x: 28.0, y: 14.1, group: '우 3PT' },
+    { id: 22, name: 'tpt_R_peak', label: '우 3PT 정점', x: 19.675, y: 7.5, group: '우 3PT' },
+    { id: 23, name: 'tpt_R_arc_T', label: '우 3PT 아크 상', x: null, y: null, group: '우 3PT', optional: true },
+    { id: 24, name: 'tpt_R_arc_B', label: '우 3PT 아크 하', x: null, y: null, group: '우 3PT', optional: true },
+];
+
+// =============================================================================
+// 카메라 위치별 추천 키포인트
+// =============================================================================
+const CAM_POSITIONS = {
+    'cam_0': { label: 'CAM 1 — 좌하', position: 'BL', recommended: [2, 8, 10, 9, 7, 16, 5, 6, 17, 19] },
+    'cam_1': { label: 'CAM 2 — 하중좌', position: 'BC_L', recommended: [2, 5, 8, 10, 9, 7, 6, 16, 17, 19, 15] },
+    'cam_2': { label: 'CAM 3 — 하중우', position: 'BC_R', recommended: [3, 5, 13, 11, 14, 12, 6, 21, 22, 24, 20] },
+    'cam_3': { label: 'CAM 4 — 우하', position: 'BR', recommended: [3, 12, 14, 13, 11, 21, 5, 6, 22, 24] },
+    'cam_4': { label: 'CAM 5 — 우상', position: 'TR', recommended: [1, 12, 11, 13, 14, 20, 4, 6, 22, 23] },
+    'cam_5': { label: 'CAM 6 — 상중우', position: 'TC_R', recommended: [1, 4, 12, 11, 13, 14, 6, 20, 22, 23, 21] },
+    'cam_6': { label: 'CAM 7 — 상중좌', position: 'TC_L', recommended: [0, 4, 8, 7, 9, 10, 6, 15, 17, 18, 16] },
+    'cam_7': { label: 'CAM 8 — 좌상', position: 'TL', recommended: [0, 8, 7, 9, 10, 15, 4, 6, 17, 18] },
+};
+
+// =============================================================================
+// 상태
+// =============================================================================
+const cameraId = "{{ camera_id }}";
+let activeKeypoint = null;     // 현재 선택 중인 키포인트
+let placedPoints = {};         // { keypoint_id: { px, py, cx, cy } }
+let canvasImg = null;
+let canvas, ctx;
+let miniCanvas, miniCtx;
+
+// =============================================================================
+// 초기화
+// =============================================================================
+function init() {
+    canvas = document.getElementById('calibCanvas');
+    ctx = canvas.getContext('2d');
+    miniCanvas = document.getElementById('minimap');
+    miniCtx = miniCanvas.getContext('2d');
+
+    // 첫 포인트 자동 선택
+    activeKeypoint = 0;
+
+    canvas.addEventListener('click', onCanvasClick);
+    canvas.addEventListener('contextmenu', onCanvasRightClick);
+    document.addEventListener('keydown', onKeyDown);
+    renderKeypointList();
+    loadSnapshot();
+    drawMinimap();
+}
+
+
+// =============================================================================
+// 스냅샷 로드
+// =============================================================================
+async function loadSnapshot() {
+    // 방법 1: 카메라 스냅샷 API
+    try {
+        const resp = await fetch(`/api/v1/camera/${cameraId}/snapshot`);
+        if (resp.ok) {
+            const blob = await resp.blob();
+            const img = new Image();
+            img.onload = () => {
+                canvas.width = img.width;
+                canvas.height = img.height;
+                canvasImg = img;
+                redraw();
+            };
+            img.src = URL.createObjectURL(blob);
+            return;
+        }
+    } catch {}
+
+    // 방법 2: MJPEG 스트림에서 첫 프레임 캡처
+    try {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+            canvas.width = img.naturalWidth || 640;
+            canvas.height = img.naturalHeight || 480;
+            canvasImg = img;
+            redraw();
+            // 스트림 중지 (스냅샷만 필요)
+            img.src = '';
+        };
+        img.src = `http://localhost:8000/api/v1/stream/${cameraId}`;
+        // 3초 후에도 안 되면 폴백
+        setTimeout(() => { if (!canvasImg) drawFallbackGrid(); }, 3000);
+        return;
+    } catch {}
+
+    drawFallbackGrid();
+}
+
+function drawFallbackGrid() {
+    canvas.width = 1920;
+    canvas.height = 1080;
+    ctx.fillStyle = '#111';
+    ctx.fillRect(0, 0, 1920, 1080);
+    ctx.strokeStyle = '#333';
+    ctx.lineWidth = 1;
+    for (let x = 0; x < 1920; x += 80) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 1080); ctx.stroke(); }
+    for (let y = 0; y < 1080; y += 80) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(1920, y); ctx.stroke(); }
+    ctx.fillStyle = '#444';
+    ctx.font = '24px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(`${cameraId} — 스냅샷을 불러올 수 없습니다`, 960, 540);
+    ctx.fillText('클릭하여 캘리브레이션 포인트를 찍으세요', 960, 580);
+    canvasImg = null;
+}
+
+// =============================================================================
+// 캔버스 그리기
+// =============================================================================
+function redraw() {
+    // 캔버스 클리어
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (canvasImg) {
+        ctx.drawImage(canvasImg, 0, 0);
+    } else {
+        // 이미지 로드 전 대기 격자 배경
+        ctx.fillStyle = '#111';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.strokeStyle = '#333';
+        ctx.lineWidth = 1;
+        for (let x = 0; x < canvas.width; x += 80) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke(); }
+        for (let y = 0; y < canvas.height; y += 80) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke(); }
+    }
+
+    // 찍힌 포인트 그리기
+    const dotR = Math.max(2, canvas.width / 800);
+    const fontSize = Math.max(5, canvas.width / 400);
+
+    for (const [kpId, pt] of Object.entries(placedPoints)) {
+        const kp = KEYPOINTS[kpId];
+
+        // 외곽 원
+        ctx.beginPath();
+        ctx.arc(pt.px, pt.py, dotR + 2, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        // 내부 원
+        ctx.beginPath();
+        ctx.arc(pt.px, pt.py, dotR, 0, Math.PI * 2);
+        ctx.fillStyle = '#FF9933';
+        ctx.fill();
+
+        // 라벨 (배경 박스)
+        const text = kp.name;
+        ctx.font = `bold ${fontSize}px sans-serif`;
+        const tw = ctx.measureText(text).width;
+        ctx.fillStyle = 'rgba(0,0,0,0.7)';
+        ctx.fillRect(pt.px + dotR + 2, pt.py - fontSize / 2 - 2, tw + 6, fontSize + 4);
+        ctx.fillStyle = '#FF9933';
+        ctx.textAlign = 'left';
+        ctx.fillText(text, pt.px + dotR + 5, pt.py + fontSize / 3);
+    }
+
+    // 활성 포인트 이름 표시
+    if (activeKeypoint !== null) {
+        const kp = KEYPOINTS[activeKeypoint];
+        document.getElementById('current-point-label').textContent = `${kp.name} (${kp.label})`;
+    }
+}
+
+// =============================================================================
+// 캔버스 클릭 → 포인트 배치
+// =============================================================================
+function onCanvasClick(e) {
+    if (activeKeypoint === null) {
+        alert('먼저 우측 목록에서 키포인트를 선택하세요.');
+        return;
+    }
+
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const px = (e.clientX - rect.left) * scaleX;
+    const py = (e.clientY - rect.top) * scaleY;
+
+    const kp = KEYPOINTS[activeKeypoint];
+
+    placedPoints[activeKeypoint] = {
+        px: px,
+        py: py,
+        cx: kp.x,   // 코트 좌표
+        cy: kp.y,
+    };
+
+    // 다음 포인트 자동 선택
+    const nextId = findNextUnplaced(activeKeypoint);
+    activeKeypoint = nextId;
+
+    updateUI();
+    redraw();
+    drawMinimap();
+}
+
+// 캔버스 우클릭 → 가장 가까운 포인트 삭제
+function onCanvasRightClick(e) {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const px = (e.clientX - rect.left) * scaleX;
+    const py = (e.clientY - rect.top) * scaleY;
+
+    // 가장 가까운 찍힌 포인트 찾기
+    let closestId = null;
+    let closestDist = Infinity;
+    for (const [kpId, pt] of Object.entries(placedPoints)) {
+        const dist = Math.sqrt((pt.px - px) ** 2 + (pt.py - py) ** 2);
+        if (dist < closestDist) {
+            closestDist = dist;
+            closestId = parseInt(kpId);
+        }
+    }
+
+    // 50px 이내면 삭제
+    if (closestId !== null && closestDist < 50) {
+        removePoint(closestId);
+    }
+}
+
+// 키보드 단축키
+function onKeyDown(e) {
+    // S: 현재 포인트 스킵 → 다음으로
+    if ((e.key === 's' || e.key === 'S') && activeKeypoint !== null) {
+        e.preventDefault();
+        activeKeypoint = findNextUnplaced(activeKeypoint);
+        updateUI();
+        redraw();
+        drawMinimap();
+    }
+    // Z: 마지막 찍은 포인트 되돌리기
+    if ((e.key === 'z' || e.key === 'Z') && e.ctrlKey) {
+        e.preventDefault();
+        const ids = Object.keys(placedPoints).map(Number);
+        if (ids.length > 0) {
+            const lastId = Math.max(...ids);
+            removePoint(lastId);
+        }
+    }
+}
+
+function findNextUnplaced(currentId) {
+    // 다음 번호 순서대로
+    for (let i = currentId + 1; i < KEYPOINTS.length; i++) {
+        if (!placedPoints[i] && !KEYPOINTS[i].optional) return i;
+    }
+    // 처음부터 다시
+    for (let i = 0; i < KEYPOINTS.length; i++) {
+        if (!placedPoints[i] && !KEYPOINTS[i].optional) return i;
+    }
+    // optional 포함
+    for (let i = 0; i < KEYPOINTS.length; i++) {
+        if (!placedPoints[i]) return i;
+    }
+    return null;
+}
+
+// =============================================================================
+// 키포인트 목록 렌더링
+// =============================================================================
+function renderKeypointList() {
+    const el = document.getElementById('keypoint-list');
+    let lastGroup = '';
+
+    el.innerHTML = KEYPOINTS.map(kp => {
+        const placed = placedPoints[kp.id] !== undefined;
+        const isActive = activeKeypoint === kp.id;
+
+        const groupHeader = kp.group !== lastGroup
+            ? `<div style="font-size:10px;font-weight:700;color:var(--accent-orange);letter-spacing:1px;padding:8px 0 4px;${lastGroup ? 'border-top:1px solid var(--border);margin-top:6px;' : ''}">${kp.group}</div>`
+            : '';
+        lastGroup = kp.group;
+
+        const bg = isActive ? 'rgba(255,153,51,0.15)' : placed ? 'rgba(68,255,68,0.05)' : 'transparent';
+        const border = isActive ? 'var(--accent-orange)' : 'transparent';
+        const coordText = kp.x !== null ? `(${kp.x}, ${kp.y})` : '(가변)';
+        const statusIcon = placed ? '✅' : kp.optional ? '⬜' : '⭕';
+
+        return `${groupHeader}
+            <div onclick="selectKeypoint(${kp.id})" style="display:flex;align-items:center;gap:8px;padding:6px 8px;cursor:pointer;background:${bg};border-left:3px solid ${border};border-radius:2px;transition:all 0.15s;margin-bottom:1px;">
+                <span style="font-size:11px;">${statusIcon}</span>
+                <div style="flex:1;">
+                    <div style="font-size:11px;font-weight:600;${placed ? 'color:var(--accent-green)' : ''}">${kp.name}</div>
+                    <div style="font-size:9px;color:var(--text-muted);">${kp.label} ${coordText}</div>
+                </div>
+                ${placed ? `<span onclick="event.stopPropagation();removePoint(${kp.id})" style="font-size:14px;cursor:pointer;color:var(--accent-red);padding:2px 4px;" title="삭제">✕</span>` : ''}
+                ${kp.optional && !placed ? '<span style="font-size:9px;color:var(--text-dark);">선택</span>' : ''}
+            </div>`;
+    }).join('');
+}
+
+function selectKeypoint(id) {
+    activeKeypoint = id;
+    updateUI();
+    renderKeypointList();
+}
+
+function removePoint(id) {
+    delete placedPoints[id];
+    updateUI();
+    redraw();
+    renderKeypointList();
+    drawMinimap();
+}
+
+// =============================================================================
+// UI 업데이트
+// =============================================================================
+function updateUI() {
+    const count = Object.keys(placedPoints).length;
+    document.getElementById('point-count').textContent = count;
+
+    const btn = document.getElementById('btn-save');
+    if (count >= 4) {
+        btn.disabled = false;
+        btn.textContent = `📐 캘리브레이션 저장 (${count}점)`;
+    } else {
+        btn.disabled = true;
+        btn.textContent = `📐 캘리브레이션 저장 (${4 - count}점 더 필요)`;
+    }
+
+    if (activeKeypoint !== null) {
+        const kp = KEYPOINTS[activeKeypoint];
+        document.getElementById('current-point-label').textContent = `${kp.name} (${kp.label})`;
+    } else {
+        document.getElementById('current-point-label').textContent = '완료! 저장 버튼을 눌러주세요';
+    }
+
+    renderKeypointList();
+}
+
+// =============================================================================
+// 미니맵 그리기
+// =============================================================================
+// 3D 원근 변환: 코트 좌표(m) → 미니맵 픽셀
+function courtToMini(cx, cy) {
+    const W = miniCanvas.width;
+    const H = miniCanvas.height;
+    // 원근 파라미터 (카메라 위치에 따라 조정)
+    const perspective = 0.35;  // 원근 강도
+    const nx = cx / 28.0;  // 0~1 정규화
+    const ny = cy / 15.0;
+
+    // Y축 원근: 위쪽(ny=0)은 좁고, 아래(ny=1)는 넓음
+    const topWidth = 0.5;   // 상단 코트 폭 비율
+    const botWidth = 1.0;   // 하단 코트 폭 비율
+    const widthAtY = topWidth + (botWidth - topWidth) * ny;
+
+    const topY = H * 0.12;
+    const botY = H * 0.92;
+    const my = topY + (botY - topY) * ny;
+
+    const centerX = W / 2;
+    const halfW = (W * widthAtY) / 2 * 0.9;
+    const mx = centerX + (nx - 0.5) * halfW * 2;
+
+    return [mx, my];
+}
+
+function drawMiniLine(x1, y1, x2, y2) {
+    const [mx1, my1] = courtToMini(x1, y1);
+    const [mx2, my2] = courtToMini(x2, y2);
+    miniCtx.beginPath();
+    miniCtx.moveTo(mx1, my1);
+    miniCtx.lineTo(mx2, my2);
+    miniCtx.stroke();
+}
+
+function drawMinimap() {
+    const W = miniCanvas.width;
+    const H = miniCanvas.height;
+
+    // 배경
+    miniCtx.fillStyle = '#111';
+    miniCtx.fillRect(0, 0, W, H);
+
+    // 코트 바닥 (원근 사각형)
+    const [tl_x, tl_y] = courtToMini(0, 0);
+    const [tr_x, tr_y] = courtToMini(28, 0);
+    const [bl_x, bl_y] = courtToMini(0, 15);
+    const [br_x, br_y] = courtToMini(28, 15);
+
+    miniCtx.beginPath();
+    miniCtx.moveTo(tl_x, tl_y);
+    miniCtx.lineTo(tr_x, tr_y);
+    miniCtx.lineTo(br_x, br_y);
+    miniCtx.lineTo(bl_x, bl_y);
+    miniCtx.closePath();
+    miniCtx.fillStyle = '#1a2a1a';
+    miniCtx.fill();
+
+    // 코트 라인 (주황)
+    miniCtx.strokeStyle = 'rgba(255, 153, 51, 0.5)';
+    miniCtx.lineWidth = 1;
+
+    // 외곽선
+    miniCtx.beginPath();
+    miniCtx.moveTo(tl_x, tl_y); miniCtx.lineTo(tr_x, tr_y);
+    miniCtx.lineTo(br_x, br_y); miniCtx.lineTo(bl_x, bl_y);
+    miniCtx.closePath(); miniCtx.stroke();
+
+    // 하프라인
+    drawMiniLine(14, 0, 14, 15);
+
+    // 센터서클 (8각형 근사)
+    miniCtx.beginPath();
+    for (let i = 0; i <= 16; i++) {
+        const a = (i / 16) * Math.PI * 2;
+        const cx = 14 + 1.8 * Math.cos(a);
+        const cy = 7.5 + 1.8 * Math.sin(a);
+        const [mx, my] = courtToMini(cx, cy);
+        i === 0 ? miniCtx.moveTo(mx, my) : miniCtx.lineTo(mx, my);
+    }
+    miniCtx.stroke();
+
+    // 좌 페인트
+    drawMiniLine(0, 5.05, 5.8, 5.05);
+    drawMiniLine(0, 9.95, 5.8, 9.95);
+    drawMiniLine(5.8, 5.05, 5.8, 9.95);
+
+    // 우 페인트
+    drawMiniLine(22.2, 5.05, 28, 5.05);
+    drawMiniLine(22.2, 9.95, 28, 9.95);
+    drawMiniLine(22.2, 5.05, 22.2, 9.95);
+
+    // 3점 아크 (좌 — 다각형 근사)
+    miniCtx.beginPath();
+    const [lb_x, lb_y] = courtToMini(0, 0.9);
+    miniCtx.moveTo(lb_x, lb_y);
+    for (let i = 0; i <= 20; i++) {
+        const a = -Math.PI/2 + (Math.PI) * (i / 20);
+        const cx = 1.575 + 6.75 * Math.cos(a);
+        const cy = 7.5 + 6.75 * Math.sin(a);
+        if (cx < 0) continue;
+        const [mx, my] = courtToMini(cx, cy);
+        miniCtx.lineTo(mx, my);
+    }
+    const [lt_x, lt_y] = courtToMini(0, 14.1);
+    miniCtx.lineTo(lt_x, lt_y);
+    miniCtx.stroke();
+
+    // 3점 아크 (우)
+    miniCtx.beginPath();
+    const [rb_x, rb_y] = courtToMini(28, 0.9);
+    miniCtx.moveTo(rb_x, rb_y);
+    for (let i = 0; i <= 20; i++) {
+        const a = -Math.PI/2 + (Math.PI) * (i / 20);
+        const cx = 28 - 1.575 - 6.75 * Math.cos(a);
+        const cy = 7.5 + 6.75 * Math.sin(a);
+        if (cx > 28) continue;
+        const [mx, my] = courtToMini(cx, cy);
+        miniCtx.lineTo(mx, my);
+    }
+    const [rt_x, rt_y] = courtToMini(28, 14.1);
+    miniCtx.lineTo(rt_x, rt_y);
+    miniCtx.stroke();
+
+    // 카메라 위치 표시
+    const camInfo = CAM_POSITIONS[cameraId];
+    if (camInfo) {
+        const camPositions = {
+            'BL': [1, 14], 'BC_L': [7, 15], 'BC_R': [21, 15], 'BR': [27, 14],
+            'TR': [27, 1], 'TC_R': [21, 0], 'TC_L': [7, 0], 'TL': [1, 1],
+        };
+        const pos = camPositions[camInfo.position];
+        if (pos) {
+            const [cx, cy] = courtToMini(pos[0], pos[1]);
+            miniCtx.beginPath();
+            miniCtx.arc(cx, cy, 6, 0, Math.PI * 2);
+            miniCtx.fillStyle = 'rgba(68, 136, 255, 0.8)';
+            miniCtx.fill();
+            miniCtx.strokeStyle = 'white';
+            miniCtx.lineWidth = 1.5;
+            miniCtx.stroke();
+            miniCtx.fillStyle = 'white';
+            miniCtx.font = 'bold 8px sans-serif';
+            miniCtx.textAlign = 'center';
+            miniCtx.fillText('📷', cx, cy + 3);
+        }
+    }
+
+    // 미찍힌 포인트 (어두운)
+    for (const kp of KEYPOINTS) {
+        if (placedPoints[kp.id] || kp.x === null) continue;
+        const [mx, my] = courtToMini(kp.x, kp.y);
+        miniCtx.beginPath();
+        miniCtx.arc(mx, my, 2.5, 0, Math.PI * 2);
+        miniCtx.fillStyle = 'rgba(255, 153, 51, 0.15)';
+        miniCtx.fill();
+    }
+
+    // 찍힌 포인트 (주황 글로우)
+    for (const [kpId, pt] of Object.entries(placedPoints)) {
+        const kp = KEYPOINTS[kpId];
+        if (kp.x === null) continue;
+        const [mx, my] = courtToMini(kp.x, kp.y);
+
+        miniCtx.beginPath();
+        miniCtx.arc(mx, my, 6, 0, Math.PI * 2);
+        miniCtx.fillStyle = 'rgba(255, 153, 51, 0.3)';
+        miniCtx.fill();
+
+        miniCtx.beginPath();
+        miniCtx.arc(mx, my, 3.5, 0, Math.PI * 2);
+        miniCtx.fillStyle = '#FF9933';
+        miniCtx.fill();
+        miniCtx.strokeStyle = 'rgba(255,255,255,0.5)';
+        miniCtx.lineWidth = 0.8;
+        miniCtx.stroke();
+    }
+
+    // 활성 포인트 (흰색 외곽)
+    if (activeKeypoint !== null) {
+        const kp = KEYPOINTS[activeKeypoint];
+        if (kp.x !== null) {
+            const [mx, my] = courtToMini(kp.x, kp.y);
+            miniCtx.beginPath();
+            miniCtx.arc(mx, my, 5, 0, Math.PI * 2);
+            miniCtx.strokeStyle = 'white';
+            miniCtx.lineWidth = 2;
+            miniCtx.stroke();
+        }
+    }
+}
+
+// =============================================================================
+// 저장
+// =============================================================================
+async function saveCalibration() {
+    const pixelPoints = [];
+    const courtPoints = [];
+
+    for (const [kpId, pt] of Object.entries(placedPoints)) {
+        const kp = KEYPOINTS[kpId];
+        if (kp.x === null || kp.y === null) continue;  // optional 아크 포인트 스킵
+        pixelPoints.push([pt.px, pt.py]);
+        courtPoints.push([kp.x, kp.y]);
+    }
+
+    if (pixelPoints.length < 4) {
+        alert('최소 4개 포인트가 필요합니다.');
+        return;
+    }
+
+    const standard = document.getElementById('court-standard').value;
+
+    try {
+        const resp = await fetch(`/api/v1/camera/${cameraId}/calibrate/manual`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                camera_id: cameraId,
+                pixel_points: pixelPoints,
+                court_points: courtPoints,
+                court_standard: standard,
+            })
+        });
+        const data = await resp.json();
+
+        const resultEl = document.getElementById('quality-result');
+        resultEl.style.display = 'block';
+
+        if (data.success) {
+            document.getElementById('quality-score').textContent = (data.quality_score * 100).toFixed(0) + '%';
+            document.getElementById('quality-score').style.color =
+                data.quality_score >= 0.8 ? 'var(--accent-green)' :
+                data.quality_score >= 0.5 ? 'var(--accent-yellow)' : 'var(--accent-red)';
+            document.getElementById('reproj-error').textContent = data.mean_reproj_error_px.toFixed(2) + 'px';
+
+            alert(`캘리브레이션 완료!\n품질: ${(data.quality_score*100).toFixed(0)}%\n재투영 오차: ${data.mean_reproj_error_px.toFixed(2)}px\n인라이어: ${data.inlier_count}/${data.total_points}`);
+        } else {
+            alert('캘리브레이션 실패: ' + (data.message || ''));
+        }
+    } catch (e) {
+        // 엔진 미연결·실패 시 가짜 점수 주지 않음
+        document.getElementById('quality-result').style.display = 'none';
+        alert(`캘리브레이션 저장 실패\n\n엔진 서버(localhost:8000)를 확인하세요.\n${e.message || e}`);
+    }
+}
+
+function resetPoints() {
+    if (Object.keys(placedPoints).length > 0 && !confirm('모든 포인트를 초기화하시겠습니까?')) return;
+    placedPoints = {};
+    activeKeypoint = null;
+    document.getElementById('quality-result').style.display = 'none';
+    updateUI();
+    redraw();
+    drawMinimap();
+    loadSnapshot();
+}
+
+function updateCourtStandard() {
+    // TODO: NBA 등 다른 리그 선택 시 좌표 갱신
+    drawMinimap();
+}
+
+// 초기화
+init();
+</script>
+{% endblock %}

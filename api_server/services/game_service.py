@@ -17,6 +17,7 @@ COURTVIEW - AI 농구 분석 플랫폼
 from __future__ import annotations
 
 import logging
+import time
 import uuid
 from threading import RLock
 from typing import TYPE_CHECKING, Callable
@@ -81,6 +82,9 @@ class GameService:
         "_on_game_end_callbacks",
         "_demo_broadcaster",
         "_camera_service",
+        "_extraction_finalizer",  # v0.4.0
+        "_preloaded_orchestrator",  # 2026-05-13: G — 사전 빌드 결과
+        "_preload_thread",          # 2026-05-13: G — preload worker 스레드
     )
 
     def __init__(self) -> None:
@@ -93,6 +97,26 @@ class GameService:
         self._on_game_end_callbacks: list[Callable] = []  # Phase 17 S4
         self._demo_broadcaster = None  # DemoBroadcaster (데모 모드)
         self._camera_service = None    # CameraService 참조 (연결된 RTSP URL 조회용)
+        # v0.4.0: 추출기 finalize hook — orchestrator/추출기가 register() 로 등록
+        self._extraction_finalizer = None
+        # 2026-05-13: G — Orchestrator 사전 빌드 (51초 → ~0초)
+        #   launcher 시작 직후 백그라운드에서 LIVE/FIBA 기본으로 미리 빌드.
+        #   start_game(request) 호출 시 mode/rule_set 매칭되면 재사용.
+        self._preloaded_orchestrator = None
+        self._preload_thread = None
+
+    def set_extraction_finalizer(self, finalizer) -> None:
+        """v0.4.0: ExtractionFinalizerService 주입.
+
+        orchestrator 또는 추출기 인스턴스화 시점에 `finalizer.register(name, ext)` 로
+        등록 → 경기 종료 시 자동 finalize + S3 업로드.
+        """
+        self._extraction_finalizer = finalizer
+
+    @property
+    def extraction_finalizer(self):
+        """v0.4.0: 등록된 finalizer 반환 (orchestrator / 추출기 wiring 용)."""
+        return self._extraction_finalizer
 
     def set_camera_service(self, camera_service) -> None:
         """CameraService 주입.
@@ -104,17 +128,84 @@ class GameService:
         """
         self._camera_service = camera_service
 
+    # =========================================================================
+    # 2026-05-13: G — 사전 빌드 (Orchestrator preload)
+    # =========================================================================
+    def preload_orchestrator_async(self) -> None:
+        """백그라운드 스레드에서 Orchestrator 사전 빌드.
+
+        launcher 시작 직후 (engine 부팅 후) 1회 호출하면 LIVE/FIBA 기본 설정으로
+        Orchestrator 를 미리 빌드한다. 사용자가 카메라 연결/캘리브/AI 테스트 하는
+        동안 모델/TRT 엔진 로드가 백그라운드에서 완료 → game/start 클릭 시
+        ~51초 → ~0초로 단축.
+
+        실제 start_game(request) 호출 시 mode/rule_set 매칭되면 이 인스턴스 재사용.
+        매칭 안 되면 (REPLAY/BATCH 또는 다른 rule_set) 일반 빌드 경로로 폴백.
+        """
+        import threading
+        with self._lock:
+            if self._preload_thread is not None and self._preload_thread.is_alive():
+                _logger.info("[GAME-SVC] 사전 빌드 스레드 이미 동작 중 — skip")
+                return
+            if self._preloaded_orchestrator is not None:
+                _logger.info("[GAME-SVC] 사전 빌드 결과 이미 있음 — skip")
+                return
+
+            self._preload_thread = threading.Thread(
+                target=self._preload_worker,
+                name="orch-preload",
+                daemon=True,
+            )
+            self._preload_thread.start()
+            _logger.info("[GAME-SVC] 🔥 Orchestrator 사전 빌드 백그라운드 시작 (LIVE/FIBA)")
+
+    def _preload_worker(self) -> None:
+        """preload_orchestrator_async 의 worker 스레드."""
+        from engine.orchestrator.game_orchestrator import GameOrchestrator
+        t0 = time.perf_counter()
+        try:
+            config = EngineConfig(mode=EngineMode.LIVE)
+            # 기본값: rule_set=FIBA, recording_enabled=True (start_game 시 override 가능)
+            built = GameOrchestrator.build_from_config(config)
+            elapsed_ms = (time.perf_counter() - t0) * 1000.0
+            with self._lock:
+                # 그동안 실제 start_game 이 다른 mode 로 진행되어 이미 _orchestrator 가
+                # 있으면 사전 빌드 결과는 버림 (메모리 충돌 방지).
+                if self._orchestrator is not None:
+                    _logger.warning(
+                        "[GAME-SVC] 사전 빌드 완료했으나 다른 game 이 이미 시작됨 — 폐기 (%.0f ms)",
+                        elapsed_ms,
+                    )
+                    return
+                self._preloaded_orchestrator = built
+                _logger.info(
+                    "[GAME-SVC] ✅ Orchestrator 사전 빌드 완료 (%.0f ms) — 다음 LIVE/FIBA "
+                    "start_game 즉시 사용 가능",
+                    elapsed_ms,
+                )
+        except Exception:
+            _logger.exception("[GAME-SVC] ❌ 사전 빌드 실패 (정상 빌드 경로로 폴백)")
+
     def _get_connected_urls(self) -> dict[str, str]:
-        """camera_service에서 현재 연결된 카메라의 {camera_id: url} 맵 반환."""
+        """camera_service에서 현재 연결된 카메라의 {camera_id: url} 맵 반환.
+
+        2026-05-13 Fix A 재적용: effective_url (go2rtc relay) 우선 사용.
+          이전엔 c.url (native) 만 반환 → FrameIngestion 이 카메라당 추가 RTSP 세션 →
+          저가 IPCam 의 2-session 한계 초과 → buffer 영원히 empty (frame 미수신).
+          get_recording_url() 은 go2rtc 활성 시 relay URL 반환 → 모든 decoder 가 단일
+          RTSP 세션 공유. go2rtc 비활성/실패 시 native URL fallback.
+        """
         if self._camera_service is None:
             return {}
         try:
             status = self._camera_service.get_status_all()
-            return {
-                c.camera_id: c.url
-                for c in status.cameras
-                if c.connected and c.url
-            }
+            result: dict[str, str] = {}
+            for c in status.cameras:
+                if not (c.connected and c.url):
+                    continue
+                rec_url = self._camera_service.get_recording_url(c.camera_id)
+                result[c.camera_id] = rec_url or c.url
+            return result
         except Exception:
             _logger.exception("연결 카메라 URL 조회 실패")
             return {}
@@ -135,6 +226,11 @@ class GameService:
     def is_game_active(self) -> bool:
         return self._orchestrator is not None and self._orchestrator.is_running
 
+    @property
+    def current_game_id(self) -> str:
+        """v0.4.0: 진행 중인 game_id (없으면 빈 문자열). 하이라이트 업로드 라우팅용."""
+        return self._game_id or ""
+
     # =========================================================================
     # 경기 시작
     # =========================================================================
@@ -148,13 +244,25 @@ class GameService:
         Returns:
             GameStartResponse
         """
+        # ===== GAME-SVC 1️⃣ 요청 수신 =====
+        _logger.info(
+            "[GAME-SVC] 1️⃣ 요청 수신 → mode=%s rule=%s recording=%s home='%s' away='%s' "
+            "source_urls=%d개 keys=%s",
+            request.mode, request.rule_set, request.recording_enabled,
+            request.home_team_name, request.away_team_name,
+            len(request.source_urls or {}),
+            list((request.source_urls or {}).keys()),
+        )
+
         with self._lock:
             if self._orchestrator is not None and self._orchestrator.is_running:
+                _logger.warning("[GAME-SVC] ❌ 이미 진행 중인 경기 — 거부")
                 return GameStartResponse(
                     success=False,
                     message="이미 진행 중인 경기가 있습니다.",
                 )
             if self._demo_broadcaster is not None and self._demo_broadcaster.is_running:
+                _logger.warning("[GAME-SVC] ❌ 데모 진행 중 — 거부")
                 return GameStartResponse(
                     success=False,
                     message="데모가 진행 중입니다.",
@@ -162,11 +270,16 @@ class GameService:
 
             # ===== 데모 모드 =====
             if request.mode == "demo":
+                _logger.info("[GAME-SVC] → 데모 모드 분기")
                 return self._start_demo(request)
 
             # ===== 일반 모드 =====
             mode = _MODE_MAP.get(request.mode, EngineMode.LIVE)
             rule_set = _RULE_SET_MAP.get(request.rule_set, RuleSet.FIBA)
+            _logger.info(
+                "[GAME-SVC] 2️⃣ 모드/룰셋 매핑 → EngineMode.%s, RuleSet.%s",
+                mode.name, rule_set.name,
+            )
 
             config = EngineConfig(mode=mode)
             config.referee.rule_set = rule_set
@@ -176,9 +289,23 @@ class GameService:
 
             # source_urls 비어 있으면 camera_service에서 연결된 카메라 자동 사용
             # (UI가 기자재 페이지에서 미리 연결해 둔 카메라 URL을 재사용)
+            # v0.5.8.4: mode 조건 제거 + 진단 로그. 이전엔 mode 매핑 실패 시 자동 채움 skip
+            # → orchestrator 가 source 0개로 init → frame_pipeline 미실행 → 매 프레임 0건.
+            # 또한 _get_connected_urls 결과가 비었을 때 명확한 warning 로그.
             source_urls = request.source_urls
-            if not source_urls and mode == EngineMode.LIVE:
+            if not source_urls:
                 source_urls = self._get_connected_urls() or None
+                if source_urls:
+                    _logger.warning(
+                        "source_urls 자동 채움 (camera_service): %d대 → %s",
+                        len(source_urls), list(source_urls.keys()),
+                    )
+                else:
+                    _logger.warning(
+                        "source_urls 자동 채움 실패 — camera_service=%s, 연결된 카메라 없음. "
+                        "orchestrator 는 frame source 0개로 init 됩니다 (분석 0건).",
+                        "ok" if self._camera_service else "None",
+                    )
 
             # 카메라 수를 소스에 맞게 조정
             if source_urls:
@@ -214,15 +341,87 @@ class GameService:
                         _logger.warning("소스 해상도 감지 오류: %s", exc)
 
             # GameOrchestrator 빌드 (lazy import — torch 로딩 지연)
+            _logger.info(
+                "[GAME-SVC] 3️⃣ EngineConfig 완성 → mode=%s sync_tol=%.0fms recording=%s "
+                "num_cameras=%d analysis=%dx%d age=%s gender=%s",
+                config.mode.name, config.camera.sync_tolerance_ms,
+                config.camera.recording_enabled, config.camera.num_cameras,
+                config.camera.analysis_width, config.camera.analysis_height,
+                config.age_group.name, config.gender.name,
+            )
+
+            # 2026-05-13: G — 사전 빌드 재사용 분기
+            # 조건: mode=LIVE + rule_set=FIBA (사전 빌드 기본값과 매칭)
+            # 매칭 안 되면 정상 빌드. 매칭되면 51초 → ~0초.
+            preloaded = self._preloaded_orchestrator
+            can_reuse = (
+                preloaded is not None
+                and mode == EngineMode.LIVE
+                and rule_set == RuleSet.FIBA
+            )
             from engine.orchestrator.game_orchestrator import GameOrchestrator
-            self._orchestrator = GameOrchestrator.build_from_config(config)
+
+            if can_reuse:
+                _logger.info(
+                    "[GAME-SVC] 4️⃣ 🚀 사전 빌드된 Orchestrator 재사용 (LIVE/FIBA) — "
+                    "build 단계 skip",
+                )
+                self._orchestrator = preloaded
+                self._preloaded_orchestrator = None  # 일회용 — 다음 게임은 다시 preload 필요
+                # config 의 동적 부분 (request 별) 업데이트
+                try:
+                    self._orchestrator._config.camera.recording_enabled = request.recording_enabled
+                    self._orchestrator._config.camera.num_cameras = config.camera.num_cameras
+                    self._orchestrator._config.age_group = config.age_group
+                    self._orchestrator._config.gender = config.gender
+                    _logger.info(
+                        "[GAME-SVC] 4️⃣ config 동적 업데이트: recording=%s num_cameras=%d age=%s gender=%s",
+                        request.recording_enabled, config.camera.num_cameras,
+                        config.age_group.name, config.gender.name,
+                    )
+                except Exception:
+                    _logger.exception("[GAME-SVC] config 동적 업데이트 실패 (무시)")
+            else:
+                if preloaded is not None:
+                    _logger.info(
+                        "[GAME-SVC] 4️⃣ 사전 빌드 있으나 mode=%s rule=%s 불일치 → 정상 빌드",
+                        mode.name, rule_set.name,
+                    )
+                _logger.info(
+                    "[GAME-SVC] 4️⃣ GameOrchestrator.build_from_config 호출 (모델 로드 — 분 단위)",
+                )
+                t_build = time.perf_counter()
+                self._orchestrator = GameOrchestrator.build_from_config(config)
+                build_ms = (time.perf_counter() - t_build) * 1000.0
+                _logger.info(
+                    "[GAME-SVC] 4️⃣ Orchestrator 빌드 완료 (%.0f ms)",
+                    build_ms,
+                )
             self._game_id = str(uuid.uuid4())
             self._home_team = request.home_team_name
             self._away_team = request.away_team_name
 
+            # v0.4.0: orchestrator 에 ExtractionFinalizer + game_id 주입 (start_game 전)
+            try:
+                self._orchestrator._game_id = self._game_id
+                if self._extraction_finalizer is not None:
+                    self._orchestrator._extraction_finalizer = self._extraction_finalizer
+            except Exception:
+                _logger.exception("orchestrator finalizer 주입 실패 (무시)")
+
             # 시작
+            _logger.info(
+                "[GAME-SVC] 5️⃣ Orchestrator.start_game 호출 → source_urls=%s",
+                list((source_urls or {}).keys()) if source_urls else "(빈)",
+            )
+            t_start = time.perf_counter()
             success = self._orchestrator.start_game(
                 source_urls=source_urls or None,
+            )
+            start_ms = (time.perf_counter() - t_start) * 1000.0
+            _logger.info(
+                "[GAME-SVC] 5️⃣ start_game 반환 → success=%s (%.0f ms)",
+                success, start_ms,
             )
 
             if success:

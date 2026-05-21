@@ -20,6 +20,7 @@ from __future__ import annotations
 # 표준 라이브러리 (Standard Library)
 # =============================================================================
 import logging
+import os
 import sys
 import threading
 import time
@@ -62,6 +63,20 @@ _logger = logging.getLogger(__name__)
 # 상수 정의
 # =============================================================================
 
+# Plan B (2026-05-13): ffmpeg HW 디코딩 모드.
+#   - "d3d11va": Windows 디폴트, Intel/NVIDIA/AMD 호환 (기본값)
+#   - "cuda":    NVIDIA 전용, NVDEC 사용 (약간 더 빠름)
+#   - "off":     SW 디코딩 (롤백 안전망 — 기존 동작과 동일)
+# 환경변수 COURTVIEW_HWACCEL 로 override.
+_HWACCEL_VALID: Final[frozenset[str]] = frozenset({"d3d11va", "cuda", "off"})
+_HWACCEL_MODE: str = os.environ.get("COURTVIEW_HWACCEL", "d3d11va").strip().lower()
+if _HWACCEL_MODE not in _HWACCEL_VALID:
+    _logger.warning(
+        "COURTVIEW_HWACCEL=%r 인식 불가 — 'off' 로 강제 (유효값: %s)",
+        _HWACCEL_MODE, sorted(_HWACCEL_VALID),
+    )
+    _HWACCEL_MODE = "off"
+
 # 디코더 내부 버퍼 최대 크기
 DECODER_BUFFER_MAX: Final[int] = DECODE_BUFFER_SIZE
 
@@ -70,8 +85,36 @@ RTSP_OPEN_MAX_ATTEMPTS: Final[int] = 3       # 최대 시도 횟수
 RTSP_OPEN_BACKOFF_BASE_SEC: Final[float] = 0.5  # 초기 백오프 (exponential: 0.5, 1.0, 2.0)
 RTSP_OPEN_TIMEOUT_MS: Final[int] = 5000      # 단일 open 시도 timeout (ms)
 
+# v0.2.2 — probe rate limit (카메라 펌웨어 보호)
+# 배경: 저가 IPCam H80 은 세션 슬롯 4~8개 한계. probe/connect 가 반복되면
+#       FIN 없이 dangling session 이 쌓여 카메라가 새 연결 거부 상태로 진입.
+#       24.13 에서 이 패턴으로 펌웨어 상태 꼬여 15분 cold boot 복구 필요했음.
+_PROBE_RATE_LIMIT_WINDOW_SEC: Final[float] = 600.0   # 10분
+_PROBE_RATE_LIMIT_MAX_CALLS: Final[int] = 5          # 동일 host 에 5회 까지
+_probe_history: dict[str, deque[float]] = {}
+_probe_history_lock = threading.Lock()
 
-def probe_rtsp(url: str, timeout_sec: float = 3.0) -> dict[str, object]:
+
+def _check_probe_rate_limit(host: str) -> tuple[bool, float]:
+    """
+    호스트별 probe rate limit 체크 (v0.2.2).
+
+    Returns:
+        (allowed, wait_sec) — allowed=False 면 wait_sec 만큼 남은 쿨다운
+    """
+    now_mono = time.monotonic()
+    with _probe_history_lock:
+        hist = _probe_history.setdefault(host, deque(maxlen=_PROBE_RATE_LIMIT_MAX_CALLS * 2))
+        cutoff = now_mono - _PROBE_RATE_LIMIT_WINDOW_SEC
+        while hist and hist[0] < cutoff:
+            hist.popleft()
+        if len(hist) >= _PROBE_RATE_LIMIT_MAX_CALLS:
+            return False, _PROBE_RATE_LIMIT_WINDOW_SEC - (now_mono - hist[0])
+        hist.append(now_mono)
+        return True, 0.0
+
+
+def probe_rtsp(url: str, timeout_sec: float = 3.0, _bypass_rate_limit: bool = False) -> dict[str, object]:
     """
     RTSP URL 사전 검증 — TCP 연결 + DESCRIBE 요청 (Phase 17 S2).
 
@@ -120,6 +163,19 @@ def probe_rtsp(url: str, timeout_sec: float = 3.0) -> dict[str, object]:
     if not host:
         result["error"] = "호스트 없음"
         return result
+
+    # v0.2.2 — rate limit: 동일 host 에 window 내 MAX_CALLS 초과 시 거부
+    # (카메라 펌웨어 세션 슬롯 보호 + dangling session 축적 방지)
+    # probe_rtsp_paths 는 자체에서 1회만 체크하고 내부 호출은 bypass.
+    if not _bypass_rate_limit:
+        allowed, wait_sec = _check_probe_rate_limit(host)
+        if not allowed:
+            result["error"] = (
+                f"rate limit: {host} 에 {_PROBE_RATE_LIMIT_WINDOW_SEC:.0f}초 내 "
+                f"{_PROBE_RATE_LIMIT_MAX_CALLS}회 초과 (남은 쿨다운 {wait_sec:.0f}s)"
+            )
+            _logger.warning(result["error"])
+            return result
 
     t0 = time.perf_counter()
     sock = None
@@ -249,6 +305,15 @@ def probe_rtsp_paths(
     """
     from concurrent.futures import ThreadPoolExecutor
 
+    # v0.2.2 — 경로 탐지 사이클 전체를 rate limit 의 1회로 계산
+    # (16개 path 병렬 probe 가 각각 1회로 카운트되면 1번 탐지로 전체 쿼터 소진)
+    allowed, wait_sec = _check_probe_rate_limit(host)
+    if not allowed:
+        _logger.warning(
+            "probe_rtsp_paths rate limit: %s (남은 쿨다운 %.0fs)", host, wait_sec,
+        )
+        return []
+
     auth = ""
     if username:
         auth = f"{username}:{password}@" if password else f"{username}@"
@@ -256,7 +321,8 @@ def probe_rtsp_paths(
     def _test(item: tuple[str, int]) -> dict[str, object] | None:
         path, priority = item
         url = f"rtsp://{auth}{host}:{port}{path}"
-        r = probe_rtsp(url, timeout_sec=timeout_sec)
+        # _bypass_rate_limit=True — 이 사이클은 상위에서 이미 1회 카운트됨
+        r = probe_rtsp(url, timeout_sec=timeout_sec, _bypass_rate_limit=True)
         if r.get("rtsp_ok"):
             return {
                 "path": path,
@@ -462,6 +528,7 @@ class VideoDecoder:
         "_ffmpeg_proc",
         "_ffmpeg_width",
         "_ffmpeg_height",
+        "_ffmpeg_stderr_fp",
     )
 
     def __init__(self, camera_id: str | None = None) -> None:
@@ -490,6 +557,7 @@ class VideoDecoder:
         #   - low_delay + nobuffer 플래그 — OpenCV FFmpeg backend 의 내부
         #     버퍼·상태 관리 오버헤드 제거, THE RECORD LibVLC 수준 지연 달성
         self._ffmpeg_proc = None   # subprocess.Popen
+        self._ffmpeg_stderr_fp = None  # type: ignore[assignment]  # 진단: ffmpeg stderr 파일 핸들
         self._ffmpeg_width: int = 0
         self._ffmpeg_height: int = 0
 
@@ -704,6 +772,12 @@ class VideoDecoder:
         """
         is_rtsp = file_path.startswith("rtsp://") or file_path.startswith("rtsps://")
 
+        # ===== DECODE 1️⃣ open 진입 =====
+        _logger.info(
+            "[DECODE %s] 1️⃣ open 호출 → path=%s 종류=%s",
+            self._camera_id or "?", file_path, "RTSP" if is_rtsp else "FILE",
+        )
+
         # ---------- RTSP 경로 ----------
         if is_rtsp:
             with self._lock:
@@ -745,15 +819,26 @@ class VideoDecoder:
             width = min(width, MAX_VIDEO_WIDTH)
             height = min(height, MAX_VIDEO_HEIGHT)
             _logger.info(
-                "RTSP 메타 조회: %dx%d @ %.1f fps (url=%s)",
-                width, height, fps_val, file_path,
+                "[DECODE %s] 2️⃣ RTSP 메타 조회 완료 → %dx%d @ %.1f fps (url=%s)",
+                self._camera_id or "?", width, height, fps_val, file_path,
             )
 
             # 2) ffmpeg subprocess pipe 시작
+            _logger.info(
+                "[DECODE %s] 3️⃣ ffmpeg subprocess pipe 시작 호출",
+                self._camera_id or "?",
+            )
             try:
-                self._start_ffmpeg_pipe(file_path, width, height)
-            except Exception:
-                _logger.exception("ffmpeg pipe 시작 실패: %s", file_path)
+                # Plan D (2026-05-13): native 가 target 보다 크면 ffmpeg 단에서 사전 스케일.
+                _target_w, _target_h = ANALYSIS_NORMALIZED_RESOLUTION
+                self._start_ffmpeg_pipe(
+                    file_path, width, height, _target_w, _target_h,
+                )
+            except Exception as exc:
+                _logger.exception(
+                    "[DECODE %s] ❌ ffmpeg pipe 시작 실패 → %s",
+                    self._camera_id or "?", file_path,
+                )
                 with self._lock:
                     self._state = DecoderState.ERROR
                 return False
@@ -774,12 +859,25 @@ class VideoDecoder:
                 self._reader_frame_counter = 0
 
             # 4) background reader 시작 — ffmpeg stdout 을 읽는 루프
+            _logger.info(
+                "[DECODE %s] 4️⃣ background reader 시작 호출",
+                self._camera_id or "?",
+            )
             self._start_rtsp_reader()
+            _logger.info(
+                "[DECODE %s] 5️⃣ RTSP open 전체 완료 → state=DECODING, "
+                "ffmpeg+reader 활성, 이후 _latest_frame 캐시로 frame 공급",
+                self._camera_id or "?",
+            )
             return True
 
         # ---------- 파일 경로 ----------
         with self._lock:
             if not self._state.can_open:
+                _logger.warning(
+                    "[DECODE %s] ❌ open 거부 — 현재 state=%s (can_open=False)",
+                    self._camera_id or "?", self._state.name,
+                )
                 return False
 
             self._state = DecoderState.OPENING
@@ -787,6 +885,10 @@ class VideoDecoder:
 
             cap = cv2.VideoCapture(file_path)
             if cap is None or not cap.isOpened():
+                _logger.error(
+                    "[DECODE %s] ❌ cv2.VideoCapture 열기 실패 → %s",
+                    self._camera_id or "?", file_path,
+                )
                 self._state = DecoderState.ERROR
                 return False
 
@@ -799,6 +901,11 @@ class VideoDecoder:
             duration = frame_count / fps_val if fps_val > 0 else 0.0
 
             if width < MIN_VIDEO_WIDTH or height < MIN_VIDEO_HEIGHT:
+                _logger.error(
+                    "[DECODE %s] ❌ 해상도 너무 작음 %dx%d (min=%dx%d)",
+                    self._camera_id or "?", width, height,
+                    MIN_VIDEO_WIDTH, MIN_VIDEO_HEIGHT,
+                )
                 cap.release()
                 self._state = DecoderState.ERROR
                 return False
@@ -820,6 +927,13 @@ class VideoDecoder:
             self._is_rtsp = False
             self._reader_frame_counter = 0
 
+        # ===== DECODE 2️⃣ FILE 모드 open 완료 =====
+        _logger.info(
+            "[DECODE %s] 2️⃣ FILE 열기 완료 → %dx%d @ %.2f fps, "
+            "frames=%d, duration=%.1fs (%s)",
+            self._camera_id or "?", width, height, fps_val,
+            frame_count, duration, file_path,
+        )
         return True
 
     def close(self) -> None:
@@ -838,7 +952,14 @@ class VideoDecoder:
     # =========================================================================
     # FFmpeg Subprocess Pipe (Phase 19 v0.2.0) — THE RECORD 수준 저지연 RTSP
     # =========================================================================
-    def _start_ffmpeg_pipe(self, url: str, width: int, height: int) -> None:
+    def _start_ffmpeg_pipe(
+        self,
+        url: str,
+        width: int,
+        height: int,
+        target_width: int | None = None,
+        target_height: int | None = None,
+    ) -> None:
         """
         ffmpeg 을 subprocess 로 띄워 RTSP 프레임을 raw BGR 로 stdout 에 흘린다.
 
@@ -861,8 +982,15 @@ class VideoDecoder:
         from imageio_ffmpeg import get_ffmpeg_exe
 
         ffmpeg_exe = get_ffmpeg_exe()
-        cmd = [
-            ffmpeg_exe,
+        cmd = [ffmpeg_exe]
+        # Plan B (2026-05-13): HW 디코딩 옵션은 -i 보다 앞에 와야 함 (input 옵션).
+        # 출력 포맷은 그대로 bgr24 라서 ffmpeg 가 자동으로 GPU→CPU 다운로드 + 변환.
+        if _HWACCEL_MODE == "d3d11va":
+            cmd += ["-hwaccel", "d3d11va"]
+        elif _HWACCEL_MODE == "cuda":
+            cmd += ["-hwaccel", "cuda"]
+        # _HWACCEL_MODE == "off" → 옵션 추가 안 함 (= 기존 SW 디코딩 경로)
+        cmd += [
             "-rtsp_transport", "tcp",
             "-fflags", "nobuffer+discardcorrupt",
             "-flags", "low_delay",
@@ -871,10 +999,22 @@ class VideoDecoder:
             "-probesize", "32",
             "-analyzeduration", "0",
             "-i", url,
+        ]
+        # Plan D (2026-05-13): native 가 target 보다 큰 경우 ffmpeg 단에서 사전 스케일.
+        # reader thread 의 cv2.resize 를 제거해 GIL 점유 시간 단축 + 메모리 복사 절약.
+        # native ≤ target 이면 옵션 안 붙임 (영향 0).
+        out_w, out_h = width, height
+        if (
+            target_width is not None and target_height is not None
+            and (width > target_width or height > target_height)
+        ):
+            cmd += ["-s", f"{target_width}x{target_height}"]
+            out_w, out_h = target_width, target_height
+        cmd += [
             "-f", "rawvideo",
             "-pix_fmt", "bgr24",
             "-an", "-sn",           # audio/subtitle 제거
-            "-loglevel", "error",
+            "-loglevel", "info",    # 진단: stream metadata + fail 사유 가시화
             "-",
         ]
         creationflags = 0
@@ -882,26 +1022,65 @@ class VideoDecoder:
             # CREATE_NO_WINDOW — 콘솔 창 뜨지 않게
             creationflags = 0x08000000
 
+        # 진단: ffmpeg stderr 를 카메라별 파일로 redirect (DEVNULL → file).
+        # 첫 frame 못 받고 die 하는 진짜 원인 (codec init / probe / hwaccel) 식별용.
+        try:
+            from infrastructure.storage import paths as _paths
+            _logs_dir = _paths.path.logs_dir
+        except Exception:
+            _logs_dir = os.path.join(os.getcwd(), "_appdata", "logs")
+        try:
+            os.makedirs(_logs_dir, exist_ok=True)
+        except Exception:
+            pass
+        _stderr_path = os.path.join(_logs_dir, f"ffmpeg_{self._camera_id or 'unknown'}.log")
+        try:
+            self._ffmpeg_stderr_fp = open(_stderr_path, "w", encoding="utf-8", buffering=1)
+        except Exception as _e:
+            _logger.warning("[DECODE %s] ffmpeg stderr file open 실패: %s — DEVNULL 사용",
+                            self._camera_id, _e)
+            self._ffmpeg_stderr_fp = None
+
         self._ffmpeg_proc = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
+            stderr=(self._ffmpeg_stderr_fp if self._ffmpeg_stderr_fp else subprocess.DEVNULL),
             bufsize=0,              # unbuffered pipe
             creationflags=creationflags,
         )
-        self._ffmpeg_width = width
-        self._ffmpeg_height = height
+        # Plan D: 출력 해상도 (ffmpeg -s 적용 후) — reader frame_size 계산 기준.
+        self._ffmpeg_width = out_w
+        self._ffmpeg_height = out_h
+
+        # stderr polling 제거 (2026-05-14): event loop 블로킹 부작용. 진단은 STEP 8/9 로 대체.
+
         _logger.info(
-            "ffmpeg pipe 시작: camera=%s %dx%d pid=%d",
-            self._camera_id, width, height, self._ffmpeg_proc.pid,
+            "[DECODE %s] ffmpeg pipe 시작 → pid=%d native=%dx%d output=%dx%d "
+            "(hwaccel=%s, transport=tcp, pix=bgr24, frame_bytes=%d)",
+            self._camera_id, self._ffmpeg_proc.pid, width, height,
+            out_w, out_h, _HWACCEL_MODE, out_w * out_h * 3,
         )
 
     def _stop_ffmpeg_pipe(self) -> None:
-        """ffmpeg subprocess 정리."""
+        """ffmpeg subprocess 정리.
+
+        v0.2.2: Windows `terminate()` 는 TerminateProcess → ffmpeg 가 RTSP
+        TEARDOWN 을 카메라에 못 보내고 죽음. 저가 IPCam 은 dangling session
+        이 세션 슬롯을 계속 점유해 새 연결 거부 상태로 진입 (24.13 사례).
+        → 킬 직전에 **우리가 직접** 별도 소켓으로 TEARDOWN 을 보내 카메라
+           측 세션 정리를 강제한다.
+        """
         if self._ffmpeg_proc is None:
             return
         proc = self._ffmpeg_proc
         self._ffmpeg_proc = None
+
+        # v0.2.2 — camera-side session teardown (must happen BEFORE killing ffmpeg)
+        try:
+            self._send_rtsp_teardown(self._file_path, timeout_sec=1.0)
+        except Exception as e:
+            _logger.debug("TEARDOWN 발송 실패 (무시): %s", e)
+
         try:
             proc.terminate()
             proc.wait(timeout=2.0)
@@ -915,7 +1094,66 @@ class VideoDecoder:
                 proc.stdout.close()
         except Exception:
             pass
+        # 진단: ffmpeg stderr fp 정리
+        if self._ffmpeg_stderr_fp is not None:
+            try:
+                self._ffmpeg_stderr_fp.close()
+            except Exception:
+                pass
+            self._ffmpeg_stderr_fp = None
         _logger.info("ffmpeg pipe 종료: camera=%s", self._camera_id)
+
+    @staticmethod
+    def _send_rtsp_teardown(url: str, timeout_sec: float = 1.0) -> None:
+        """
+        카메라에 RTSP TEARDOWN 을 별도 소켓으로 직접 전송한다 (v0.2.2).
+
+        ffmpeg 가 하드 킬 되기 전 camera-side 세션을 확실히 반환시키기 위함.
+        저가 IPCam 펌웨어는 TCP FIN 만으론 세션을 즉시 해제하지 않고 keep-alive
+        타임아웃 (30~60s) 까지 슬롯을 점유. 명시적 TEARDOWN 이 가장 안전.
+        """
+        import socket
+        from urllib.parse import urlparse
+
+        if not url or not (url.startswith("rtsp://") or url.startswith("rtsps://")):
+            return
+        try:
+            parsed = urlparse(url)
+        except Exception:
+            return
+        host = parsed.hostname
+        port = parsed.port or (322 if parsed.scheme == "rtsps" else 554)
+        if not host:
+            return
+
+        request = (
+            f"TEARDOWN {url} RTSP/1.0\r\n"
+            f"CSeq: 99\r\n"
+            f"User-Agent: CourtView/1.0\r\n"
+            f"\r\n"
+        ).encode("ascii", errors="replace")
+
+        sock = None
+        try:
+            sock = socket.create_connection((host, port), timeout=timeout_sec)
+            sock.settimeout(timeout_sec)
+            sock.sendall(request)
+            try:
+                sock.recv(512)  # 응답 안 와도 상관없음
+            except socket.timeout:
+                pass
+        except OSError:
+            pass
+        finally:
+            if sock is not None:
+                try:
+                    sock.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+                try:
+                    sock.close()
+                except OSError:
+                    pass
 
     # =========================================================================
     # RTSP Background Reader (Phase 18 v0.1.5) — OpenCV 내부 버퍼 지연 제거
@@ -928,6 +1166,10 @@ class VideoDecoder:
         발행 ~ reader 수신 시점차 (네트워크 + OpenCV 디코드 1 프레임 분).
         """
         if self._reader_thread is not None and self._reader_thread.is_alive():
+            _logger.info(
+                "[DECODE %s] reader thread 이미 활성 — 재시작 스킵",
+                self._camera_id or "?",
+            )
             return
         self._reader_stop.clear()
         self._new_frame_event.clear()
@@ -937,7 +1179,10 @@ class VideoDecoder:
             daemon=True,
         )
         self._reader_thread.start()
-        _logger.info("RTSP reader 시작: camera_id=%s", self._camera_id)
+        _logger.info(
+            "[DECODE %s] RTSP reader thread 시작 → name=%s daemon=True",
+            self._camera_id or "?", self._reader_thread.name,
+        )
 
     def _stop_rtsp_reader(self) -> None:
         if self._reader_thread is not None:
@@ -967,16 +1212,38 @@ class VideoDecoder:
           에 누적이 안 된다. 카메라가 보내는 프레임을 거의 실시간으로 수신.
         """
         if self._ffmpeg_proc is None or self._ffmpeg_proc.stdout is None:
+            _logger.error(
+                "[DECODE %s] reader loop 진입 실패 — ffmpeg_proc=None or stdout=None",
+                self._camera_id or "?",
+            )
             return
 
         proc = self._ffmpeg_proc
+        # Plan D (2026-05-13): _ffmpeg_width/height 는 이미 ffmpeg -s 가 적용된
+        # 출력 해상도. native > target 이면 사전 스케일된 값, 아니면 native 그대로.
+        # → reader 단의 cv2.resize 가 불필요해짐.
         w = self._ffmpeg_width
         h = self._ffmpeg_height
         frame_size = w * h * 3  # bgr24 — 3 bytes per pixel
-        target_w, target_h = ANALYSIS_NORMALIZED_RESOLUTION
-        need_resize = (w > target_w) or (h > target_h)
+
+        _logger.info(
+            "[DECODE %s] 🎥 RTSP reader loop 진입 → frame_size=%d bytes (%dx%d×3)",
+            self._camera_id or "?", frame_size, w, h,
+        )
+        # STEP 8 진단: reader 진입 사실을 silence-immune flow_logger 로도 기록.
+        try:
+            from infrastructure.diagnostics.flow_logger import log_flow
+            log_flow(
+                "READ-ENTER",
+                "cam=%s reader 진입 — frame_size=%d (%dx%d)",
+                self._camera_id or "?", frame_size, w, h,
+                first_n=8,
+            )
+        except Exception:
+            pass
 
         stdout = proc.stdout
+        local_frame_count = 0  # heartbeat 카운터
 
         while not self._reader_stop.is_set():
             t0 = time.monotonic()
@@ -987,19 +1254,54 @@ class VideoDecoder:
                 try:
                     chunk = stdout.read(need)
                 except Exception as e:
-                    _logger.debug("ffmpeg stdout read 예외: %s", e)
+                    _logger.warning(
+                        "[DECODE %s] ❌ ffmpeg stdout read 예외: %s",
+                        self._camera_id or "?", e,
+                    )
+                    try:
+                        from infrastructure.diagnostics.flow_logger import log_flow
+                        log_flow("READ-EXC", "cam=%s stdout.read 예외: %s",
+                                 self._camera_id or "?", e, first_n=3)
+                    except Exception:
+                        pass
                     chunk = b""
                 if not chunk:
                     # EOF — ffmpeg 종료됨 (RTSP 끊김 or crash)
                     _logger.warning(
-                        "ffmpeg pipe EOF: camera=%s (ffmpeg 종료됨)",
-                        self._camera_id,
+                        "[DECODE %s] 🛑 ffmpeg pipe EOF — ffmpeg 종료됨 "
+                        "(RTSP 끊김 or ffmpeg crash, 누적 frame=%d)",
+                        self._camera_id or "?", local_frame_count,
                     )
+                    try:
+                        from infrastructure.diagnostics.flow_logger import log_flow
+                        log_flow("READ-EOF",
+                                 "cam=%s EOF — ffmpeg 종료. 누적 frame=%d",
+                                 self._camera_id or "?", local_frame_count,
+                                 first_n=8)
+                    except Exception:
+                        pass
                     return
                 data.extend(chunk)
+                # STEP 8 진단: 첫 chunk 도착 시점 가시화 (첫 frame 만)
+                if local_frame_count == 0 and len(data) == len(chunk):
+                    try:
+                        from infrastructure.diagnostics.flow_logger import log_flow
+                        log_flow(
+                            "READ-FIRST-CHUNK",
+                            "cam=%s 첫 chunk 도착 → %d bytes (need=%d)",
+                            self._camera_id or "?", len(chunk), frame_size,
+                            first_n=8,
+                        )
+                    except Exception:
+                        pass
                 need = frame_size - len(data)
 
             if self._reader_stop.is_set():
+                _logger.info(
+                    "[DECODE %s] 🛑 reader stop signal → loop 종료 "
+                    "(누적 frame=%d)",
+                    self._camera_id or "?", local_frame_count,
+                )
                 return
 
             dt = time.monotonic() - t0
@@ -1008,14 +1310,38 @@ class VideoDecoder:
             try:
                 frame = np.frombuffer(bytes(data), dtype=np.uint8).reshape(h, w, 3)
             except Exception as e:
-                _logger.warning("프레임 reshape 실패: %s (frame_size=%d)", e, len(data))
+                _logger.warning(
+                    "[DECODE %s] ❌ 프레임 reshape 실패 → %s (frame_size=%d)",
+                    self._camera_id or "?", e, len(data),
+                )
+                try:
+                    from infrastructure.diagnostics.flow_logger import log_flow
+                    log_flow(
+                        "READ-RESHAPE-FAIL",
+                        "cam=%s reshape 실패: %s (got=%d, expect=%d, %dx%dx3)",
+                        self._camera_id or "?", e, len(data), frame_size, h, w,
+                        first_n=5,
+                    )
+                except Exception:
+                    pass
                 with self._lock:
                     self._stats.frames_failed += 1
                 continue
+            # STEP 8 진단: 첫 frame reshape 성공 시점
+            if local_frame_count == 0:
+                try:
+                    from infrastructure.diagnostics.flow_logger import log_flow
+                    log_flow(
+                        "READ-FIRST-FRAME",
+                        "cam=%s 첫 frame 완성 → shape=%s dtype=%s read_time=%.1fms",
+                        self._camera_id or "?", frame.shape, frame.dtype,
+                        (time.monotonic() - t0) * 1000.0,
+                        first_n=8,
+                    )
+                except Exception:
+                    pass
 
-            # 4K → 1080p 리사이즈 (필요 시)
-            if need_resize:
-                frame = cv2.resize(frame, (target_w, target_h), interpolation=cv2.INTER_AREA)
+            # Plan D (2026-05-13): cv2.resize 제거 — ffmpeg 가 사전 스케일.
 
             with self._lock:
                 # frombuffer 는 읽기 전용 view — copy 해서 external 사용 안전
@@ -1027,7 +1353,19 @@ class VideoDecoder:
                 self._stats.last_frame_time = time.monotonic()
                 self._stats.decode_time_sec += dt
                 self._stats.bytes_read += frame.nbytes
+                decoded_total = self._stats.frames_decoded
             self._new_frame_event.set()
+            local_frame_count += 1
+
+            # heartbeat — 첫 5프레임 + 100프레임마다 1번
+            if local_frame_count <= 5 or local_frame_count % 100 == 0:
+                _logger.info(
+                    "[DECODE %s] 🎥 RTSP frame #%d read 완료 → %dx%d "
+                    "read_time=%.1fms (누적=%d, failed=%d)",
+                    self._camera_id or "?", local_frame_count,
+                    frame.shape[1], frame.shape[0],
+                    dt * 1000.0, decoded_total, self._stats.frames_failed,
+                )
 
     # =========================================================================
     # 프레임 디코딩
@@ -1045,13 +1383,20 @@ class VideoDecoder:
             FrameData 또는 None (EOF/오류/timeout)
         """
         with self._lock:
-            if self._cap is None or self._state != DecoderState.DECODING:
+            # 2026-05-14 fix: _cap 가드를 RTSP 분기 이후로 이동.
+            # RTSP 모드는 OpenCV _cap 안 쓰고 ffmpeg subprocess pipe 사용 → _cap=None 정상.
+            # 기존 가드는 RTSP 일 때도 None 즉시 반환시켜 _fetch_latest_rtsp_frame 미진입.
+            if self._state != DecoderState.DECODING:
                 return None
             is_rtsp = self._is_rtsp
             cap = self._cap
 
         if is_rtsp:
             return self._fetch_latest_rtsp_frame()
+
+        # --- 파일 경로: cap 필수 ---
+        if cap is None:
+            return None
 
         # --- 파일 경로: 기존 sync 동작 유지 ---
         t0 = time.monotonic()
@@ -1063,13 +1408,25 @@ class VideoDecoder:
                 self._stats.frames_failed += 1
                 self._stats.consecutive_failures += 1
                 self._stats.decode_time_sec += dt
+                fail_streak = self._stats.consecutive_failures
+                total_failed = self._stats.frames_failed
+                cur_idx = self._current_index
+            # DECODE 실패 — 100회마다 또는 첫 실패 시 로그 (EOF 가까울 때 자주 발생)
+            if fail_streak == 1 or fail_streak % 100 == 0:
+                _logger.warning(
+                    "[DECODE %s] ❌ FILE read 실패 #%d (연속=%d, 다음_idx=%d) "
+                    "→ EOF 또는 손상",
+                    self._camera_id or "?", total_failed, fail_streak, cur_idx,
+                )
             return None
 
         # 4K → 1080p 리사이즈
         h, w = frame.shape[:2]
         target_w, target_h = ANALYSIS_NORMALIZED_RESOLUTION
+        resized = False
         if w > target_w or h > target_h:
             frame = cv2.resize(frame, (target_w, target_h), interpolation=cv2.INTER_AREA)
+            resized = True
 
         with self._lock:
             index = self._current_index
@@ -1081,6 +1438,17 @@ class VideoDecoder:
             self._stats.bytes_read += frame.nbytes
             self._latest_frame = frame
             self._latest_jpeg = None
+            decoded_count = self._stats.frames_decoded
+
+        # DECODE heartbeat — 100프레임마다 + 첫 5프레임
+        if decoded_count <= 5 or decoded_count % 100 == 0:
+            _logger.info(
+                "[DECODE %s] 🎞 FILE decode #%d → %dx%d %s "
+                "decode_time=%.1fms (누적 decoded=%d, failed=%d)",
+                self._camera_id or "?", index, frame.shape[1], frame.shape[0],
+                "[resized]" if resized else "",
+                dt * 1000.0, decoded_count, self._stats.frames_failed,
+            )
 
         timestamp = index / self.fps if self.fps > 0 else 0.0
 
@@ -1101,22 +1469,71 @@ class VideoDecoder:
         """
         with self._lock:
             frame = self._latest_frame
+            last_t = self._stats.last_frame_time
 
         if frame is None:
             # 새 프레임 올 때까지 대기 (lock 밖)
             got = self._new_frame_event.wait(timeout=0.1)
             if not got:
+                # 100ms 안에 새 프레임 안 옴 — ffmpeg 또는 카메라 문제
+                self._fetch_wait_fail_count = getattr(self, "_fetch_wait_fail_count", 0) + 1
+                if self._fetch_wait_fail_count <= 5 or self._fetch_wait_fail_count % 50 == 0:
+                    _logger.warning(
+                        "[DECODE %s] ⏳ fetch 대기 timeout (100ms) #%d — "
+                        "background reader 가 frame 못 받음 (ffmpeg 죽었거나 카메라 끊김?)",
+                        self._camera_id or "?", self._fetch_wait_fail_count,
+                    )
+                try:
+                    from infrastructure.diagnostics.flow_logger import log_flow
+                    log_flow(
+                        "FETCH-WAIT-TIMEOUT",
+                        "cam=%s fetch 대기 timeout #%d (reader_count=%d, frames_decoded=%d, frames_failed=%d)",
+                        self._camera_id or "?", self._fetch_wait_fail_count,
+                        getattr(self, "_reader_frame_counter", -1),
+                        self._stats.frames_decoded, self._stats.frames_failed,
+                        first_n=8, every=200,
+                    )
+                except Exception:
+                    pass
                 return None
             with self._lock:
                 frame = self._latest_frame
+                last_t = self._stats.last_frame_time
             if frame is None:
+                _logger.warning(
+                    "[DECODE %s] ⏳ event 받았으나 _latest_frame=None — race 또는 reset",
+                    self._camera_id or "?",
+                )
                 return None
 
         # decode_next 1 회당 external index 1 증가 (기존 계약 유지)
         with self._lock:
             index = self._current_index
             self._current_index += 1
-        timestamp = index / self.fps if self.fps > 0 else 0.0
+
+        # stale frame 감지 — 같은 frame 을 반복 반환 중이면 reader 가 멈춘 것
+        # last_frame_time 이 1초 이상 지났으면 stale
+        now = time.monotonic()
+        stale_age_sec = now - last_t if last_t > 0 else 0.0
+        is_stale = stale_age_sec > 1.0
+
+        # heartbeat — 첫 5번 + 100번마다 + stale 감지 시
+        if index <= 5 or index % 100 == 0 or is_stale:
+            _logger.info(
+                "[DECODE %s] 🔄 fetch #%d → %dx%d age=%.2fs %s"
+                "(reader_count=%d)",
+                self._camera_id or "?", index,
+                frame.shape[1], frame.shape[0], stale_age_sec,
+                "⚠STALE " if is_stale else "",
+                getattr(self, "_reader_frame_counter", -1),
+            )
+
+        # 2026-05-13: RTSP timestamp 는 실제 수신 시각(monotonic)으로 사용.
+        # 이전 값(index/fps)은 각 카메라 decoder 의 frame_counter 가 독립 증가
+        # 하므로 카메라마다 timestamp 가 수십~수백 초 어긋남 → frame_aligner 가
+        # 어떤 tolerance 로도 align 성공 못 함. 모든 카메라가 같은 monotonic 시계
+        # 를 공유해야 33ms 단위 비교가 의미 있음.
+        timestamp = last_t if last_t > 0 else time.monotonic()
 
         return FrameData(
             image=frame,

@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}COURTVIEW{% endblock %}</title>
+    <link rel="stylesheet" href="/static/css/theme.css">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- 페이지 가드: 토큰 없으면 /로 리다이렉트 (가장 먼저 실행) -->
+    <script src="/static/js/auth-guard.js?v=20260421"></script>
+    {% block head %}{% endblock %}
+    {% block styles %}{% endblock %}
+</head>
+<body>
+    <!-- v0.6.0: editorial 가로 topbar (사이드바 폐기) -->
+    <div class="cv-app-shell">
+        <header class="cv-topbar">
+            <div class="cv-brand">
+                <span class="mark"></span>
+                <span class="name">COURT<b>VIEW</b></span>
+            </div>
+            <nav class="cv-nav">
+                <a href="/home" class="cv-nav-item {% if active == 'home' %}active{% endif %}">홈</a>
+                <a href="/game/analysis" class="cv-nav-item {% if active == 'analysis' %}active{% endif %}">경기 분석</a>
+                <a href="/game/result" class="cv-nav-item {% if active == 'result' %}active{% endif %}">경기 결과</a>
+                <a href="/replay" class="cv-nav-item {% if active == 'replay' %}active{% endif %}">REPLAY</a>
+                <a href="/database" class="cv-nav-item {% if active == 'database' %}active{% endif %}">DB</a>
+                <a href="/equipment" class="cv-nav-item {% if active == 'equipment' %}active{% endif %}">장비</a>
+                <a href="/court" class="cv-nav-item {% if active == 'court' %}active{% endif %}">경기장</a>
+                <a href="/referee" class="cv-nav-item {% if active == 'referee' %}active{% endif %}">심판</a>
+                <a href="/license" class="cv-nav-item {% if active == 'license' %}active{% endif %}">라이선스</a>
+                <a href="/settings" class="cv-nav-item {% if active == 'settings' %}active{% endif %}">설정</a>
+            </nav>
+            <div class="cv-nav-spacer"></div>
+            <div class="cv-nav-meta">
+                <div class="pill" id="engine-pill">
+                    <span class="label">ENGINE</span>
+                    <span class="status-dot offline" id="engine-dot"></span>
+                    <span class="val" id="engine-label">CONNECTING</span>
+                </div>
+                <div class="pill" id="clock-pill">
+                    <span class="label">TIME</span>
+                    <span class="val" id="clock-display">--:--</span>
+                </div>
+                <div class="pill live" title="라이브 상태">
+                    <span class="dot"></span>
+                    <span class="val" id="fps-display">—</span>
+                </div>
+                <div class="avatar" id="user-avatar" title="로그아웃" onclick="event.preventDefault(); Auth && Auth.logout && Auth.logout();">CV</div>
+            </div>
+        </header>
+
+        <!-- 메인 콘텐츠 -->
+        <main class="cv-main">
+            <div class="cv-main-inner">
+                <!-- 숨겨진 user 정보 (기존 호환성) -->
+                <span id="user-name" style="display:none;">COURTVIEW</span>
+                <span id="user-role" style="display:none;">AI 분석 시스템</span>
+                {% block content %}{% endblock %}
+            </div>
+        </main>
+    </div>
+
+    <!-- 공통 JS -->
+    <script src="/static/js/auth-client.js?v=20260421"></script>
+    <script src="/static/js/api.js?v=20260421"></script>
+    <script src="/static/js/websocket.js?v=20260421"></script>
+    <script src="/static/js/ops.js?v=20260421"></script>
+    <!-- v0.3.1: go2rtc 공식 <video-stream> web component (ES module).
+         video-rtc.js + video-stream.js 조합 — WebRTC/MSE/HLS/MJPEG fallback,
+         재연결·코덱 협상 battle-tested. -->
+    <script type="module" src="/static/js/video-stream.js?v=20260424"></script>
+    <script>
+        // 엔진 상태 체크 (editorial — pill 안 OK / OFFLINE)
+        async function checkEngine() {
+            const dot = document.getElementById('engine-dot');
+            const label = document.getElementById('engine-label');
+            try {
+                const resp = await fetch('/health');
+                const data = await resp.json();
+                if (data.engine === 'ok') {
+                    dot.className = 'status-dot online';
+                    label.textContent = 'OK';
+                    label.style.color = 'var(--good)';
+                } else {
+                    dot.className = 'status-dot offline';
+                    label.textContent = 'OFFLINE';
+                    label.style.color = 'var(--bad)';
+                }
+            } catch {
+                dot.className = 'status-dot offline';
+                label.textContent = 'OFFLINE';
+                label.style.color = 'var(--bad)';
+            }
+        }
+
+        // 시계
+        function updateClock() {
+            const now = new Date();
+            document.getElementById('clock-display').textContent =
+                now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+        }
+
+        checkEngine();
+        setInterval(checkEngine, 5000);
+        updateClock();
+        setInterval(updateClock, 1000);
+
+        // 사이드바 프로필: 로그인된 유저 표시
+        (function renderProfile() {
+            try {
+                const u = window.Auth ? Auth.getUser() : {};
+                const displayName = u.display_name || u.nickname || u.name || u.email || 'COURTVIEW';
+                const email = u.email || '';
+                const roles = Array.isArray(u.roles) ? u.roles : [];
+                const primaryRole = roles[0] || 'AI 분석 시스템';
+
+                const nameEl = document.getElementById('user-name');
+                const roleEl = document.getElementById('user-role');
+                if (nameEl) nameEl.textContent = displayName;
+                if (roleEl) roleEl.textContent = email && primaryRole !== 'AI 분석 시스템' ? primaryRole : email || primaryRole;
+
+                // 아바타 이니셜 (cv-topbar avatar 또는 sidebar avatar 양쪽 지원)
+                const avatar = document.getElementById('user-avatar') || document.querySelector('.profile-avatar');
+                if (avatar && displayName) {
+                    const initials = displayName.slice(0, 2).toUpperCase();
+                    avatar.textContent = initials;
+                }
+            } catch (e) {
+                console.warn('[layout] 프로필 렌더 실패:', e);
+            }
+        })();
+    </script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

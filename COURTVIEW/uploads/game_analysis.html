@@ -1,0 +1,1798 @@
+{% extends "components/layout.html" %}
+{% set active = "analysis" %}
+{% block title %}COURTVIEW — 경기 분석{% endblock %}
+
+{% block head %}
+<style>
+    .main-content { padding: 12px !important; overflow: hidden !important; }
+    .analysis-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; height: calc(100vh - var(--titlebar-height) - 24px); }
+    .cam-section { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+    .main-cam { flex: 1; background: var(--bg-dark); border-radius: var(--radius-md); border: 2px solid var(--border); position: relative; display: flex; align-items: center; justify-content: center; min-height: 0; overflow: hidden; }
+    .main-cam .cam-label { position: absolute; top: 8px; left: 8px; background: rgba(0,0,0,0.7); padding: 3px 10px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+    .thumb-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; flex-shrink: 0; }
+    .thumb-cam { aspect-ratio: 16/9; background: var(--bg-dark); border-radius: var(--radius-sm); border: 2px solid var(--border); cursor: pointer; position: relative; display: flex; align-items: center; justify-content: center; font-size: 10px; color: var(--text-muted); transition: all 0.15s; }
+    .thumb-cam:hover { border-color: var(--accent-orange); }
+    .thumb-cam.selected { border-color: var(--accent-orange); background: rgba(255,153,51,0.08); }
+    .thumb-cam .t-label { position: absolute; top: 3px; left: 5px; font-size: 9px; font-weight: 600; color: var(--text-gray); }
+    .right-section { display: flex; flex-direction: column; gap: 8px; min-height: 0; overflow: hidden; }
+
+    /* 드래그 팝업 */
+    .popup-window { position: fixed; z-index: 900; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: 0 8px 32px rgba(0,0,0,0.5); display: none; min-width: 300px; }
+    .popup-titlebar { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: var(--bg-dark); border-radius: var(--radius-md) var(--radius-md) 0 0; cursor: move; user-select: none; }
+    .popup-titlebar span { font-size: 12px; font-weight: 700; }
+    .popup-close { background: none; border: none; color: var(--text-gray); font-size: 16px; cursor: pointer; padding: 0 4px; }
+    .popup-close:hover { color: var(--accent-red); }
+    .popup-body { padding: 12px; max-height: 70vh; overflow-y: auto; }
+
+    .ctrl-btn { width: 56px; height: 42px; border: none; border-radius: var(--radius-sm); font-size: 15px; font-weight: 800; cursor: pointer; transition: all 0.1s; }
+    .ctrl-btn:active { transform: scale(0.95); }
+    .ctrl-btn-orange { background: var(--accent-orange); color: var(--bg-dark); }
+    .ctrl-btn-blue { background: var(--accent-blue); color: white; }
+    .ctrl-btn-gray { background: var(--bg-nav-item); color: var(--text-white); }
+    .ctrl-btn-red { background: var(--accent-red); color: white; }
+    .ctrl-btn-green { background: var(--accent-green); color: var(--bg-dark); }
+    .ctrl-score { font-size: 48px; font-weight: 800; text-align: center; line-height: 1; }
+    .ctrl-timer { font-size: 32px; font-weight: 700; font-family: 'Courier New', monospace; text-align: center; color: var(--accent-orange); }
+    .tab-btn { padding: 6px 14px; border: none; border-radius: var(--radius-sm); font-size: 11px; font-weight: 600; cursor: pointer; background: var(--bg-nav-item); color: var(--text-gray); transition: all 0.15s; }
+    .tab-btn.active { background: var(--accent-orange); color: var(--bg-dark); }
+    .player-row { display: flex; gap: 6px; align-items: center; padding: 4px 0; border-bottom: 1px solid rgba(68,68,68,0.2); font-size: 11px; }
+    .swap-btn { background: var(--accent-orange); color: var(--bg-dark); border: none; border-radius: 3px; padding: 2px 6px; font-size: 10px; font-weight: 700; cursor: pointer; }
+    .swap-btn:hover { background: var(--accent-orange-hover); }
+    .bench-player { opacity: 0.5; }
+    .bench-player:hover { opacity: 1; }
+
+    /* 샷클락 자동 리셋 플래시 애니메이션 */
+    @keyframes scFlash14 {
+        0% { color: var(--accent-red); text-shadow: 0 0 16px rgba(255,68,68,0.9); transform: scale(1.25); }
+        50% { color: var(--accent-orange); text-shadow: 0 0 8px rgba(255,153,51,0.6); }
+        100% { color: var(--accent-yellow); text-shadow: none; transform: scale(1); }
+    }
+    @keyframes scFlash24 {
+        0% { color: var(--accent-green); text-shadow: 0 0 14px rgba(68,255,68,0.8); transform: scale(1.2); }
+        50% { color: var(--accent-yellow); text-shadow: 0 0 6px rgba(255,221,68,0.5); }
+        100% { color: var(--accent-yellow); text-shadow: none; transform: scale(1); }
+    }
+    .sc-flash-14 { animation: scFlash14 0.8s ease-out; }
+    .sc-flash-24 { animation: scFlash24 0.6s ease-out; }
+    @keyframes scStatusPulse {
+        0% { opacity: 1; }
+        50% { opacity: 0.6; }
+        100% { opacity: 1; }
+    }
+    .sc-status-pulse { animation: scStatusPulse 1.5s ease-in-out 2; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="analysis-layout">
+    <!-- 좌측: 카메라 -->
+    <div class="cam-section">
+        <div class="main-cam" id="main-cam">
+            <span class="cam-label" id="main-cam-label">CAM 1</span>
+            <video id="main-cam-img" autoplay muted playsinline style="width:100%;height:100%;object-fit:contain;display:none;background:#000;"></video>
+            <div id="main-cam-placeholder" style="color:var(--text-dark); font-size:14px;">카메라 연결 대기...</div>
+        </div>
+        <div class="thumb-grid">
+            <div class="thumb-cam selected" onclick="selectCam(0)"><span class="t-label">CAM1</span><video-stream class="thumb-img" data-cam="cam_0" mode="webrtc" style="width:100%;height:100%;display:none;border-radius:inherit;background:#000;"></video-stream></div>
+            <div class="thumb-cam" onclick="selectCam(1)"><span class="t-label">CAM2</span><video-stream class="thumb-img" data-cam="cam_1" mode="webrtc" style="width:100%;height:100%;display:none;border-radius:inherit;background:#000;"></video-stream></div>
+            <div class="thumb-cam" onclick="selectCam(2)"><span class="t-label">CAM3</span><video-stream class="thumb-img" data-cam="cam_2" mode="webrtc" style="width:100%;height:100%;display:none;border-radius:inherit;background:#000;"></video-stream></div>
+            <div class="thumb-cam" onclick="selectCam(3)"><span class="t-label">CAM4</span><video-stream class="thumb-img" data-cam="cam_3" mode="webrtc" style="width:100%;height:100%;display:none;border-radius:inherit;background:#000;"></video-stream></div>
+            <div class="thumb-cam" onclick="selectCam(4)"><span class="t-label">CAM5</span><video-stream class="thumb-img" data-cam="cam_4" mode="webrtc" style="width:100%;height:100%;display:none;border-radius:inherit;background:#000;"></video-stream></div>
+            <div class="thumb-cam" onclick="selectCam(5)"><span class="t-label">CAM6</span><video-stream class="thumb-img" data-cam="cam_5" mode="webrtc" style="width:100%;height:100%;display:none;border-radius:inherit;background:#000;"></video-stream></div>
+            <div class="thumb-cam" onclick="selectCam(6)"><span class="t-label">CAM7</span><video-stream class="thumb-img" data-cam="cam_6" mode="webrtc" style="width:100%;height:100%;display:none;border-radius:inherit;background:#000;"></video-stream></div>
+            <div class="thumb-cam" onclick="selectCam(7)"><span class="t-label">CAM8</span><video-stream class="thumb-img" data-cam="cam_7" mode="webrtc" style="width:100%;height:100%;display:none;border-radius:inherit;background:#000;"></video-stream></div>
+        </div>
+    </div>
+
+    <!-- 우측 -->
+    <div class="right-section">
+        <!-- ==================== 설정 모드 ==================== -->
+        <div id="mode-setup" style="display:flex; flex-direction:column; height:100%; overflow:hidden;">
+            <div style="display:flex; gap:6px; margin-bottom:8px; flex-shrink:0;">
+                <button class="tab-btn active" onclick="setTeamTab('home',this)">🏠 홈팀</button>
+                <button class="tab-btn" onclick="setTeamTab('away',this)">✈️ 원정팀</button>
+                <div style="flex:1;"></div>
+                <select class="form-select" style="width:auto; font-size:11px; padding:4px 8px;" id="rule-set">
+                    <option value="fiba">FIBA</option><option value="nba">NBA</option>
+                    <option value="kbl">KBL</option><option value="nbl">NBL</option>
+                </select>
+            </div>
+
+            <!-- 홈팀 패널 -->
+            <div class="card" style="padding:12px; flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:0;" id="panel-home">
+                <div class="form-group" style="margin-bottom:8px;">
+                    <label class="form-label">팀명</label>
+                    <input type="text" class="form-input" id="home-team-name" placeholder="홈팀 이름">
+                </div>
+                <div class="form-group" style="margin-bottom:8px;">
+                    <label class="form-label" style="font-size:10px;">유니폼 색상</label>
+                    <input type="color" id="home-team-color" value="#1A1A1A" style="width:40px;height:28px;border:none;cursor:pointer;vertical-align:middle;">
+                    <span style="font-size:10px;color:var(--text-muted);margin-left:4px;" id="home-color-label">#1A1A1A</span>
+                </div>
+                <!-- 스타팅 라인업 (5명) -->
+                <div style="margin-bottom:6px;">
+                    <div style="font-size:11px; font-weight:700; color:var(--accent-orange); margin-bottom:4px;">스타팅 라인업 <span style="font-weight:400; color:var(--text-muted);">(<span id="home-starting-count">0</span>/5)</span></div>
+                    <div id="home-starting" style="min-height:28px;"></div>
+                </div>
+                <!-- 전체 선수 목록 -->
+                <div style="flex:1; min-height:0;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                        <div style="font-size:11px; font-weight:600; color:var(--text-gray);">전체 선수 목록</div>
+                        <button class="btn btn-secondary btn-sm" style="font-size:9px; padding:2px 8px;" onclick="showAddPlayer('home')">+ 추가</button>
+                    </div>
+                    <div id="home-roster" style="max-height:220px; overflow-y:auto;"></div>
+                </div>
+            </div>
+
+            <!-- 어웨이팀 패널 -->
+            <div class="card" style="padding:12px; flex:1; overflow-y:auto; display:none; flex-direction:column; gap:0;" id="panel-away">
+                <div class="form-group" style="margin-bottom:8px;">
+                    <label class="form-label">팀명</label>
+                    <input type="text" class="form-input" id="away-team-name" placeholder="원정팀 이름">
+                </div>
+                <div class="form-group" style="margin-bottom:8px;">
+                    <label class="form-label" style="font-size:10px;">유니폼 색상</label>
+                    <input type="color" id="away-team-color" value="#FFFFFF" style="width:40px;height:28px;border:none;cursor:pointer;vertical-align:middle;">
+                    <span style="font-size:10px;color:var(--text-muted);margin-left:4px;" id="away-color-label">#FFFFFF</span>
+                </div>
+                <div style="margin-bottom:6px;">
+                    <div style="font-size:11px; font-weight:700; color:var(--accent-blue); margin-bottom:4px;">스타팅 라인업 <span style="font-weight:400; color:var(--text-muted);">(<span id="away-starting-count">0</span>/5)</span></div>
+                    <div id="away-starting" style="min-height:28px;"></div>
+                </div>
+                <div style="flex:1; min-height:0;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                        <div style="font-size:11px; font-weight:600; color:var(--text-gray);">전체 선수 목록</div>
+                        <button class="btn btn-secondary btn-sm" style="font-size:9px; padding:2px 8px;" onclick="showAddPlayer('away')">+ 추가</button>
+                    </div>
+                    <div id="away-roster" style="max-height:220px; overflow-y:auto;"></div>
+                </div>
+            </div>
+
+            <!-- 선수 추가 인라인 폼 (숨김) -->
+            <div id="add-player-form" style="display:none; margin-top:6px;">
+                <div class="card" style="padding:10px; border-color:var(--accent-orange);">
+                    <div style="font-size:11px; font-weight:700; margin-bottom:6px;" id="add-player-title">선수 추가</div>
+                    <div style="display:flex; gap:4px; margin-bottom:6px;">
+                        <input type="text" class="form-input" id="add-p-num" placeholder="#" style="width:40px; font-size:11px; padding:4px; text-align:center;">
+                        <input type="text" class="form-input" id="add-p-name" placeholder="이름" style="flex:1; font-size:11px; padding:4px;">
+                        <select class="form-select" id="add-p-pos" style="width:55px; font-size:10px; padding:4px;">
+                            <option value="">포지션</option>
+                            <option>PG</option><option>SG</option><option>SF</option><option>PF</option><option>C</option>
+                        </select>
+                    </div>
+                    <div style="display:flex; gap:4px;">
+                        <button class="btn btn-primary btn-sm" style="flex:1; font-size:10px;" onclick="confirmAddPlayer()">추가</button>
+                        <button class="btn btn-secondary btn-sm" style="font-size:10px;" onclick="hideAddPlayer()">취소</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 경기 시작 (양팀 5명 등록 필수) -->
+            <div style="flex-shrink:0; margin-top:8px;">
+                <div style="font-size:10px; color:var(--text-muted); text-align:center; margin-bottom:4px;" id="start-hint">양팀 스타팅 라인업(5명)을 등록해야 경기를 시작할 수 있습니다</div>
+                <button class="btn btn-primary btn-lg btn-block" id="btn-start" onclick="startGame()" disabled style="opacity:0.5;">🏀 경기 시작</button>
+            </div>
+        </div>
+
+        <!-- ==================== 분석 모드 ==================== -->
+        <div id="mode-live" style="display:none; flex-direction:column; height:100%; gap:6px; overflow:hidden;">
+            <!-- 상단: 스코어보드 + 버튼 -->
+            <!-- 녹화 상태바 -->
+            <div style="display:flex; align-items:center; gap:8px; padding:4px 10px; background:var(--bg-dark); border-radius:var(--radius-sm); flex-shrink:0; font-size:10px;">
+                <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--accent-red);animation:livePulse 1.5s ease-in-out infinite;"></span>
+                <span style="color:var(--accent-red);font-weight:700;">REC</span>
+                <span style="color:var(--text-muted);" id="rec-time">00:00:00</span>
+                <span style="flex:1;"></span>
+                <span style="color:var(--text-muted);" id="live-game-status">전광판 싱크 대기 — 컨트롤러에서 START를 누르세요</span>
+            </div>
+
+            <div style="display:flex; gap:8px; align-items:center; flex-shrink:0;">
+                <div style="flex:1; background:var(--bg-dark); border-radius:var(--radius-sm); padding:8px; text-align:center;">
+                    <div style="display:flex; justify-content:center; align-items:center; gap:16px;">
+                        <div style="text-align:center;">
+                            <div style="font-size:9px; color:var(--text-gray);" id="live-home-name">HOME</div>
+                            <div style="display:flex; align-items:center; justify-content:center; gap:6px;">
+                                <span style="font-size:11px; color:var(--accent-red); font-weight:700;" id="live-home-foul">0</span>
+                                <span style="font-size:28px; font-weight:800; color:var(--accent-orange);" id="live-home-score">0</span>
+                            </div>
+                        </div>
+                        <div>
+                            <div style="font-size:9px; color:var(--text-muted);" id="live-quarter">1Q</div>
+                            <div style="font-size:14px; font-weight:600; color:var(--accent-yellow);" id="live-clock">10:00</div>
+                            <div style="font-size:8px; color:var(--text-muted);">SHOT <span id="live-shot-clock">24</span></div>
+                        </div>
+                        <div style="text-align:center;">
+                            <div style="font-size:9px; color:var(--text-gray);" id="live-away-name">AWAY</div>
+                            <div style="display:flex; align-items:center; justify-content:center; gap:6px;">
+                                <span style="font-size:28px; font-weight:800; color:var(--accent-blue);" id="live-away-score">0</span>
+                                <span style="font-size:11px; color:var(--accent-red); font-weight:700;" id="live-away-foul">0</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div style="display:flex; flex-direction:column; gap:4px; flex-shrink:0;">
+                    <button class="btn btn-ghost btn-pill btn-sm" style="font-size:10px; padding:4px 10px;" onclick="openOrFocusWindow('scoreboard')" title="전광판 창 열기">📺 전광판</button>
+                    <button class="btn btn-ghost btn-pill btn-sm" style="font-size:10px; padding:4px 10px;" onclick="openOrFocusWindow('operator')" title="오퍼레이터 창 열기">🎮 오퍼레이터</button>
+                    <button class="btn btn-ghost btn-pill btn-sm" style="font-size:10px; padding:4px 10px;" onclick="sendScoreboardModeSafe('score')" title="기본 스코어 모드">🏀 스코어</button>
+                    <button class="btn btn-ghost btn-pill btn-sm" style="font-size:10px; padding:4px 10px;" onclick="sendScoreboardModeSafe('stats')" title="스탯 리더 모드">📊 스탯</button>
+                    <button class="btn btn-danger btn-pill btn-sm" style="font-size:10px; padding:5px 10px;" onclick="stopGame()">⏹ 종료</button>
+                </div>
+            </div>
+
+            <!-- 2단 박스: 이벤트 / 심판 (교체는 M3 /operator 로 이동됨 — Phase 18-A) -->
+            <div style="display:flex; flex-direction:column; gap:6px; flex:1; min-height:0;">
+                <!-- 📋 이벤트 -->
+                <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius-sm); display:flex; flex-direction:column; overflow:hidden; flex:1; min-height:0;">
+                    <div style="padding:6px 8px; background:var(--bg-dark); font-size:10px; font-weight:700; color:var(--accent-orange); flex-shrink:0;">📋 이벤트</div>
+                    <div id="inline-event-feed" style="flex:1; overflow-y:auto; padding:4px;">
+                        <div style="text-align:center; color:var(--text-muted); padding:16px; font-size:10px;">대기 중...</div>
+                    </div>
+                </div>
+
+                <!-- ⚖️ 심판 판정 (좌 로그 + 우 비디오) -->
+                <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius-sm); display:flex; flex-direction:column; overflow:hidden; flex:1; min-height:0;">
+                    <div style="padding:6px 8px; background:var(--bg-dark); font-size:10px; font-weight:700; color:var(--accent-red); flex-shrink:0; display:flex; justify-content:space-between; align-items:center;">
+                        <span>⚖️ 심판 판정</span>
+                        <span style="font-size:9px;color:var(--text-muted);font-weight:normal;" id="ref-hint">항목 클릭 → 우측 화면 재생 · <b>→ VAR 송출</b></span>
+                    </div>
+                    <div style="flex:1; display:grid; grid-template-columns:1fr 1.3fr; gap:4px; padding:4px; min-height:0;">
+                        <!-- 좌: 로그 -->
+                        <div id="inline-referee-feed" style="overflow-y:auto; border-right:1px solid var(--border); padding-right:4px;">
+                            <div style="text-align:center; color:var(--text-muted); padding:16px; font-size:10px;">판정 대기 중...</div>
+                        </div>
+                        <!-- 우: 비디오 프리뷰 -->
+                        <div style="display:flex; flex-direction:column; gap:4px; min-height:0;">
+                            <div style="flex:1; background:#000; border-radius:var(--radius-sm); display:flex; align-items:center; justify-content:center; overflow:hidden; position:relative; min-height:0;">
+                                <video id="ref-preview-video" controls playsinline muted
+                                       style="max-width:100%; max-height:100%; display:none;"></video>
+                                <div id="ref-preview-placeholder" style="color:var(--text-muted); font-size:10px; padding:12px; text-align:center;">
+                                    📹 클릭한 판정의 클립이<br/>여기서 재생됩니다
+                                </div>
+                            </div>
+                            <div id="ref-preview-meta" style="font-size:9px; color:var(--text-gray); padding:2px 4px; min-height:14px;"></div>
+                            <div class="flex gap-4" style="flex-shrink:0;">
+                                <button class="btn btn-danger btn-pill btn-sm" style="flex:1; font-size:9px; padding:3px 6px;" onclick="sendCurrentClipToScoreboard()" title="이 판정 클립을 M2 전광판에 VAR로 송출">→ VAR 송출</button>
+                                <button class="btn btn-ghost btn-pill btn-sm" style="font-size:9px; padding:3px 6px;" onclick="closeRefPreview()" title="프리뷰 닫기">✕</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 팝업 (컨트롤러/기록지)은 M3 /operator 페이지로 이동됨 (Phase 18-A1) -->
+<!-- 제거된 팝업 DOM 참조로 인한 JS 에러 방지용 hidden shim -->
+<div style="display:none !important; visibility:hidden;">
+    <span id="ctrl-time"></span><span id="ctrl-shot"></span>
+    <span id="ctrl-home-score"></span><span id="ctrl-away-score"></span>
+    <span id="ctrl-home-foul"></span><span id="ctrl-away-foul"></span>
+    <span id="ctrl-home-name"></span><span id="ctrl-away-name"></span>
+    <span id="ctrl-startstop"></span><span id="shot-startstop"></span>
+    <span id="ctrl-half-label"></span>
+    <span id="ctrl-home-to-dots"></span><span id="ctrl-away-to-dots"></span>
+    <button id="q-1"></button><button id="q-2"></button><button id="q-3"></button><button id="q-4"></button><button id="q-5"></button>
+    <span id="record-home-title"></span><span id="record-away-title"></span>
+    <!-- tbody 는 table 안에 있어야 HTML5 파서가 보존함 -->
+    <table><tbody id="record-home-body"></tbody></table>
+    <table><tbody id="record-away-body"></tbody></table>
+    <span id="sub-home-name"></span><span id="sub-away-name"></span>
+    <span id="sub-home-oncourt"></span><span id="sub-away-oncourt"></span>
+    <span id="sub-home-bench"></span><span id="sub-away-bench"></span>
+</div>
+{# 기존 팝업 블록 전체 제거 #}
+{% if false %}
+<div class="popup-window" id="popup-controller" style="width:560px; top:80px; left:calc(50% - 280px);">
+    <div class="popup-titlebar" onmousedown="startDrag(event,'popup-controller')">
+        <span>🎮 스코어 컨트롤러</span>
+        <button class="popup-close" onclick="closePopup('controller')">✕</button>
+    </div>
+    <div class="popup-body">
+        <div style="display:flex; justify-content:center; gap:8px; margin-bottom:12px;">
+            <button class="ctrl-btn ctrl-btn-green" style="width:140px; height:44px; font-size:18px;" id="ctrl-startstop" onclick="toggleTimer()">▶ START</button>
+            <button class="ctrl-btn ctrl-btn-gray" style="width:80px; height:44px; font-size:12px;" onclick="resetClock()">↻ 리셋</button>
+        </div>
+        <div style="display:flex; justify-content:center; gap:24px; margin-bottom:10px;">
+            <!-- 경기 시간 -->
+            <div style="text-align:center;">
+                <div style="font-size:9px; color:var(--text-gray); margin-bottom:2px;">TIME</div>
+                <div class="ctrl-timer" id="ctrl-time">10:00</div>
+                <div style="display:flex; gap:3px; justify-content:center; margin-top:4px;">
+                    <button class="ctrl-btn ctrl-btn-gray" style="width:38px;height:26px;font-size:9px;" onclick="adjGameClock(-60)">-1m</button>
+                    <button class="ctrl-btn ctrl-btn-gray" style="width:34px;height:26px;font-size:9px;" onclick="adjGameClock(-1)">-1s</button>
+                    <button class="ctrl-btn ctrl-btn-gray" style="width:34px;height:26px;font-size:9px;" onclick="adjGameClock(1)">+1s</button>
+                    <button class="ctrl-btn ctrl-btn-gray" style="width:38px;height:26px;font-size:9px;" onclick="adjGameClock(60)">+1m</button>
+                </div>
+            </div>
+            <!-- 샷 클락 -->
+            <div style="text-align:center;" id="shot-clock-panel">
+                <div style="font-size:9px; color:var(--text-gray); margin-bottom:2px;">SHOT</div>
+                <div class="ctrl-timer" id="ctrl-shot" style="color:var(--accent-yellow);">24</div>
+                <div style="display:flex; gap:3px; justify-content:center; margin-top:4px;">
+                    <button class="ctrl-btn ctrl-btn-orange" style="width:36px;height:26px;font-size:9px;" onclick="setShotClock(24)">24</button>
+                    <button class="ctrl-btn ctrl-btn-orange" style="width:36px;height:26px;font-size:9px;" onclick="setShotClock(14)">14</button>
+                    <button class="ctrl-btn ctrl-btn-gray" style="width:30px;height:26px;font-size:10px;" onclick="adjShotClock(-1)">-</button>
+                    <button class="ctrl-btn ctrl-btn-gray" style="width:30px;height:26px;font-size:10px;" onclick="adjShotClock(1)">+</button>
+                </div>
+                <button class="ctrl-btn ctrl-btn-yellow" style="width:100%;height:26px;font-size:9px;margin-top:3px;background:var(--accent-yellow);color:#000;" id="shot-startstop" onclick="toggleShotClock()">⏸ SHOT 정지</button>
+            </div>
+        </div>
+        <div style="display:grid; grid-template-columns:1fr auto 1fr; gap:10px; align-items:start;">
+            <!-- ── 홈팀 ── -->
+            <div style="text-align:center;">
+                <div style="font-size:12px; font-weight:700; color:var(--accent-orange); margin-bottom:6px;" id="ctrl-home-name">HOME</div>
+                <div style="display:flex; gap:4px; justify-content:center; margin-bottom:4px;">
+                    <button class="ctrl-btn ctrl-btn-orange" onclick="addScore('home',1)">+1</button>
+                    <button class="ctrl-btn ctrl-btn-orange" onclick="addScore('home',2)">+2</button>
+                    <button class="ctrl-btn ctrl-btn-orange" onclick="addScore('home',3)">+3</button>
+                </div>
+                <!-- 점수 + 파울 카운트 -->
+                <div style="display:flex; align-items:center; justify-content:center; gap:8px;">
+                    <div style="text-align:center; min-width:24px;">
+                        <div style="font-size:20px; font-weight:800; color:var(--accent-red);" id="ctrl-home-foul">0</div>
+                        <div style="font-size:8px; color:var(--text-muted);">FOUL</div>
+                    </div>
+                    <div class="ctrl-score" style="color:var(--accent-orange);" id="ctrl-home-score">0</div>
+                </div>
+                <div style="display:flex; gap:4px; justify-content:center; margin-top:4px;">
+                    <button class="ctrl-btn ctrl-btn-gray" onclick="addScore('home',-1)">-1</button>
+                    <button class="ctrl-btn ctrl-btn-gray" onclick="addScore('home',-2)">-2</button>
+                    <button class="ctrl-btn ctrl-btn-gray" onclick="addScore('home',-3)">-3</button>
+                </div>
+                <!-- 파울 조작 -->
+                <div style="display:flex; gap:4px; justify-content:center; margin-top:10px;">
+                    <button class="ctrl-btn ctrl-btn-red" style="width:60px; height:32px; font-size:10px;" onclick="adjFoul('home',1)">파울+1</button>
+                    <button class="ctrl-btn ctrl-btn-gray" style="width:44px; height:32px; font-size:10px;" onclick="adjFoul('home',-1)">-1</button>
+                </div>
+                <!-- 타임아웃 (동그라미 표시) -->
+                <div style="margin-top:10px; padding-top:8px; border-top:1px solid var(--border);">
+                    <div style="font-size:9px; color:var(--text-muted); margin-bottom:4px;">타임아웃</div>
+                    <div id="ctrl-home-to-dots" style="display:flex; justify-content:center; gap:4px; margin-bottom:4px;"></div>
+                    <div style="display:flex; gap:4px; justify-content:center;">
+                        <button class="ctrl-btn ctrl-btn-blue" style="width:50px; height:28px; font-size:9px;" onclick="adjTimeout('home',1)">TO+1</button>
+                        <button class="ctrl-btn ctrl-btn-gray" style="width:42px; height:28px; font-size:9px;" onclick="adjTimeout('home',-1)">-1</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── 중앙: 쿼터 + 부저 ── -->
+            <div style="text-align:center; padding-top:10px;">
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:3px;">
+                    <button class="ctrl-btn ctrl-btn-gray" style="width:46px; font-size:11px;" onclick="setQuarter(1)" id="q-1">1Q</button>
+                    <button class="ctrl-btn ctrl-btn-gray" style="width:46px; font-size:11px;" onclick="setQuarter(2)" id="q-2">2Q</button>
+                    <button class="ctrl-btn ctrl-btn-gray" style="width:46px; font-size:11px;" onclick="setQuarter(3)" id="q-3">3Q</button>
+                    <button class="ctrl-btn ctrl-btn-gray" style="width:46px; font-size:11px;" onclick="setQuarter(4)" id="q-4">4Q</button>
+                    <button class="ctrl-btn ctrl-btn-gray" style="width:46px; font-size:10px;" onclick="setQuarter(5)" id="q-5">연장</button>
+                    <div></div>
+                </div>
+                <div style="font-size:8px; color:var(--text-muted); margin-top:6px;" id="ctrl-half-label">전반</div>
+                <!-- 수동 부저 -->
+                <div style="margin-top:8px;">
+                    <button class="ctrl-btn ctrl-btn-red" style="width:96px; height:36px; font-size:10px; user-select:none;"
+                            onmousedown="buzzerHoldStart()" onmouseup="buzzerHoldStop()" onmouseleave="buzzerHoldStop()"
+                            ontouchstart="buzzerHoldStart()" ontouchend="buzzerHoldStop()">🔊 부저 (누르기)</button>
+                    <div style="font-size:8px; color:var(--text-muted); margin-top:3px;">샷클락·경기종료 시 자동</div>
+                </div>
+            </div>
+
+            <!-- ── 어웨이팀 ── -->
+            <div style="text-align:center;">
+                <div style="font-size:12px; font-weight:700; color:var(--accent-blue); margin-bottom:6px;" id="ctrl-away-name">AWAY</div>
+                <div style="display:flex; gap:4px; justify-content:center; margin-bottom:4px;">
+                    <button class="ctrl-btn ctrl-btn-blue" onclick="addScore('away',1)">+1</button>
+                    <button class="ctrl-btn ctrl-btn-blue" onclick="addScore('away',2)">+2</button>
+                    <button class="ctrl-btn ctrl-btn-blue" onclick="addScore('away',3)">+3</button>
+                </div>
+                <div style="display:flex; align-items:center; justify-content:center; gap:8px;">
+                    <div class="ctrl-score" style="color:var(--accent-blue);" id="ctrl-away-score">0</div>
+                    <div style="text-align:center; min-width:24px;">
+                        <div style="font-size:20px; font-weight:800; color:var(--accent-red);" id="ctrl-away-foul">0</div>
+                        <div style="font-size:8px; color:var(--text-muted);">FOUL</div>
+                    </div>
+                </div>
+                <div style="display:flex; gap:4px; justify-content:center; margin-top:4px;">
+                    <button class="ctrl-btn ctrl-btn-gray" onclick="addScore('away',-1)">-1</button>
+                    <button class="ctrl-btn ctrl-btn-gray" onclick="addScore('away',-2)">-2</button>
+                    <button class="ctrl-btn ctrl-btn-gray" onclick="addScore('away',-3)">-3</button>
+                </div>
+                <div style="display:flex; gap:4px; justify-content:center; margin-top:10px;">
+                    <button class="ctrl-btn ctrl-btn-red" style="width:60px; height:32px; font-size:10px;" onclick="adjFoul('away',1)">파울+1</button>
+                    <button class="ctrl-btn ctrl-btn-gray" style="width:44px; height:32px; font-size:10px;" onclick="adjFoul('away',-1)">-1</button>
+                </div>
+                <div style="margin-top:10px; padding-top:8px; border-top:1px solid var(--border);">
+                    <div style="font-size:9px; color:var(--text-muted); margin-bottom:4px;">타임아웃</div>
+                    <div id="ctrl-away-to-dots" style="display:flex; justify-content:center; gap:4px; margin-bottom:4px;"></div>
+                    <div style="display:flex; gap:4px; justify-content:center;">
+                        <button class="ctrl-btn ctrl-btn-blue" style="width:50px; height:28px; font-size:9px;" onclick="adjTimeout('away',1)">TO+1</button>
+                        <button class="ctrl-btn ctrl-btn-gray" style="width:42px; height:28px; font-size:9px;" onclick="adjTimeout('away',-1)">-1</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ============================================================
+     팝업: 선수 스탯 (기록지)
+     ============================================================ -->
+<div class="popup-window" id="popup-stats" style="width:820px; top:60px; right:20px;">
+    <div class="popup-titlebar" onmousedown="startDrag(event,'popup-stats')">
+        <span>📊 기록지 (1차 스탯)</span>
+        <button class="popup-close" onclick="closePopup('stats')">✕</button>
+    </div>
+    <div class="popup-body" style="max-height:75vh;">
+        <div style="font-size:12px; font-weight:700; color:var(--accent-orange); margin-bottom:6px;" id="record-home-title">HOME</div>
+        <div style="overflow-x:auto; margin-bottom:14px;">
+            <table style="width:100%; font-size:10px; white-space:nowrap;">
+                <thead><tr>
+                    <th style="padding:4px 5px;">#</th><th>이름</th><th>MIN</th>
+                    <th>PTS</th><th>FG</th><th>FG%</th><th>3P</th><th>3P%</th><th>FT</th><th>FT%</th>
+                    <th>OREB</th><th>DREB</th><th>REB</th><th>AST</th><th>STL</th><th>BLK</th><th>TO</th><th>PF</th>
+                </tr></thead>
+                <tbody id="record-home-body"><tr><td colspan="18" style="text-align:center;color:var(--text-muted);padding:12px;">경기 시작 대기</td></tr></tbody>
+            </table>
+        </div>
+        <div style="font-size:12px; font-weight:700; color:var(--accent-blue); margin-bottom:6px;" id="record-away-title">AWAY</div>
+        <div style="overflow-x:auto;">
+            <table style="width:100%; font-size:10px; white-space:nowrap;">
+                <thead><tr>
+                    <th style="padding:4px 5px;">#</th><th>이름</th><th>MIN</th>
+                    <th>PTS</th><th>FG</th><th>FG%</th><th>3P</th><th>3P%</th><th>FT</th><th>FT%</th>
+                    <th>OREB</th><th>DREB</th><th>REB</th><th>AST</th><th>STL</th><th>BLK</th><th>TO</th><th>PF</th>
+                </tr></thead>
+                <tbody id="record-away-body"><tr><td colspan="18" style="text-align:center;color:var(--text-muted);padding:12px;">경기 시작 대기</td></tr></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+// =============================================================================
+// 상태
+// =============================================================================
+const SAVE_KEY = 'cv_live_state';
+let gs = { homeScore:0, awayScore:0, quarter:1, gameClock:600, shotClock:24, shotClockOn:true, homeFoul:0, awayFoul:0, homeTO_first:0, homeTO_second:0, homeTO_ot:0, awayTO_first:0, awayTO_second:0, awayTO_ot:0, timerRunning:false, timerInterval:null, homeName:'HOME', awayName:'AWAY' };
+let homePlayers = [], awayPlayers = [];
+let homeOnCourt = [], awayOnCourt = [];  // 코트 위 인덱스
+
+// =============================================================================
+// 라이브 탭 전환 (이벤트/심판/교체)
+// =============================================================================
+function setLiveTab(tab, btn) {
+    document.querySelectorAll('#mode-live .card .tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    ['events','referee','substitute'].forEach(t => {
+        document.getElementById('live-tab-' + t).style.display = t === tab ? 'block' : 'none';
+    });
+}
+
+// =============================================================================
+// 드래그 팝업 시스템
+// =============================================================================
+let dragState = { el: null, offsetX: 0, offsetY: 0 };
+
+function startDrag(e, popupId) {
+    const el = document.getElementById(popupId);
+    dragState.el = el;
+    const rect = el.getBoundingClientRect();
+    dragState.offsetX = e.clientX - rect.left;
+    dragState.offsetY = e.clientY - rect.top;
+    document.addEventListener('mousemove', onDrag);
+    document.addEventListener('mouseup', stopDrag);
+    el.style.zIndex = ++popupZIndex;
+}
+function onDrag(e) {
+    if (!dragState.el) return;
+    dragState.el.style.left = (e.clientX - dragState.offsetX) + 'px';
+    dragState.el.style.top = (e.clientY - dragState.offsetY) + 'px';
+    dragState.el.style.right = 'auto';
+}
+function stopDrag() { dragState.el = null; document.removeEventListener('mousemove', onDrag); document.removeEventListener('mouseup', stopDrag); }
+let popupZIndex = 900;
+
+function togglePopup(id) {
+    const el = document.getElementById('popup-' + id);
+    if (el.style.display === 'block') { el.style.display = 'none'; }
+    else { el.style.display = 'block'; el.style.zIndex = ++popupZIndex; }
+}
+function closePopup(id) { document.getElementById('popup-' + id).style.display = 'none'; }
+
+// =============================================================================
+// 카메라
+// =============================================================================
+let currentCam = 0;
+const CAM_IDS = ['cam_0','cam_1','cam_2','cam_3','cam_4','cam_5','cam_6','cam_7'];
+const GO2RTC_WS = 'ws://127.0.0.1:1984/api/ws';
+
+// v0.3.1: <video-stream> web component (go2rtc 공식) 가 수명 관리.
+// `src` setter 가 WebSocket 연결/해제 자동 처리. 수동 PC 관리 불필요.
+
+// v0.3.2: 메인뷰는 별도 WebRTC 연결 안 함 — 선택된 썸네일의 MediaStream 을
+// captureStream() 으로 공유. 카메라 전환 시 재연결 없이 즉시 (~0ms) 화면 변경.
+// 8 썸네일만 실제 WebRTC 연결. 전체 active connection 수 9 → 8로 감소.
+
+function _bindThumb(el, camId) {
+    el.mode = 'webrtc';
+    el.src = `${GO2RTC_WS}?src=${camId}`;
+    el.style.display = 'block';
+}
+
+function _mirrorThumbToMain(thumbEl) {
+    const mainEl = document.getElementById('main-cam-img');
+    // <video-stream> 내부 <video> 요소
+    const innerVideo = thumbEl.querySelector('video');
+    if (innerVideo && innerVideo.srcObject) {
+        mainEl.srcObject = innerVideo.srcObject;
+    } else if (innerVideo) {
+        // srcObject 아직 없으면 대기 후 재시도 (썸네일 첫 프레임 도착 전)
+        const wait = setInterval(() => {
+            if (innerVideo.srcObject) {
+                mainEl.srcObject = innerVideo.srcObject;
+                clearInterval(wait);
+            }
+        }, 100);
+        setTimeout(() => clearInterval(wait), 5000);
+    }
+}
+
+function selectCam(idx) {
+    currentCam = idx;
+    document.querySelectorAll('.thumb-cam').forEach((el, i) => el.classList.toggle('selected', i === idx));
+    document.getElementById('main-cam-label').textContent = 'CAM ' + (idx + 1);
+    const mainEl = document.getElementById('main-cam-img');
+    mainEl.style.display = 'block';
+    document.getElementById('main-cam-placeholder').style.display = 'none';
+    const thumbs = document.querySelectorAll('.thumb-img');
+    if (thumbs[idx]) _mirrorThumbToMain(thumbs[idx]);
+}
+
+function startCamStreams() {
+    document.querySelectorAll('.thumb-img').forEach(el => {
+        const camId = el.dataset.cam;
+        if (!camId) return;
+        _bindThumb(el, camId);
+    });
+    selectCam(currentCam);
+}
+
+function stopCamStreams() {
+    document.querySelectorAll('.thumb-img').forEach(el => {
+        try { el.ondisconnect?.(); } catch (_) {}
+        el.src = '';
+        el.style.display = 'none';
+    });
+    const mainEl = document.getElementById('main-cam-img');
+    mainEl.srcObject = null;
+    mainEl.style.display = 'none';
+    document.getElementById('main-cam-placeholder').style.display = 'block';
+}
+
+// =============================================================================
+// 팀 탭 + 선수 명단 + 스타팅 라인업
+// =============================================================================
+let homeStarting = new Set(); // 스타팅 인덱스
+let awayStarting = new Set();
+
+function setTeamTab(team, btn) {
+    document.querySelectorAll('#mode-setup > div:first-child .tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('panel-home').style.display = team === 'home' ? 'flex' : 'none';
+    document.getElementById('panel-away').style.display = team === 'away' ? 'flex' : 'none';
+}
+
+function newPlayerObj(number, name, pos) {
+    return { number:number||'', name:name||'', pos:pos||'', stats:{ min:0, pts:0, fgm:0, fga:0, tpm:0, tpa:0, ftm:0, fta:0, oreb:0, dreb:0, ast:0, stl:0, blk:0, to:0, pf:0 } };
+}
+
+function toggleStarting(team, idx) {
+    const set = team === 'home' ? homeStarting : awayStarting;
+    if (set.has(idx)) { set.delete(idx); }
+    else if (set.size < 5) { set.add(idx); }
+    else { alert('스타팅은 5명까지만 등록 가능합니다.'); return; }
+    renderRoster(team);
+    renderStarting(team);
+    checkReady();
+}
+
+function renderStarting(team) {
+    const list = team === 'home' ? homePlayers : awayPlayers;
+    const set = team === 'home' ? homeStarting : awayStarting;
+    const color = team === 'home' ? 'var(--accent-orange)' : 'var(--accent-blue)';
+    const el = document.getElementById(team + '-starting');
+    const countEl = document.getElementById(team + '-starting-count');
+    countEl.textContent = set.size;
+
+    if (!set.size) {
+        el.innerHTML = '<div style="font-size:10px; color:var(--text-muted); padding:4px 0;">아래 목록에서 선수를 선택하세요</div>';
+        return;
+    }
+
+    el.innerHTML = [...set].map(i => {
+        const p = list[i];
+        return `<div style="display:inline-flex; align-items:center; gap:4px; background:var(--bg-dark); border:1px solid ${color}; border-radius:4px; padding:3px 8px; margin:2px 3px 2px 0; font-size:11px;">
+            <span style="color:${color}; font-weight:700;">#${p.number}</span>
+            <span style="font-weight:600;">${p.name}</span>
+            <span style="font-size:9px; color:var(--text-muted);">${p.pos||''}</span>
+            <span onclick="toggleStarting('${team}',${i})" style="cursor:pointer; color:var(--text-muted); margin-left:2px;">✕</span>
+        </div>`;
+    }).join('');
+}
+
+function renderRoster(team) {
+    const list = team === 'home' ? homePlayers : awayPlayers;
+    const set = team === 'home' ? homeStarting : awayStarting;
+    const color = team === 'home' ? 'var(--accent-orange)' : 'var(--accent-blue)';
+
+    document.getElementById(team + '-roster').innerHTML = list.map((p, i) => {
+        const isStarting = set.has(i);
+        return `<div class="player-row" style="padding:5px 2px; ${isStarting ? 'background:rgba(255,153,51,0.06);' : ''}">
+            <button onclick="toggleStarting('${team}',${i})" style="width:22px;height:22px;border-radius:4px;border:1.5px solid ${isStarting?color:'var(--border)'};background:${isStarting?color:'transparent'};color:${isStarting?'#000':'var(--text-muted)'};font-size:10px;font-weight:700;cursor:pointer;flex-shrink:0;">${isStarting?'✓':''}</button>
+            <span style="width:32px; text-align:center; font-weight:700; color:${color}; font-size:11px;">#${p.number}</span>
+            <span style="flex:1; font-size:11px; font-weight:600;">${p.name}</span>
+            <span style="font-size:10px; color:var(--text-muted); width:28px; text-align:center;">${p.pos||''}</span>
+        </div>`;
+    }).join('') || '<div style="font-size:11px;color:var(--text-muted);padding:8px;text-align:center;">선수가 없습니다</div>';
+}
+
+function checkReady() {
+    const ready = homeStarting.size === 5 && awayStarting.size === 5;
+    const btn = document.getElementById('btn-start');
+    const hint = document.getElementById('start-hint');
+    btn.disabled = !ready;
+    btn.style.opacity = ready ? '1' : '0.5';
+    if (ready) {
+        hint.innerHTML = '<span style="color:var(--accent-green);">양팀 스타팅 등록 완료 — 경기를 시작할 수 있습니다</span>';
+    } else {
+        const hNeed = 5 - homeStarting.size, aNeed = 5 - awayStarting.size;
+        const parts = [];
+        if (hNeed > 0) parts.push(`홈팀 ${hNeed}명`);
+        if (aNeed > 0) parts.push(`원정팀 ${aNeed}명`);
+        hint.textContent = `스타팅 라인업 추가 필요: ${parts.join(', ')}`;
+    }
+}
+
+// ── 선수 추가 ──
+let _addPlayerTeam = 'home';
+
+function showAddPlayer(team) {
+    _addPlayerTeam = team;
+    const form = document.getElementById('add-player-form');
+    const title = document.getElementById('add-player-title');
+    const color = team === 'home' ? 'var(--accent-orange)' : 'var(--accent-blue)';
+    title.textContent = (team === 'home' ? '홈팀' : '원정팀') + ' 선수 추가';
+    title.style.color = color;
+    form.style.display = 'block';
+    document.getElementById('add-p-num').value = '';
+    document.getElementById('add-p-name').value = '';
+    document.getElementById('add-p-pos').value = '';
+    document.getElementById('add-p-num').focus();
+}
+
+function hideAddPlayer() {
+    document.getElementById('add-player-form').style.display = 'none';
+}
+
+function confirmAddPlayer() {
+    const num = document.getElementById('add-p-num').value.trim();
+    const name = document.getElementById('add-p-name').value.trim();
+    const pos = document.getElementById('add-p-pos').value;
+    if (!num || !name) { alert('등번호와 이름을 입력하세요.'); return; }
+
+    const list = _addPlayerTeam === 'home' ? homePlayers : awayPlayers;
+    list.push(newPlayerObj(num, name, pos));
+    hideAddPlayer();
+    renderRoster(_addPlayerTeam);
+    renderStarting(_addPlayerTeam);
+    checkReady();
+}
+
+// ── DB에서 자동 세팅 (홈에서 경기 선택 시) ──
+function loadMatchFromDB() {
+    const raw = sessionStorage.getItem('cv_match');
+    console.log('[loadMatchFromDB] cv_match:', raw ? 'found' : 'empty');
+    if (!raw) return false;
+    sessionStorage.removeItem('cv_match');
+
+    try {
+        const match = JSON.parse(raw);
+        document.getElementById('home-team-name').value = match.homeName || '';
+        document.getElementById('away-team-name').value = match.awayName || '';
+        if (match.ruleSet) document.getElementById('rule-set').value = match.ruleSet;
+
+        // 홈팀 선수 로드
+        homePlayers = [];
+        (match.homeTeam?.players || []).forEach(p => {
+            homePlayers.push(newPlayerObj(p.jersey, p.name, p.pos));
+        });
+
+        // 어웨이팀 선수 로드
+        awayPlayers = [];
+        (match.awayTeam?.players || []).forEach(p => {
+            awayPlayers.push(newPlayerObj(p.jersey, p.name, p.pos));
+        });
+
+        console.log('[loadMatchFromDB] home:', homePlayers.length, 'away:', awayPlayers.length);
+    } catch(e) {
+        console.error('[loadMatchFromDB] 파싱 오류:', e);
+    }
+
+    homeStarting.clear();
+    awayStarting.clear();
+    return true;
+}
+
+// ── 선수 목록 + 스타팅 렌더링 실행 ──
+function renderSetup() {
+    // 선수가 없으면 빈 5명 생성
+    if (!homePlayers.length) for (let i=0;i<5;i++) homePlayers.push(newPlayerObj());
+    if (!awayPlayers.length) for (let i=0;i<5;i++) awayPlayers.push(newPlayerObj());
+
+    renderRoster('home');
+    renderRoster('away');
+    renderStarting('home');
+    renderStarting('away');
+    checkReady();
+    console.log('[renderSetup] done. home:', homePlayers.length, 'away:', awayPlayers.length);
+}
+
+// ── 페이지 로드 초기화 ──
+(function init() {
+    // 1. 진행 중인 경기 복원 시도
+    try {
+        if (tryRestoreGame()) {
+            console.log('[init] 경기 복원 완료');
+            return;
+        }
+    } catch(e) {
+        console.error('[init] 복원 오류:', e);
+        localStorage.removeItem(SAVE_KEY);
+    }
+
+    // 2. 홈에서 넘어온 경기 데이터 로드
+    loadMatchFromDB();
+
+    // 3. 세팅 화면 렌더링
+    renderSetup();
+
+    // 색상 선택 라벨 업데이트
+    document.getElementById('home-team-color')?.addEventListener('input', e => {
+        document.getElementById('home-color-label').textContent = e.target.value;
+    });
+    document.getElementById('away-team-color')?.addEventListener('input', e => {
+        document.getElementById('away-color-label').textContent = e.target.value;
+    });
+})();
+
+// =============================================================================
+// 경기 시작/종료
+// =============================================================================
+async function startGame() {
+    if (homeStarting.size !== 5 || awayStarting.size !== 5) {
+        alert('양팀 스타팅 라인업(5명)을 등록하세요.'); return;
+    }
+
+    gs.homeName = document.getElementById('home-team-name').value || 'HOME';
+    gs.awayName = document.getElementById('away-team-name').value || 'AWAY';
+
+    // 스타팅 라인업 = 코트 위
+    homeOnCourt = [...homeStarting];
+    awayOnCourt = [...awayStarting];
+
+    // 규정에 따른 초기 클락 설정
+    const rule = document.getElementById('rule-set').value;
+    gs.gameClock = rule === 'nba' ? 720 : 600;
+    gs.shotClock = 24;
+    gs.quarter = 1;
+
+    document.getElementById('mode-setup').style.display = 'none';
+    const live = document.getElementById('mode-live');
+    live.style.display = 'flex';
+
+    // Phase 18-A: ctrl-* / record-* 는 M3 /operator 로 이전됨 — null guard
+    ['live-home-name','ctrl-home-name','record-home-title'].forEach(id => {
+        const el = document.getElementById(id); if (el) el.textContent = gs.homeName;
+    });
+    ['live-away-name','ctrl-away-name','record-away-title'].forEach(id => {
+        const el = document.getElementById(id); if (el) el.textContent = gs.awayName;
+    });
+
+    updateTimerDisplay();
+    renderAllTimeoutDots();
+    renderRecordSheet();
+    renderSubstitute();
+
+    // 녹화 시작
+    startRecTimer();
+
+    // 팀 유니폼 색상
+    const homeColor = document.getElementById('home-team-color')?.value || '#1A1A1A';
+    const awayColor = document.getElementById('away-team-color')?.value || '#FFFFFF';
+
+    // 경기 시작 시점:
+    //   - 녹화(RecordingService) 즉시 시작 — 로스터 확정 후 전 구간 기록
+    //   - AI 분석 엔진은 [▶ START] (점프볼) 에서 시작 — operator.html 참고
+    gs.ruleSet = rule;
+    gs.homeTeamColor = homeColor;
+    gs.awayTeamColor = awayColor;
+    gs.engineStarted = false;   // AI 엔진 기동 여부 플래그
+    gs.startPayload = {
+        mode: 'live', rule_set: rule, source_urls: {},
+        home_team_name: gs.homeName, away_team_name: gs.awayName,
+        home_team_color: homeColor, away_team_color: awayColor,
+        home_players: homePlayers.map(p => ({ number:p.number, name:p.name, pos:p.pos })),
+        away_players: awayPlayers.map(p => ({ number:p.number, name:p.name, pos:p.pos })),
+        home_starting: [...homeStarting].map(i => homePlayers[i].number),
+        away_starting: [...awayStarting].map(i => awayPlayers[i].number),
+    };
+
+    // 녹화 세션 즉시 시작 (카메라 없으면 allow_empty 로 세션 디렉토리만 생성)
+    try {
+        const recResp = await fetch('/api/v1/recording/start', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ quarter: 1, allow_empty: true }),
+        });
+        if (!recResp.ok) {
+            const e = await recResp.json().catch(() => ({}));
+            console.warn('[game] recording/start 실패:', e?.detail || recResp.status);
+        } else {
+            console.log('[game] 🎬 녹화 시작 — 로스터 확정 이후 전 구간 기록');
+        }
+    } catch (e) {
+        console.warn('[game] recording/start 네트워크 오류:', e);
+    }
+    connectWS();
+    startCamStreams();
+
+    // 경기 시작 즉시 저장 (새로고침 대비)
+    _saveThrottle = 0;
+    saveGameState();
+
+    // Phase 18-A4/A5: 초기 상태 broker publish + 멀티 모니터 창 자동 오픈
+    if (typeof Ops !== 'undefined') {
+        const { timerInterval, ...snapshot } = gs;
+        Ops.publish('game_state', {
+            gs: snapshot,
+            pendingSubs: [],
+            homeOnCourt, awayOnCourt,
+            homePlayers, awayPlayers,
+        });
+        // 동기 호출로 창 오픈 (user gesture 유지)
+        openOrFocusWindow('scoreboard');
+        openOrFocusWindow('operator');
+    }
+}
+
+async function stopGame() {
+    if (!confirm('경기를 종료하시겠습니까?\n녹화 및 분석이 중단됩니다.')) return;
+    if (gs.timerInterval) clearInterval(gs.timerInterval);
+    if (recInterval) clearInterval(recInterval);
+    clearGameState();
+    try { await fetch('/api/v1/game/stop',{method:'POST'}); } catch {}
+    window.location.href = '/game/result';
+}
+
+// =============================================================================
+// 기록지 (홈+어웨이 동시)
+// =============================================================================
+function renderRecordSheet() {
+    const c = 'padding:3px 5px;text-align:center;';
+    const renderTeam = (players, onCourt) => players.map((p, i) => {
+        const on = onCourt.includes(i);
+        const s = p.stats || {};
+        const fgm = s.fgm||0, fga = s.fga||0, tpm = s.tpm||0, tpa = s.tpa||0, ftm = s.ftm||0, fta = s.fta||0;
+        const fgPct = fga > 0 ? (fgm/fga*100).toFixed(0) : '-';
+        const tpPct = tpa > 0 ? (tpm/tpa*100).toFixed(0) : '-';
+        const ftPct = fta > 0 ? (ftm/fta*100).toFixed(0) : '-';
+        return `<tr style="${on ? '' : 'opacity:0.35;'}">
+            <td style="padding:3px 5px;color:var(--accent-orange);font-weight:700;">${p.number||'-'}</td>
+            <td style="padding:3px 5px;max-width:60px;overflow:hidden;text-overflow:ellipsis;">${p.name||'-'}</td>
+            <td style="${c}">${s.min||0}</td>
+            <td style="${c}font-weight:700;">${s.pts||0}</td>
+            <td style="${c}">${fgm}-${fga}</td>
+            <td style="${c}color:${fgPct>=50?'var(--accent-green)':'var(--text-gray)'};">${fgPct}</td>
+            <td style="${c}">${tpm}-${tpa}</td>
+            <td style="${c}color:${tpPct>=35?'var(--accent-green)':'var(--text-gray)'};">${tpPct}</td>
+            <td style="${c}">${ftm}-${fta}</td>
+            <td style="${c}color:${ftPct>=75?'var(--accent-green)':'var(--text-gray)'};">${ftPct}</td>
+            <td style="${c}">${s.oreb||0}</td>
+            <td style="${c}">${s.dreb||0}</td>
+            <td style="${c}font-weight:600;">${(s.oreb||0)+(s.dreb||0)}</td>
+            <td style="${c}">${s.ast||0}</td>
+            <td style="${c}">${s.stl||0}</td>
+            <td style="${c}">${s.blk||0}</td>
+            <td style="${c}">${s.to||0}</td>
+            <td style="${c}">${s.pf||0}</td>
+        </tr>`;
+    }).join('');
+
+    // Phase 18-A: 기록지는 /operator (M3) 로 이전됨 — /analysis 에 DOM 없으면 no-op
+    const emptyRow = '<tr><td colspan="18" style="text-align:center;color:var(--text-muted);padding:12px;">선수 없음</td></tr>';
+    const homeEl = document.getElementById('record-home-body');
+    const awayEl = document.getElementById('record-away-body');
+    if (homeEl) homeEl.innerHTML = renderTeam(homePlayers, homeOnCourt) || emptyRow;
+    if (awayEl) awayEl.innerHTML = renderTeam(awayPlayers, awayOnCourt) || emptyRow;
+}
+
+// =============================================================================
+// 선수 교체 팝업
+// =============================================================================
+// Phase 18-A: 교체 기능은 /operator (M3)로 이전됨 — /analysis 에서는 DOM 없음, no-op
+function renderSubstitute() { /* moved to /operator */ }
+
+let pendingSwapTeam = null, pendingSwapIdx = null;
+
+function swapOut(team, courtIdx) {
+    pendingSwapTeam = team;
+    pendingSwapIdx = courtIdx;
+    // 벤치 선수 하이라이트
+    const benchEls = document.querySelectorAll(`#sub-${team}-bench .swap-btn`);
+    benchEls.forEach(btn => { btn.style.background = 'var(--accent-green)'; btn.textContent = '↑ 선택'; });
+}
+
+function swapIn(team, benchIdx) {
+    const onCourt = team === 'home' ? homeOnCourt : awayOnCourt;
+    if (pendingSwapTeam === team && pendingSwapIdx !== null) {
+        // 교체 실행
+        const courtPos = onCourt.indexOf(pendingSwapIdx);
+        if (courtPos >= 0) onCourt[courtPos] = benchIdx;
+        pendingSwapTeam = null; pendingSwapIdx = null;
+    } else {
+        // 벤치에서 직접 투입 (코트에 빈자리가 있으면)
+        if (onCourt.length < 5) onCourt.push(benchIdx);
+    }
+    renderSubstitute();
+    renderRecordSheet();
+}
+
+// =============================================================================
+// 컨트롤러 기능
+// =============================================================================
+function addScore(team, pts) {
+    if (team==='home') { gs.homeScore=Math.max(0,gs.homeScore+pts); document.getElementById('ctrl-home-score').textContent=gs.homeScore; document.getElementById('live-home-score').textContent=gs.homeScore; }
+    else { gs.awayScore=Math.max(0,gs.awayScore+pts); document.getElementById('ctrl-away-score').textContent=gs.awayScore; document.getElementById('live-away-score').textContent=gs.awayScore; }
+}
+
+// ── 녹화 타이머 ──
+let recStartTime = null, recInterval = null;
+
+function _renderRecTime() {
+    if (!recStartTime) return;
+    const elapsed = Math.floor((Date.now() - recStartTime) / 1000);
+    const hh = String(Math.floor(elapsed/3600)).padStart(2,'0');
+    const mm = String(Math.floor((elapsed%3600)/60)).padStart(2,'0');
+    const ss = String(elapsed%60).padStart(2,'0');
+    const el = document.getElementById('rec-time');
+    if (el) el.textContent = `${hh}:${mm}:${ss}`;
+}
+
+function startRecTimer(preservedStart) {
+    // 기존 interval 정리 (중복 방지)
+    if (recInterval) { clearInterval(recInterval); recInterval = null; }
+    // 복원 시 넘겨준 값 우선, 없으면 지금 시각
+    recStartTime = preservedStart || Date.now();
+    console.log('[rec] 🎬 녹화 타이머 시작 — recStartTime:', new Date(recStartTime).toISOString());
+
+    _renderRecTime();  // 즉시 한 번 렌더
+    recInterval = setInterval(_renderRecTime, 1000);
+}
+
+// ── 게임 클락 ──
+function toggleTimer() {
+    const btn = document.getElementById('ctrl-startstop');
+    const statusEl = document.getElementById('live-game-status');
+    if (gs.timerRunning) {
+        clearInterval(gs.timerInterval); gs.timerRunning=false;
+        btn.textContent='▶ START'; btn.className='ctrl-btn ctrl-btn-green'; btn.style.cssText='width:140px;height:44px;font-size:18px;';
+        if (statusEl) statusEl.innerHTML='<span style="color:var(--accent-yellow);">⏸ 일시정지</span>';
+    } else {
+        gs.timerRunning=true;
+        btn.textContent='⏸ STOP'; btn.className='ctrl-btn ctrl-btn-red'; btn.style.cssText='width:140px;height:44px;font-size:18px;';
+        if (statusEl) statusEl.innerHTML='<span style="color:var(--accent-green);">경기 진행 중</span>';
+        gs.timerInterval=setInterval(()=>{
+            const prevGame=gs.gameClock, prevShot=gs.shotClock;
+            if(gs.gameClock>0) gs.gameClock-=0.1;
+            if(gs.shotClockOn && gs.shotClock>0) gs.shotClock-=0.1;
+            // 메인 시간 24초 이하 → 샷클락 불필요, 0초 + 비활성
+            if(gs.gameClock<=24 && gs.gameClock>0 && gs.shotClockOn) {
+                gs.shotClock=0; gs.shotClockOn=false; updateShotClockUI();
+            }
+            // 샷클락 0초 → 부저
+            if(gs.shotClockOn && prevShot>0.05 && gs.shotClock<=0.05){ gs.shotClock=0; buzzerPreset(1.0); }
+            // 경기시간 0초 → 부저 + 정지
+            if(prevGame>0.05 && gs.gameClock<=0.05){ gs.gameClock=0; gs.shotClock=0; buzzerPreset(1.0); toggleTimer(); }
+            if(gs.shotClock<0)gs.shotClock=0; if(gs.gameClock<0)gs.gameClock=0;
+            updateTimerDisplay();
+            saveGameState();
+        },100);
+    }
+}
+
+function updateTimerDisplay(){
+    const m=Math.floor(gs.gameClock/60),s=Math.floor(gs.gameClock%60);
+    const t=`${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`;
+    // Phase 18-A: 팝업(ctrl-*) 제거됨 → null guard
+    const $ = id => document.getElementById(id);
+    if ($('ctrl-time')) $('ctrl-time').textContent = t;
+    if ($('live-clock')) $('live-clock').textContent = t;
+    if ($('ctrl-shot')) $('ctrl-shot').textContent = Math.ceil(gs.shotClock);
+    if ($('live-shot-clock')) $('live-shot-clock').textContent = Math.ceil(gs.shotClock);
+}
+function adjGameClock(d){
+    gs.gameClock=Math.max(0,gs.gameClock+d);
+    // 24초 넘어가면 샷클락 다시 활성화
+    if(gs.gameClock>24 && !gs.shotClockOn){ gs.shotClockOn=true; updateShotClockUI(); }
+    updateTimerDisplay();
+}
+function setShotClock(v){ gs.shotClock=v; gs.shotClockOn=true; updateShotClockUI(); updateTimerDisplay(); }
+function toggleShotClock(){
+    gs.shotClockOn = !gs.shotClockOn;
+    updateShotClockUI();
+}
+function updateShotClockUI(){
+    const btn = document.getElementById('shot-startstop');
+    const panel = document.getElementById('shot-clock-panel');
+    if(gs.shotClockOn){
+        btn.textContent='⏸ SHOT 정지';
+        btn.style.background='var(--accent-yellow)'; btn.style.color='#000';
+        panel.style.opacity='1';
+    } else {
+        btn.textContent='▶ SHOT 시작';
+        btn.style.background='var(--bg-nav-item)'; btn.style.color='var(--text-gray)';
+        panel.style.opacity='0.5';
+    }
+}
+function adjShotClock(d){gs.shotClock=Math.max(0,Math.min(24,gs.shotClock+d));updateTimerDisplay();}
+
+// =============================================================================
+// 엔진 이벤트 기반 샷클락 자동 리셋
+// =============================================================================
+function autoShotClock(sec, reason) {
+    gs.shotClock = sec;
+    gs.shotClockOn = true;
+    updateShotClockUI();
+    updateTimerDisplay();
+    // 시각적 플래시
+    const cls = sec <= 14 ? 'sc-flash-14' : 'sc-flash-24';
+    ['ctrl-shot', 'live-shot-clock'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) { el.classList.remove('sc-flash-14','sc-flash-24'); void el.offsetWidth; el.classList.add(cls); }
+    });
+    // 상태바 업데이트
+    const statusEl = document.getElementById('live-game-status');
+    if (statusEl) {
+        const color = sec <= 14 ? 'var(--accent-orange)' : 'var(--accent-green)';
+        statusEl.innerHTML = `<span class="sc-status-pulse" style="color:${color};">⏱ 샷클락 ${sec}s — ${reason}</span>`;
+    }
+}
+
+function syncScoreDisplay() {
+    document.getElementById('ctrl-home-score').textContent = gs.homeScore;
+    document.getElementById('ctrl-away-score').textContent = gs.awayScore;
+    document.getElementById('live-home-score').textContent = gs.homeScore;
+    document.getElementById('live-away-score').textContent = gs.awayScore;
+}
+
+// 이벤트 타입 → 한글 라벨
+function _eventLabel(t) {
+    const m = {
+        'possession_start':'🏀 공격권 시작','score':'🎯 득점','shot_attempt':'🏀 슈팅 시도',
+        'rebound':'📥 리바운드','steal':'🔥 스틸','block':'🖐 블록','foul':'🚨 파울',
+        'violation':'⚠️ 바이올레이션','free_throw':'🎯 자유투','timeout':'⏸ 타임아웃',
+        'dribble':'⛹ 드리블','pass':'📤 패스','drive':'💨 드라이브','screen':'🧱 스크린',
+        'fast_break':'⚡ 속공',
+    };
+    return m[t] || t;
+}
+
+function setQuarter(q){
+    gs.quarter=q;
+    const rule = document.getElementById('rule-set')?.value || 'fiba';
+    gs.gameClock = (rule==='nba' && q<=4) ? 720 : q<=4 ? 600 : 300;
+    gs.shotClock=24;
+    document.querySelectorAll('[id^="q-"]').forEach(b=>b.className='ctrl-btn ctrl-btn-gray');
+    const b=document.getElementById('q-'+q); if(b)b.className='ctrl-btn ctrl-btn-orange';
+    document.getElementById('live-quarter').textContent=q<=4?q+'Q':'OT'; updateTimerDisplay();
+    renderAllTimeoutDots();
+}
+
+// ── 리셋 ──
+function resetClock() {
+    if (gs.timerRunning) toggleTimer(); // 먼저 정지
+    const rule = document.getElementById('rule-set')?.value || 'fiba';
+    gs.gameClock = (rule==='nba' && gs.quarter<=4) ? 720 : gs.quarter<=4 ? 600 : 300;
+    gs.shotClock = 24;
+    updateTimerDisplay();
+    const statusEl = document.getElementById('live-game-status');
+    if (statusEl) statusEl.innerHTML='<span style="color:var(--text-muted);">클락 리셋 완료 — START를 누르세요</span>';
+}
+
+// ── 부저 사운드 시스템 ──
+let _bzCtx=null, _bzNodes=[], _bzMix=null;
+
+function _bzCreateSound() {
+    const ctx = new (window.AudioContext||window.webkitAudioContext)();
+    _bzCtx = ctx;
+    // 220Hz + 223Hz 구형파 → 3Hz 비트(맥놀이) = "부우우우~~~"
+    const o1=ctx.createOscillator(); o1.type='square'; o1.frequency.value=220;
+    const o2=ctx.createOscillator(); o2.type='square'; o2.frequency.value=223;
+    // 110Hz 저음 보강
+    const o3=ctx.createOscillator(); o3.type='sawtooth'; o3.frequency.value=110;
+    // 믹서
+    const mix=ctx.createGain(); mix.gain.value=0.7; _bzMix=mix;
+    const g1=ctx.createGain();g1.gain.value=0.5;
+    const g2=ctx.createGain();g2.gain.value=0.5;
+    const g3=ctx.createGain();g3.gain.value=0.3;
+    o1.connect(g1); o2.connect(g2); o3.connect(g3);
+    g1.connect(mix); g2.connect(mix); g3.connect(mix);
+    // 디스토션 (거친 질감)
+    const dist=ctx.createWaveShaper(); const c=new Float32Array(256);
+    for(let i=0;i<256;i++){const x=i*2/256-1; c[i]=Math.tanh(x*3);} dist.curve=c;
+    mix.connect(dist); dist.connect(ctx.destination);
+    o1.start(); o2.start(); o3.start();
+    _bzNodes=[o1,o2,o3];
+    return ctx;
+}
+
+function _bzStop() {
+    if (_bzMix) { _bzMix.gain.linearRampToValueAtTime(0, (_bzCtx?.currentTime||0)+0.03); }
+    setTimeout(()=>{
+        _bzNodes.forEach(n=>{try{n.stop();}catch{}});
+        _bzNodes=[]; _bzMix=null;
+        if(_bzCtx){try{_bzCtx.close();}catch{}} _bzCtx=null;
+    }, 50);
+}
+
+// 수동 부저 — 누르는 동안 재생
+function buzzerHoldStart() {
+    if (_bzCtx) return;
+    try { _bzCreateSound(); } catch{}
+}
+function buzzerHoldStop() {
+    if (!_bzCtx) return;
+    _bzStop();
+}
+
+// 프리셋 부저 — 고정 길이 (샷클락 1초, 경기종료 2.5초)
+function buzzerPreset(dur) {
+    if (_bzCtx) _bzStop();
+    try {
+        const ctx = _bzCreateSound();
+        const t = ctx.currentTime;
+        _bzMix.gain.setValueAtTime(0.7, t);
+        _bzMix.gain.setValueAtTime(0.7, t+dur-0.04);
+        _bzMix.gain.linearRampToValueAtTime(0, t+dur);
+        _bzNodes.forEach(n=>n.stop(t+dur));
+        setTimeout(()=>{ _bzNodes=[]; _bzMix=null; if(_bzCtx){try{_bzCtx.close();}catch{}} _bzCtx=null; }, dur*1000+100);
+    } catch{}
+}
+// ── 타임아웃 규정 ──
+const TO_RULES = {
+    fiba: { first:2, second:3, ot:1 },
+    nba:  { first:4, second:3, ot:2 },
+    kbl:  { first:2, second:3, ot:1 },
+    nbl:  { first:2, second:3, ot:1 },
+};
+
+function getCurrentHalf() {
+    if (gs.quarter <= 2) return 'first';
+    if (gs.quarter <= 4) return 'second';
+    return 'ot';
+}
+
+function adjFoul(t, d) {
+    if (t==='home') {
+        gs.homeFoul = Math.max(0, gs.homeFoul + d);
+        document.getElementById('ctrl-home-foul').textContent = gs.homeFoul;
+        const lf = document.getElementById('live-home-foul'); if(lf) lf.textContent = gs.homeFoul;
+    } else {
+        gs.awayFoul = Math.max(0, gs.awayFoul + d);
+        document.getElementById('ctrl-away-foul').textContent = gs.awayFoul;
+        const lf = document.getElementById('live-away-foul'); if(lf) lf.textContent = gs.awayFoul;
+    }
+}
+
+function adjTimeout(t, d) {
+    const half = getCurrentHalf();
+    const rule = TO_RULES[document.getElementById('rule-set')?.value || 'fiba'];
+    const max = rule[half];
+    const key = t + 'TO_' + half;
+    gs[key] = Math.max(0, Math.min(max, (gs[key]||0) + d));
+    renderTimeoutDots(t);
+}
+
+function renderTimeoutDots(t) {
+    const half = getCurrentHalf();
+    const rule = TO_RULES[document.getElementById('rule-set')?.value || 'fiba'];
+    const max = rule[half];
+    const used = gs[t + 'TO_' + half] || 0;
+    const halfLabel = half==='first'?'전반':half==='second'?'후반':'연장';
+    const color = t === 'home' ? 'var(--accent-orange)' : 'var(--accent-blue)';
+
+    let dots = '';
+    for (let i = 0; i < max; i++) {
+        const filled = i < used;
+        dots += `<div style="width:16px;height:16px;border-radius:50%;border:2px solid ${color};${filled?`background:${color};`:''}display:flex;align-items:center;justify-content:center;font-size:8px;color:${filled?'#000':'var(--text-muted)'};transition:all 0.2s;">${filled?'✓':''}</div>`;
+    }
+
+    const el = document.getElementById(`ctrl-${t}-to-dots`);
+    if (el) el.innerHTML = `<div style="display:flex;justify-content:center;gap:4px;">${dots}</div><div style="font-size:8px;color:var(--text-muted);margin-top:2px;">${halfLabel} ${used}/${max}</div>`;
+}
+
+function renderAllTimeoutDots() {
+    renderTimeoutDots('home');
+    renderTimeoutDots('away');
+    const half = getCurrentHalf();
+    const el = document.getElementById('ctrl-half-label');
+    if (el) el.textContent = half==='first'?'전반':half==='second'?'후반':'연장';
+}
+
+// =============================================================================
+// WebSocket
+// =============================================================================
+function connectWS(){
+    if(typeof cvWS==='undefined')return;
+    // 프레임 데이터 수신 → 상태바에 AI 분석 상태 표시
+    cvWS.on('frame',msg=>{
+        const statusEl = document.getElementById('live-game-status');
+        if (statusEl) {
+            const ms = msg.processing_time_ms || 0;
+            const fps = ms > 0 ? (1000 / ms).toFixed(1) : '~';
+            const objs = msg.total_objects || 0;
+            const fi = msg.frame_index || 0;
+            statusEl.innerHTML = `<span style="color:var(--accent-green);">AI 분석 중 — ${fps}fps | 감지: ${objs}개 | F#${fi}</span>`;
+        }
+    });
+
+    // ── 이벤트 수신: 샷클락 자동 리셋 + 스코어 동기화 + 피드 표시 ──
+    cvWS.on('event',msg=>{
+        const evtType = msg.event_type;
+
+        // ── 샷클락 자동 제어 (FIBA 규정 기반) ──
+        if (evtType === 'possession_start' || evtType === 'possession_change') {
+            autoShotClock(msg.shot_clock || 24, '공격권 전환');
+        }
+        else if (evtType === 'score') {
+            // 점수 자동 반영
+            if (msg.score_after) {
+                gs.homeScore = msg.score_after.home;
+                gs.awayScore = msg.score_after.away;
+                syncScoreDisplay();
+            }
+            // 득점 후 1.5초 뒤 샷클락 리셋 (인바운드 시간 고려)
+            setTimeout(() => autoShotClock(24, '득점 후 새 공격'), 1500);
+        }
+        else if (evtType === 'rebound') {
+            if (msg.subtype === 'offensive') {
+                autoShotClock(14, '공격 리바운드 (림 접촉)');
+            } else {
+                autoShotClock(24, '수비 리바운드 → 공격권 전환');
+            }
+        }
+        else if (evtType === 'steal') {
+            autoShotClock(24, '스틸 → 공격권 전환');
+        }
+        else if (evtType === 'violation') {
+            autoShotClock(24, `바이올레이션 (${msg.subtype||''}) → 공격권 전환`);
+        }
+        else if (evtType === 'free_throw') {
+            if (msg.made && msg.score_after) {
+                gs.homeScore = msg.score_after.home;
+                gs.awayScore = msg.score_after.away;
+                syncScoreDisplay();
+            }
+        }
+
+        // ── 이벤트 피드 표시 ──
+        const feed = document.getElementById('inline-event-feed');
+        if (feed.querySelector('div[style*="text-align:center"]')) feed.innerHTML = '';
+        const d = document.createElement('div'); d.className = 'player-row';
+        const pName = msg.player?.name || msg.offender?.name || '';
+        const pJersey = msg.player?.jersey || msg.offender?.jersey || '';
+        const pLabel = pName ? `#${pJersey} ${pName}` : (msg.player_id ? `P${msg.player_id}` : '');
+        const conf = msg.confidence ? `${(msg.confidence*100).toFixed(0)}%` : '';
+        const extra = msg.subtype ? ` (${msg.subtype})` : '';
+        d.innerHTML = `<span style="color:var(--accent-orange);">●</span><span style="font-size:10px;color:var(--text-muted);width:55px;">${new Date().toLocaleTimeString('ko-KR')}</span><span style="flex:1;font-size:11px;">${_eventLabel(evtType)}${extra} ${pLabel}</span><span style="font-size:9px;color:var(--accent-orange);">${conf}</span>`;
+        feed.insertBefore(d, feed.firstChild);
+        if (feed.children.length > 50) feed.removeChild(feed.lastChild);
+
+        // ── 파울/바이올레이션 이벤트에 심판 판정 포함 시 심판 피드에도 표시 ──
+        if (msg.referee_decision) {
+            const rfFeed = document.getElementById('inline-referee-feed');
+            if (rfFeed.querySelector('div[style*="text-align:center"]')) rfFeed.innerHTML = '';
+            const rd = document.createElement('div'); rd.className = 'player-row';
+            const call = msg.referee_decision.call || evtType;
+            const expl = msg.referee_decision.explanation || '';
+            const conf2 = msg.referee_decision.confidence_level || '';
+            rd.innerHTML = `<span style="color:var(--accent-red);">⚖️</span><span style="flex:1;font-size:11px;">${call} — ${expl}</span><span style="font-size:9px;color:var(--accent-yellow);">${conf2}</span>`;
+            rfFeed.insertBefore(rd, rfFeed.firstChild);
+            if (rfFeed.children.length > 50) rfFeed.removeChild(rfFeed.lastChild);
+        }
+    });
+
+    // ── 심판 독립 이벤트 ──
+    cvWS.on('referee_decision',msg=>{
+        const feed=document.getElementById('inline-referee-feed');
+        if(feed.querySelector('div[style*="text-align:center"]'))feed.innerHTML='';
+        const d=document.createElement('div');d.className='player-row';
+        d.innerHTML=`<span style="color:var(--accent-red);">⚖️</span><span style="flex:1;font-size:11px;">${msg.call_type||''} — ${msg.explanation||''}</span><span style="font-size:9px;color:var(--accent-yellow);">${((msg.confidence||0)*100).toFixed(0)}%</span>`;
+        feed.insertBefore(d,feed.firstChild);
+        if(feed.children.length>50)feed.removeChild(feed.lastChild);
+    });
+
+    // ── 엔진 게임 상태 동기화 (데모/리플레이 모드) ──
+    cvWS.on('game_status', msg => {
+        if (msg.home_score !== undefined) { gs.homeScore = msg.home_score; syncScoreDisplay(); }
+        if (msg.away_score !== undefined) { gs.awayScore = msg.away_score; syncScoreDisplay(); }
+    });
+
+    // 엔진 WS 직접 연결 (프록시/캐시 문제 회피)
+    cvWS.connect('ws://localhost:8000/ws/live');
+}
+
+// WS 연결 상태 모니터 (디버그)
+setInterval(() => {
+    const dot = document.querySelector('.status-dot.ws-dot');
+    if (dot) dot.className = 'status-dot ws-dot ' + (cvWS?.connected ? 'online' : 'offline');
+}, 2000);
+
+// =============================================================================
+// 경기 상태 저장/복원 (새로고침·재시작 대응)
+// =============================================================================
+let _saveThrottle = 0;
+
+function saveGameState() {
+    // 2초 단위 쓰로틀 (타이머 틱마다 호출되므로)
+    const now = Date.now();
+    if (now - _saveThrottle < 2000) return;
+    _saveThrottle = now;
+
+    const state = {
+        gs: {...gs, timerInterval:null, timerRunning:false},  // interval은 저장 불가
+        wasRunning: gs.timerRunning,
+        homePlayers, awayPlayers,
+        homeStarting: [...homeStarting],
+        awayStarting: [...awayStarting],
+        homeOnCourt, awayOnCourt,
+        isLive: document.getElementById('mode-live')?.style.display === 'flex',
+        recStartTime,
+        ruleSet: document.getElementById('rule-set')?.value || 'fiba',
+        savedAt: now,
+    };
+    localStorage.setItem(SAVE_KEY, JSON.stringify(state));
+}
+
+function clearGameState() {
+    localStorage.removeItem(SAVE_KEY);
+}
+
+function tryRestoreGame() {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (!raw) return false;
+
+    let state;
+    try { state = JSON.parse(raw); } catch { return false; }
+
+    // 1시간 넘은 데이터는 무시
+    if (Date.now() - state.savedAt > 3600000) { clearGameState(); return false; }
+    if (!state.isLive) { clearGameState(); return false; }
+
+    if (!confirm('진행 중이던 경기가 있습니다.\n복원하시겠습니까?')) {
+        clearGameState();
+        return false;
+    }
+
+    // 상태 복원
+    Object.assign(gs, state.gs);
+    homePlayers = state.homePlayers || [];
+    awayPlayers = state.awayPlayers || [];
+    homeStarting = new Set(state.homeStarting || []);
+    awayStarting = new Set(state.awayStarting || []);
+    homeOnCourt = state.homeOnCourt || [];
+    awayOnCourt = state.awayOnCourt || [];
+
+    // 규정 복원
+    const ruleEl = document.getElementById('rule-set');
+    if (ruleEl && state.ruleSet) ruleEl.value = state.ruleSet;
+
+    // 팀명 복원
+    document.getElementById('home-team-name').value = gs.homeName;
+    document.getElementById('away-team-name').value = gs.awayName;
+
+    // 라이브 모드 진입
+    document.getElementById('mode-setup').style.display = 'none';
+    document.getElementById('mode-live').style.display = 'flex';
+
+    ['live-home-name','ctrl-home-name','record-home-title'].forEach(id => { const el=document.getElementById(id); if(el) el.textContent=gs.homeName; });
+    ['live-away-name','ctrl-away-name','record-away-title'].forEach(id => { const el=document.getElementById(id); if(el) el.textContent=gs.awayName; });
+
+    // 점수·파울 UI 복원
+    document.getElementById('ctrl-home-score').textContent = gs.homeScore;
+    document.getElementById('ctrl-away-score').textContent = gs.awayScore;
+    document.getElementById('live-home-score').textContent = gs.homeScore;
+    document.getElementById('live-away-score').textContent = gs.awayScore;
+    document.getElementById('ctrl-home-foul').textContent = gs.homeFoul;
+    document.getElementById('ctrl-away-foul').textContent = gs.awayFoul;
+    const lhf=document.getElementById('live-home-foul'); if(lhf) lhf.textContent=gs.homeFoul;
+    const laf=document.getElementById('live-away-foul'); if(laf) laf.textContent=gs.awayFoul;
+
+    // 쿼터 하이라이트
+    document.querySelectorAll('[id^="q-"]').forEach(b=>b.className='ctrl-btn ctrl-btn-gray');
+    const qb=document.getElementById('q-'+gs.quarter); if(qb) qb.className='ctrl-btn ctrl-btn-orange';
+    document.getElementById('live-quarter').textContent = gs.quarter<=4?gs.quarter+'Q':'OT';
+
+    updateTimerDisplay();
+    updateShotClockUI();
+    renderAllTimeoutDots();
+    renderRecordSheet();
+    renderSubstitute();
+
+    // 녹화 타이머 복원 (중단 시점부터 이어서 — preservedStart 전달로 덮어쓰기 방지)
+    if (state.recStartTime) {
+        startRecTimer(state.recStartTime);
+    }
+
+    // 상태 표시
+    const statusEl = document.getElementById('live-game-status');
+    if (statusEl) statusEl.innerHTML = '<span style="color:var(--accent-yellow);">경기 복원됨 — START를 눌러 재개하세요</span>';
+
+    connectWS();
+    startCamStreams();
+    return true;
+}
+
+// 즉시 저장 (쓰로틀 무시)
+function saveNow() { _saveThrottle=0; saveGameState(); }
+
+// 주요 액션마다 즉시 저장
+const _origToggleTimer = toggleTimer;
+toggleTimer = function() { _origToggleTimer(); saveNow(); };
+const _origAddScore = addScore;
+addScore = function(t,v) { _origAddScore(t,v); saveNow(); };
+const _origAdjFoul = adjFoul;
+adjFoul = function(t,d) { _origAdjFoul(t,d); saveNow(); };
+const _origAdjTimeout = adjTimeout;
+adjTimeout = function(t,d) { _origAdjTimeout(t,d); saveNow(); };
+const _origSetQuarter = setQuarter;
+setQuarter = function(q) { _origSetQuarter(q); saveNow(); };
+
+setQuarter(1);
+
+// =============================================================================
+// Phase 18-A 버그픽스 #1: operator → analysis 미니 스코어보드 동기화
+// analysis는 로컬 timer를 돌리지 않고, operator에서 받은 gs를 표시만 함
+// =============================================================================
+let _analysisApplyingRemote = false;
+
+function _formatClock(sec) {
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+}
+
+function _refreshMiniScoreboard() {
+    const $ = id => document.getElementById(id);
+    if ($('live-home-score')) $('live-home-score').textContent = gs.homeScore || 0;
+    if ($('live-away-score')) $('live-away-score').textContent = gs.awayScore || 0;
+    if ($('live-home-foul')) $('live-home-foul').textContent = gs.homeFoul || 0;
+    if ($('live-away-foul')) $('live-away-foul').textContent = gs.awayFoul || 0;
+    if ($('live-home-name')) $('live-home-name').textContent = gs.homeName || 'HOME';
+    if ($('live-away-name')) $('live-away-name').textContent = gs.awayName || 'AWAY';
+
+    // 작전타임/휴식 카운트다운이면 특수 표시
+    const clockEl = $('live-clock');
+    if (clockEl) {
+        if (gs.timeoutRemaining > 0) {
+            clockEl.textContent = `T/O ${gs.timeoutRemaining}s`;
+        } else if (gs.breakRemaining > 0) {
+            const label = gs.breakKind === 'halftime' ? 'H/T' : 'BREAK';
+            clockEl.textContent = `${label} ${_formatClock(gs.breakRemaining)}`;
+        } else {
+            clockEl.textContent = _formatClock(gs.gameClock || 0);
+        }
+    }
+    // 샷클락 꺼지면 "—"
+    if ($('live-shot-clock')) {
+        $('live-shot-clock').textContent = (!gs.shotClockOn || gs.shotClock === 0) ? '—' : (gs.shotClock || 24);
+    }
+
+    const q = gs.quarter || 1;
+    if ($('live-quarter')) $('live-quarter').textContent = q >= 5 ? `OT${q-4}` : `${q}Q`;
+}
+
+if (typeof Ops !== 'undefined') {
+    Ops.subscribe('game_state', (data) => {
+        _analysisApplyingRemote = true;
+        try {
+            if (data.gs) {
+                Object.assign(gs, data.gs);
+                // analysis 는 로컬 timer 가지지 않음 — timerInterval은 유지하되 돌리지 않음
+                if (gs.timerInterval) { try { clearInterval(gs.timerInterval); } catch {} }
+                gs.timerInterval = null;
+            }
+            if (data.homePlayers) homePlayers = data.homePlayers;
+            if (data.awayPlayers) awayPlayers = data.awayPlayers;
+            if (data.homeOnCourt) homeOnCourt = data.homeOnCourt;
+            if (data.awayOnCourt) awayOnCourt = data.awayOnCourt;
+            _refreshMiniScoreboard();
+        } finally { _analysisApplyingRemote = false; }
+    });
+
+    // 경기 종료 — 결과 페이지로 이동 (M2/M3 는 각자 창 닫음)
+    Ops.subscribe('game_ended', (data) => {
+        console.log('[analysis] 경기 종료 수신 — /game/result 로 이동', data);
+        // 로컬 인터벌 정리
+        try { if (recInterval) clearInterval(recInterval); } catch {}
+        try { if (gs?.timerInterval) clearInterval(gs.timerInterval); } catch {}
+        // 진행 중이던 게임 상태 로컬 저장 제거 (복원 프롬프트 방지)
+        try { clearGameState(); } catch {}
+        try { localStorage.removeItem('cv_live_state'); } catch {}
+
+        const url = data?.match_id
+            ? `/game/result?match_id=${encodeURIComponent(data.match_id)}`
+            : '/game/result';
+        setTimeout(() => { window.location.href = url; }, 800);
+    });
+}
+
+// analysis 의 로컬 tickTimer 를 no-op 화 (operator 가 authoritative)
+if (typeof tickTimer === 'function') {
+    tickTimer = function() {};
+}
+// analysis 에서 toggleTimer 호출 방지 (operator에서만 start/stop)
+if (typeof toggleTimer === 'function') {
+    const _origTT = toggleTimer;
+    toggleTimer = function() { /* analysis: no-op — operator 가 제어 */ };
+}
+
+// =============================================================================
+// Phase 18-A6: 스코어보드 모드 전환 + 스탯 리더 계산
+// =============================================================================
+function computeStatsLeaders() {
+    const allPlayers = [
+        ...(homePlayers || []).map(p => ({ ...p, team: gs.homeName || 'HOME' })),
+        ...(awayPlayers || []).map(p => ({ ...p, team: gs.awayName || 'AWAY' })),
+    ];
+
+    // 득점 TOP 3
+    const pts = allPlayers
+        .filter(p => (p.stats?.pts || 0) > 0)
+        .map(p => ({
+            name: p.name, number: p.number, team: p.team,
+            value: p.stats.pts, sub: `${p.stats.fgm||0}/${p.stats.fga||0} FG`,
+        }))
+        .sort((a, b) => b.value - a.value)
+        .slice(0, 3);
+
+    // 어시스트 TOP 3
+    const ast = allPlayers
+        .filter(p => (p.stats?.ast || 0) > 0)
+        .map(p => ({
+            name: p.name, number: p.number, team: p.team,
+            value: p.stats.ast, sub: '',
+        }))
+        .sort((a, b) => b.value - a.value)
+        .slice(0, 3);
+
+    // 3점 성공률 TOP 3 (최소 2시도)
+    const threept = allPlayers
+        .filter(p => (p.stats?.tpa || 0) >= 2)
+        .map(p => ({
+            name: p.name, number: p.number, team: p.team,
+            value: `${((p.stats.tpm / p.stats.tpa) * 100).toFixed(0)}%`,
+            sub: `${p.stats.tpm}/${p.stats.tpa}`,
+            _sort: p.stats.tpm / p.stats.tpa,
+        }))
+        .sort((a, b) => b._sort - a._sort)
+        .slice(0, 3);
+
+    return { pts, ast, threept };
+}
+
+function sendScoreboardMode(mode, payload = null) {
+    if (typeof Ops === 'undefined') return;
+    let data = { mode, payload };
+    if (mode === 'stats') {
+        data.payload = computeStatsLeaders();
+    }
+    Ops.publish('scoreboard_mode', data);
+}
+
+// 창이 없으면 먼저 열고 mode 전환 — var로 해서 hoisting (TDZ 회피)
+var _openedWins = window._openedWins || {};
+window._openedWins = _openedWins;
+
+function openOrFocusWindow(target) {
+    console.log('[openOrFocusWindow]', target);
+    const cur = _openedWins[target];
+    if (cur && !cur.closed) {
+        try { cur.focus(); return cur; } catch (e) { console.warn(e); }
+    }
+    const url = target === 'scoreboard' ? '/scoreboard' : '/operator';
+    const name = target === 'scoreboard' ? 'cv_scoreboard' : 'cv_operator';
+
+    // ⚠ 중요: window.open은 반드시 user gesture 내에서 동기 호출해야 브라우저가 허용
+    // Promise.then 안에서 호출하면 팝업 차단됨 → 먼저 동기 open 후 비동기 reposition
+    const defaultFeatures = target === 'scoreboard'
+        ? `width=${screen.availWidth},height=${screen.availHeight},left=${screen.availWidth},top=0`
+        : 'width=1600,height=900,left=50,top=50';
+
+    const w = window.open(url, name, defaultFeatures);
+    if (!w) {
+        // 팝업 차단됨
+        alert(
+            '⚠ 팝업이 차단되었습니다.\n\n' +
+            '브라우저 주소창 우측의 🚫 아이콘을 클릭해서 이 사이트의 팝업을 허용한 후 다시 시도하세요.\n' +
+            '(Chrome: 주소창 우측 아이콘 → "http://localhost:3000의 팝업 차단 해제")'
+        );
+        return null;
+    }
+    _openedWins[target] = w;
+
+    // Window Management API로 보조 모니터 재배치 (Chrome 100+, 권한 필요)
+    if (typeof window.getScreenDetails === 'function') {
+        window.getScreenDetails().then(sd => {
+            const monitors = sd.screens;
+            if (monitors.length <= 1) return;  // 모니터 1개뿐이면 이동 불필요
+            const idx = target === 'scoreboard' ? 1 : 2;
+            const m = monitors[Math.min(idx, monitors.length - 1)];
+            if (!m) return;
+            try {
+                w.moveTo(m.left, m.top);
+                w.resizeTo(m.width, m.height);
+                if (target === 'scoreboard') {
+                    // scoreboard는 풀스크린 권장
+                    setTimeout(() => {
+                        try { w.document.documentElement.requestFullscreen?.(); } catch {}
+                    }, 500);
+                }
+            } catch (e) { console.warn('[moveTo failed]', e); }
+        }).catch(err => {
+            console.info('[getScreenDetails denied or unavailable]', err);
+        });
+    }
+    return w;
+}
+
+// 안전한 모드 전환 — 창 없으면 먼저 열고 잠시 후 mode publish
+function sendScoreboardModeSafe(mode) {
+    const win = _openedWins.scoreboard;
+    const needsOpen = !win || win.closed;
+    if (needsOpen) {
+        const w = openOrFocusWindow('scoreboard');
+        if (!w) return;  // 팝업 차단 시 아예 중단
+        // 창이 /ws/ops 에 연결될 시간 확보 후 mode publish
+        setTimeout(() => sendScoreboardMode(mode), 1200);
+    } else {
+        sendScoreboardMode(mode);
+    }
+}
+
+// VAR 송출 (심판 판정 로그에서 호출)
+function sendVarClip(clipUrl, title, caption) {
+    sendScoreboardMode('var', { clip_url: clipUrl, title, caption });
+}
+
+// 하이라이트 송출 (수동 마킹 후 호출)
+function sendHighlight(clipUrl, title, caption) {
+    sendScoreboardMode('highlight', { clip_url: clipUrl, title, caption });
+}
+
+// =============================================================================
+// 신규 #1: 심판 판정 로그 클릭 → 우측 프리뷰 비디오 재생
+// =============================================================================
+let _currentRefClip = null;  // 현재 선택된 판정 클립 정보
+
+function playRefereeClip(clipInfo) {
+    // clipInfo = { clip_url, frame_index, call_type, confidence, ... }
+    _currentRefClip = clipInfo;
+    const video = document.getElementById('ref-preview-video');
+    const placeholder = document.getElementById('ref-preview-placeholder');
+    const meta = document.getElementById('ref-preview-meta');
+    if (!video) return;
+    if (clipInfo.clip_url) {
+        video.src = clipInfo.clip_url;
+        video.style.display = '';
+        placeholder.style.display = 'none';
+        try { video.play(); } catch {}
+    } else {
+        // 클립 URL 없어도 로그 정보는 표시
+        video.style.display = 'none';
+        placeholder.style.display = '';
+        placeholder.textContent = '📹 클립 미생성 — 녹화 후 가능';
+    }
+    const parts = [];
+    if (clipInfo.call_type) parts.push(clipInfo.call_type);
+    if (clipInfo.frame_index !== undefined) parts.push(`frame ${clipInfo.frame_index}`);
+    if (clipInfo.confidence !== undefined) parts.push(`${(clipInfo.confidence*100).toFixed(0)}%`);
+    if (meta) meta.textContent = parts.join(' · ') || '';
+}
+
+function closeRefPreview() {
+    const video = document.getElementById('ref-preview-video');
+    const placeholder = document.getElementById('ref-preview-placeholder');
+    const meta = document.getElementById('ref-preview-meta');
+    if (video) { try { video.pause(); } catch {}; video.style.display = 'none'; video.src = ''; }
+    if (placeholder) { placeholder.style.display = ''; placeholder.textContent = '📹 클릭한 판정의 클립이\n여기서 재생됩니다'; }
+    if (meta) meta.textContent = '';
+    _currentRefClip = null;
+}
+
+function sendCurrentClipToScoreboard() {
+    if (!_currentRefClip) {
+        alert('재생 중인 판정 클립이 없습니다.\n판정 로그에서 하나를 먼저 선택하세요.');
+        return;
+    }
+    sendScoreboardMode('var', {
+        clip_url: _currentRefClip.clip_url,
+        title: _currentRefClip.call_type || '판정 검토',
+        caption: `frame ${_currentRefClip.frame_index || '?'} · 신뢰도 ${((_currentRefClip.confidence||0)*100).toFixed(0)}%`,
+    });
+    // 창 없으면 열기
+    const win = _openedWins.scoreboard;
+    if (!win || win.closed) openOrFocusWindow('scoreboard');
+}
+
+// 심판 피드에 항목 추가 헬퍼 (WebSocket 에서 수신 시 호출)
+function appendRefereeEntry(entry) {
+    // entry: { call_type, frame_index, confidence, clip_url?, violation_type?, foul_type? }
+    const feed = document.getElementById('inline-referee-feed');
+    if (!feed) return;
+    if (feed.querySelector('.placeholder') || feed.firstElementChild?.textContent?.includes('대기 중')) {
+        feed.innerHTML = '';
+    }
+    const row = document.createElement('div');
+    row.style.cssText = 'padding:5px 7px; margin-bottom:3px; background:var(--bg-input); border:1px solid var(--border); border-radius:var(--radius-sm); cursor:pointer; font-size:10px; display:flex; justify-content:space-between; align-items:center;';
+    const timeStr = new Date().toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+    const label = entry.call_type || entry.violation_type || entry.foul_type || '판정';
+    const conf = entry.confidence !== undefined ? `${(entry.confidence*100).toFixed(0)}%` : '';
+    row.innerHTML = `
+        <div>
+            <div style="color:var(--accent-red);font-weight:700;">${label}</div>
+            <div style="color:var(--text-muted);font-size:9px;">${timeStr} · frame ${entry.frame_index || '-'}</div>
+        </div>
+        <div style="color:var(--text-gray); font-size:10px; font-weight:600;">${conf}</div>
+    `;
+    row.addEventListener('click', () => playRefereeClip(entry));
+    row.addEventListener('mouseenter', () => row.style.borderColor = 'var(--accent-orange)');
+    row.addEventListener('mouseleave', () => row.style.borderColor = 'var(--border)');
+    feed.insertBefore(row, feed.firstChild);  // 최신 위
+    // 50개 제한
+    while (feed.children.length > 50) feed.removeChild(feed.lastChild);
+}
+
+// WS 에서 심판 판정 수신 시 호출 (엔진 서버 이벤트)
+if (typeof Ops !== 'undefined') {
+    Ops.subscribe('referee_decision', appendRefereeEntry);
+}
+
+// =============================================================================
+// 신규 #2/3: 작전타임 요청 + 볼 데드 자동 적용 + 시퀀스 송출
+// =============================================================================
+if (typeof Ops !== 'undefined') {
+    Ops.subscribe('timeout_applied', (data) => {
+        console.log('[analysis] timeout_applied 수신 → scoreboard 시퀀스 송출', data);
+        sendScoreboardMode('sequence', { type: 'timeout', team: data?.team });
+    });
+    Ops.subscribe('quarter_end', (data) => {
+        const leaders = computeStatsLeaders();
+        console.log('[analysis] quarter_end 수신 → scoreboard 시퀀스 송출', { quarter: data?.quarter, leaders });
+        sendScoreboardMode('sequence', {
+            type: 'quarter_end',
+            quarter: data?.quarter,
+            leaders,
+        });
+    });
+}
+
+// 쿼터 전환 시 자동 모드 — setQuarter 래핑
+const _origSetQuarter2 = setQuarter;
+setQuarter = function(q) {
+    _origSetQuarter2(q);
+    // 쿼터 전환 감지는 operator에서 하는 게 맞음 — analysis 에서는 중복 송출 안함
+};
+</script>
+{% endblock %}

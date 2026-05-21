@@ -82,8 +82,9 @@ _CVBBOX_CLS_PLAYER: Final[int] = 1
 _CVBBOX_CLS_HOOP: Final[int] = 2
 _CVBBOX_CLS_BACKBOARD: Final[int] = 3
 
-# CV-BBox 기본 경로
-_DEFAULT_CVBBOX_PATH: Final[str] = "weights/CV-BBox_v7.engine"
+# CV-BBox 기본 경로 — v9 (mAP50-95 91.9%, 도메인 균형)
+# ONNX 사용: 고객 GPU 에서 자동으로 .engine 으로 변환됨 (배포 정책)
+_DEFAULT_CVBBOX_PATH: Final[str] = "weights/CV-BBox_v9.onnx"
 
 
 # =============================================================================
@@ -243,6 +244,11 @@ class DetectionFusion:
                 self._unified_model = YOLO(str(cv_file))
                 _logger.info("CV-BBox PyTorch 직접 로드: %s", cv_file.name)
 
+            # .onnx 직접 로드 (ONNX Runtime)
+            elif suffix == ".onnx":
+                self._unified_model = YOLO(str(cv_file), task="detect")
+                _logger.info("CV-BBox ONNX 직접 로드: %s", cv_file.name)
+
             # .cv 패키지 (기존 방식)
             elif suffix == ".cv":
                 import tempfile
@@ -256,7 +262,7 @@ class DetectionFusion:
 
                     # 동일 디렉토리의 외부 .engine 우선 (TRT 버전 매칭 보장)
                     external_engine = cv_file.parent / (cv_file.stem.split(".")[0] + ".engine")
-                    # 예: CV-BBox_v7.0.0.cv → CV-BBox_v7.engine
+                    # 예: CV-BBox_v9.0.0.cv → CV-BBox_v9.engine
                     alt_engine = cv_file.parent / (cv_file.stem.split("_v")[0] + "_v"
                         + cv_file.stem.split("_v")[-1].split(".")[0] + ".engine") \
                         if "_v" in cv_file.stem else external_engine
@@ -281,9 +287,27 @@ class DetectionFusion:
                 return False
 
             # 워밍업 추론 (모델 완전 로드 보장)
+            # v0.4.5: TensorRT engine 의 fixed batch (예: batch=8) 와 호환되도록
+            # batch list 로 시도 → 실패 시 단일 frame 폴백 (.pt/.onnx 경로).
             import numpy as _np
-            _dummy = _np.zeros((640, 640, 3), dtype=_np.uint8)
-            self._unified_model.predict(_dummy, imgsz=640, conf=0.9, verbose=False)
+            _frame = _np.zeros((640, 640, 3), dtype=_np.uint8)
+            warmup_ok = False
+            for trial_batch in (8, 4, 2, 1):
+                try:
+                    batch_input = [_frame] * trial_batch if trial_batch > 1 else _frame
+                    self._unified_model.predict(
+                        batch_input, imgsz=640, conf=0.9, verbose=False,
+                    )
+                    _logger.info("워밍업 OK (batch=%d)", trial_batch)
+                    warmup_ok = True
+                    break
+                except (AssertionError, ValueError, RuntimeError) as _we:
+                    _logger.debug("워밍업 batch=%d 실패: %s", trial_batch, _we)
+                    continue
+            if not warmup_ok:
+                _logger.warning(
+                    "워밍업 모든 batch 크기 실패 — 모델 로드는 유지 (predict 재시도 가능)",
+                )
 
             self._unified_config = {
                 "imgsz": config.get("input_size", 640),
@@ -539,16 +563,20 @@ class DetectionFusion:
             times["unified"] = (time.perf_counter() - t0) * 1000.0
             return None, None, None
 
-        try:
-            results = self._unified_model.predict(
-                batch_imgs,
-                imgsz=imgsz,
-                conf=0.3,
-                verbose=False,
-            )
-        except Exception as _exc:
-            _logger.exception("CV-BBox 배치 추론 실패: err=%s", _exc)
+        # v0.4.5: unified_model 미로드 가드 — None.predict silent fail 방지
+        if self._unified_model is None:
             results = []
+        else:
+            try:
+                results = self._unified_model.predict(
+                    batch_imgs,
+                    imgsz=imgsz,
+                    conf=0.3,
+                    verbose=False,
+                )
+            except Exception as _exc:
+                _logger.exception("CV-BBox 배치 추론 실패: err=%s", _exc)
+                results = []
 
         # 결과 길이 불일치 시 경고 (dynamic 배치 엔진 부분 실패 감지)
         if len(results) < len(cam_ids):
@@ -618,7 +646,14 @@ class DetectionFusion:
                     ball_result = self._ball_detector.process_detections(
                         ball_objects, frames, frame_index,
                     )
+                    if frame_index % 50 == 0:
+                        _logger.info(
+                            "ball process_detections OK: raw=%d → fused=%d",
+                            len(ball_objects), len(ball_result.fused_objects)
+                            if ball_result and hasattr(ball_result, "fused_objects") else -1,
+                        )
                 except Exception:
+                    _logger.exception("ball process_detections 실패 → _make_raw 폴백")
                     ball_result = _make_raw(ball_objects)
             else:
                 ball_result = _make_raw(ball_objects)
@@ -684,7 +719,14 @@ class DetectionFusion:
                     hoop_result = self._hoop_detector.process_detections(
                         hoop_objects, frames, frame_index,
                     )
+                    if frame_index % 50 == 0:
+                        _logger.info(
+                            "hoop process_detections OK: raw=%d → fused=%d",
+                            len(hoop_objects), len(hoop_result.fused_objects)
+                            if hoop_result and hasattr(hoop_result, "fused_objects") else -1,
+                        )
                 except Exception:
+                    _logger.exception("hoop process_detections 실패 → _make_raw 폴백")
                     hoop_result = _make_raw(hoop_objects)
             else:
                 hoop_result = _make_raw(hoop_objects)

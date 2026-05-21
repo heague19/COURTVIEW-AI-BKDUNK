@@ -109,6 +109,9 @@ class FinalizeRequest(BaseModel):
     operator_events: list[OperatorEvent] = Field(default_factory=list)
     started_at: float = 0.0
     ended_at: float = 0.0
+    # 2026-05-21: REPLAY 모드용 — recording_service 가 import_* 세션을 모르므로
+    # UI 가 명시적으로 session_id 를 전달. 없으면 recording_service 활성 세션 사용 (LIVE 흐름 유지).
+    session_id: str = ""
 
 
 # =============================================================================
@@ -255,10 +258,16 @@ async def list_local_finalizes() -> dict[str, Any]:
 @router.get("/detail/{session_id}")
 async def get_finalize_detail(session_id: str) -> dict[str, Any]:
     """
-    특정 세션의 finalize 상세 — match/players/highlights/possessions/events/referee_log 전체 번들.
+    특정 session 의 finalize 상세 — match/players/highlights/possessions/events/referee_log 전체 번들.
+
+    세션 ID 형식:
+        - LIVE 녹화:  YYYY-MM-DD_HHMMSS                (예: 2026-05-21_193045)
+        - REPLAY 등록: import_YYYY-MM-DD_HHMMSS[_N]   (예: import_2026-05-19_003120)
+        - 업로드:     upload_YYYY-MM-DD_HHMMSS[_N]    (예: upload_2026-05-21_120000)
     """
     import re
-    if not re.match(r"^\d{4}-\d{2}-\d{2}_\d{6}$", session_id):
+    # 2026-05-21: REPLAY/upload 세션도 허용 (BATCH 리스트 detail 진입 시 400 → "상세 로드 실패" 버그 fix)
+    if not re.match(r"^(import_|upload_)?\d{4}-\d{2}-\d{2}_\d{6}(_\d+)?$", session_id):
         raise HTTPException(status_code=400, detail="잘못된 session_id 형식")
 
     root = _session_root()

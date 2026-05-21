@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>COURTVIEW — Editorial Redesign</title>
+<meta name="viewport" content="width=1440" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="design-system.css">
+<style>
+  :root{
+    --bg-0:#070809; --bg-1:#0C0E10; --bg-2:#13161A; --bg-3:#1A1E23;
+    --fg-0:#F5F6F7; --fg-1:#C9CDD2; --fg-2:#7B8189; --fg-3:#4A4F56;
+    --line-1:#1A1E23; --line-2:#23272D; --line-3:#33383F;
+    --hot:#FF5A1F; --hot-2:#FF8A4C;
+    --cool:#4FC3F7;
+    --good:#3DDC97; --warn:#FFB020; --bad:#FF4757;
+    --f-display:'Archivo', system-ui, sans-serif;
+    --f-mono:'JetBrains Mono', ui-monospace, monospace;
+    --f-body:'Inter', system-ui, sans-serif;
+    --f-sans:'Inter', system-ui, sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg-0);color:var(--fg-0);font-family:var(--f-body);-webkit-font-smoothing:antialiased}
+  body{min-height:100vh}
+  button{font-family:inherit}
+  .cv-tag{display:inline-flex;align-items:center;gap:6px;padding:2px 8px;font-family:var(--f-mono);font-size:10px;font-weight:700;letter-spacing:1px;border:1px solid var(--line-3);color:var(--fg-1);background:var(--bg-2)}
+  .cv-tag.hot{color:var(--hot);border-color:var(--hot)}
+  .cv-tag.live{color:var(--bad);border-color:var(--bad);background:rgba(255,71,87,0.08)}
+  .cv-tag.good{color:var(--good);border-color:var(--good);background:rgba(61,220,151,0.08)}
+  .cv-tag.cool{color:var(--cool);border-color:var(--cool);background:rgba(79,195,247,0.08)}
+  .cv-btn{padding:8px 14px;background:var(--bg-3);border:1px solid var(--line-3);color:var(--fg-0);font-family:var(--f-mono);font-size:11px;font-weight:600;letter-spacing:1px;cursor:pointer;transition:all .12s}
+  .cv-btn:hover{border-color:var(--hot);color:var(--hot)}
+  .cv-btn.primary{background:var(--hot);color:#0A0B0D;border-color:var(--hot);font-weight:700}
+  .cv-btn.primary:hover{background:var(--hot-2);color:#0A0B0D}
+  .cv-btn.ghost{background:transparent}
+  /* Scrollbars */
+  ::-webkit-scrollbar{width:8px;height:8px}
+  ::-webkit-scrollbar-track{background:var(--bg-1)}
+  ::-webkit-scrollbar-thumb{background:var(--line-3)}
+  ::-webkit-scrollbar-thumb:hover{background:var(--fg-3)}
+
+  /* ============= PRINT MODE — box score export ============= */
+  @keyframes cv-onair-pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+  @keyframes cvCardIn { from{opacity:0;transform:translateY(-4px)} to{opacity:1;transform:none} }
+  @media print {
+    @page { size: A4; margin: 12mm 14mm; }
+    html, body { background: #fff !important; color: #000 !important; }
+    body.cv-print-mode { font-family: 'Inter', system-ui, sans-serif; }
+
+    /* Hide everything by default */
+    body.cv-print-mode > * { display: none !important; }
+    /* Locate and unfold the active print root */
+    body.cv-print-mode [data-print-root]{
+      display: block !important;
+      position: static !important;
+      width: 100% !important;
+      height: auto !important;
+      overflow: visible !important;
+      background: #fff !important;
+      color: #000 !important;
+    }
+    body.cv-print-mode [data-print-root] *{
+      background: transparent !important;
+      color: #000 !important;
+      border-color: #999 !important;
+      box-shadow: none !important;
+      animation: none !important;
+    }
+    /* Page-break behaviour */
+    body.cv-print-mode [data-print-root] table { page-break-inside: auto; }
+    body.cv-print-mode [data-print-root] tr { page-break-inside: avoid; page-break-after: auto; }
+    body.cv-print-mode [data-print-root] thead { display: table-header-group; }
+    /* Hide navigation/buttons that don't belong on paper */
+    body.cv-print-mode [data-no-print],
+    body.cv-print-mode nav,
+    body.cv-print-mode .cv-btn,
+    body.cv-print-mode button,
+    body.cv-print-mode details summary { display: none !important; }
+    body.cv-print-mode details { display: block !important; }
+    body.cv-print-mode details > div { display: block !important; }
+    /* Keep accent colour just for headlines */
+    body.cv-print-mode [data-print-root] h1,
+    body.cv-print-mode [data-print-root] h2,
+    body.cv-print-mode [data-print-root] h3 { color: #000 !important; }
+    /* Hide elements that are pure decoration */
+    body.cv-print-mode [data-print-root] svg.cv-decor { display: none !important; }
+    /* Compress hero whitespace */
+    body.cv-print-mode [data-print-root] > div:first-child { padding: 0 !important; }
+    /* Show a print-only header */
+    body.cv-print-mode [data-print-root]::before {
+      content: "COURTVIEW · BOX SCORE · " attr(data-print-root);
+      display: block;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 2px;
+      color: #555 !important;
+      border-bottom: 1px solid #000;
+      padding: 0 0 6px 0;
+      margin-bottom: 14px;
+    }
+  }
+</style>
+</head>
+<body>
+
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script src="design-canvas.jsx" type="text/babel"></script>
+<script src="cv-data.jsx" type="text/babel"></script>
+<script src="cv-shared.jsx" type="text/babel"></script>
+<script src="cv-editorial-helpers.jsx" type="text/babel"></script>
+<script src="cv-system-ui.jsx" type="text/babel"></script>
+<script src="cv-system-ui-demo.jsx" type="text/babel"></script>
+<script src="cv-comparison.jsx" type="text/babel"></script>
+<script src="cv-timeline.jsx" type="text/babel"></script>
+<script src="opt4-editorial.jsx" type="text/babel"></script>
+<script src="cv-analysis.jsx" type="text/babel"></script>
+<script src="cv-analysis-setup.jsx" type="text/babel"></script>
+<script src="cv-rules.jsx" type="text/babel"></script>
+<script src="cv-other-screens.jsx" type="text/babel"></script>
+<script src="cv-screens-1.jsx" type="text/babel"></script>
+<script src="cv-screens-2.jsx" type="text/babel"></script>
+<script src="cv-result-detail.jsx" type="text/babel"></script>
+<script src="cv-operator.jsx" type="text/babel"></script>
+<script src="cv-hotkeys.jsx" type="text/babel"></script>
+
+<script type="text/babel">
+const { DesignCanvas, DCSection, DCArtboard } = window;
+
+function App(){
+  const [sheetOpen, setSheetOpen] = React.useState(false);
+
+  // Global nav: g + letter jumps to artboard. Hook always fires (rules-of-hooks).
+  // Falls back to no-op if cv-hotkeys.jsx hasn't loaded yet.
+  const useGlobal = window.useGlobalHotkeys || ((opts) => React.useEffect(() => {}, []));
+  useGlobal({
+    onShowSheet: () => setSheetOpen(s => !s),
+    onEscape: () => setSheetOpen(false),
+    onNav: (slug) => {
+      const el = document.querySelector(`[data-dc-artboard="${slug}"]`);
+      if (el) {
+        el.scrollIntoView && el.scrollIntoView({ behavior: "smooth", block: "center" });
+        const focusBtn = el.querySelector("[data-dc-focus]");
+        if (focusBtn) focusBtn.click();
+        window.flashHotkey && window.flashHotkey(`→ ${slug.toUpperCase()}`);
+      } else {
+        window.flashHotkey && window.flashHotkey(`? ${slug}`);
+      }
+    },
+  });
+
+  return (
+    <window.ToastProvider>
+    <window.ConfirmProvider>
+    <DesignCanvas title="COURTVIEW · Editorial Redesign" subtitle="One direction · every screen · all functions preserved">
+
+      <DCSection id="home" title="HOME · DASHBOARD"
+        subtitle="Magazine-grade hero, schedule rail, group standings & bracket. Single editorial system.">
+        <DCArtboard id="home" label="Home · Dashboard" width={1440} height={1100}>
+          <window.Opt4Editorial />
+        </DCArtboard>
+      </DCSection>
+
+      <DCSection id="game" title="GAME-DAY SCREENS"
+        subtitle="The three screens an operator/broadcaster touches every minute of a live game.">
+        <DCArtboard id="analysis-setup" label="Pre-game setup · 선수 등록 + 스타팅 5" width={1440} height={900}>
+          <window.CvAnalysisSetupScreen />
+        </DCArtboard>
+        <DCArtboard id="analysis" label="Game analysis · live" width={1440} height={900}>
+          <window.CvAnalysisScreen />
+        </DCArtboard>
+        <DCArtboard id="operator" label="Operator console · full screen" width={1600} height={1000}>
+          <window.CvOperatorScreen />
+        </DCArtboard>
+        <DCArtboard id="scoreboard" label="Broadcast scoreboard · 1080p" width={1920} height={1080}>
+          <window.CvScoreboardScreen />
+        </DCArtboard>
+      </DCSection>
+
+      <DCSection id="data" title="DATA & ROSTER"
+        subtitle="Long-form indexes — teams, players, refs, venues. Same hero pattern, dense rule-line tables.">
+        <DCArtboard id="result" label="Results · Game log" width={1440} height={1100}>
+          <window.CvResultScreen />
+        </DCArtboard>
+        <DCArtboard id="result-detail" label="Result detail · Box score + shot chart + momentum" width={1440} height={2400}>
+          <window.CvResultDetailScreen />
+        </DCArtboard>
+        <DCArtboard id="database" label="Database · Teams + Players" width={1440} height={1100}>
+          <window.CvDatabaseScreen />
+        </DCArtboard>
+        <DCArtboard id="court" label="Venues" width={1440} height={1100}>
+          <window.CvCourtScreen />
+        </DCArtboard>
+        <DCArtboard id="referee" label="Officials" width={1440} height={1000}>
+          <window.CvRefereeScreen />
+        </DCArtboard>
+      </DCSection>
+
+      <DCSection id="rig" title="EQUIPMENT & SETUP"
+        subtitle="Camera rig, calibration, license, settings — operational surfaces, same editorial spine.">
+        <DCArtboard id="equipment" label="Equipment · Camera grid" width={1440} height={1200}>
+          <window.CvEquipmentScreen />
+        </DCArtboard>
+        <DCArtboard id="calibrate" label="Calibration · CAM 03" width={1440} height={1100}>
+          <window.CvCalibrateScreen />
+        </DCArtboard>
+        <DCArtboard id="license" label="License" width={1440} height={1000}>
+          <window.CvLicenseScreen />
+        </DCArtboard>
+        <DCArtboard id="rules" label="Rules · 대회 규칙 / 로컬 룰" width={1440} height={1100}>
+          <window.CvRulesScreen />
+        </DCArtboard>
+        <DCArtboard id="settings" label="Settings" width={1440} height={1000}>
+          <window.CvSettingsScreen />
+        </DCArtboard>
+      </DCSection>
+
+      <DCSection id="auth" title="AUTH"
+        subtitle="Entry point.">
+        <DCArtboard id="login" label="Login" width={1440} height={900}>
+          <window.CvLoginScreen />
+        </DCArtboard>
+      </DCSection>
+
+      <DCSection id="system" title="SYSTEM UI"
+        subtitle="Toast · confirm · empty / loading states · on-air badge — the quiet voice that sits on top of every screen.">
+        <DCArtboard id="system-ui" label="System UI · Toast / Confirm / Empty / Loading" width={1440} height={1700}>
+          <window.CvSystemUIDemo />
+        </DCArtboard>
+        <DCArtboard id="comparison" label="Comparison · Player vs Player" width={1440} height={1900}>
+          <window.CvComparisonScreen />
+        </DCArtboard>
+        <DCArtboard id="timeline" label="Season Timeline · Day-by-day Tournament Map" width={1440} height={1500}>
+          <window.CvTimelineScreen />
+        </DCArtboard>
+      </DCSection>
+
+    </DesignCanvas>
+    {window.CvHotkeySheet && <window.CvHotkeySheet open={sheetOpen} onClose={() => setSheetOpen(false)} />}
+    {window.CvHotkeyHint && !sheetOpen && <window.CvHotkeyHint onClick={() => setSheetOpen(true)} />}
+    </window.ConfirmProvider>
+    </window.ToastProvider>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+
+</body>
+</html>

@@ -1,0 +1,1635 @@
+{% extends "components/layout.html" %}
+{% set active = "result" %}
+{% block title %}COURTVIEW — 경기 결과{% endblock %}
+
+{% block content %}
+<div id="app">
+    <!-- ============================================================
+         목록 뷰 — Editorial archive
+         ============================================================ -->
+    <div id="view-list">
+        <!-- HERO -->
+        <div class="rl-hero">
+            <div class="rl-hero-issue">
+                <div>ISSUE · ARCHIVE</div>
+                <div style="margin-top:4px;" id="rl-today">—</div>
+            </div>
+            <div class="rl-hero-tagrow">
+                <span class="cv-tag" style="font-size:10px;">RESULTS</span>
+                <span>FINAL SCORES · BOX SCORES · HIGHLIGHTS</span>
+            </div>
+            <h1 class="rl-hero-title">경기 결과<br><span class="hot">아카이브</span></h1>
+            <div class="rl-hero-meta">
+                <span><span class="lbl">TOTAL —</span> <span id="rl-total-cnt">—</span></span>
+                <span><span class="lbl">LOCAL —</span> <span id="rl-local-cnt">—</span></span>
+                <span><span class="lbl">CLOUD —</span> <span id="rl-cloud-cnt">—</span></span>
+            </div>
+            <div class="rl-hero-actions">
+                <button class="cv-btn primary" style="height:32px; padding:0 16px; font-size:11px; letter-spacing:1px;" onclick="loadResults()">🔄 새로고침</button>
+                <button class="cv-btn" style="height:32px; padding:0 16px; font-size:11px; letter-spacing:1px; border-color:var(--warn); color:var(--warn);" onclick="seedMockResults()">🌱 DEMO 시드</button>
+            </div>
+        </div>
+
+        <!-- FILTER -->
+        <div class="rl-filter-row">
+            <span class="rl-filter-label">FILTER —</span>
+            <button class="rl-chip active filter-btn" data-filter="all" onclick="setFilter('all', this)">ALL</button>
+            <button class="rl-chip filter-btn" data-filter="live" onclick="setFilter('live', this)">LIVE</button>
+            <button class="rl-chip filter-btn" data-filter="batch" onclick="setFilter('batch', this)">BATCH</button>
+        </div>
+
+        <!-- 결과 테이블 -->
+        <div class="rl-table-wrap">
+            <table class="rl-table">
+                <thead>
+                    <tr>
+                        <th style="width:160px;">DATE</th>
+                        <th>MATCH</th>
+                        <th style="width:140px; text-align:center;">SCORE</th>
+                        <th style="width:90px; text-align:center;">MODE</th>
+                        <th style="width:100px; text-align:center;">SYNC</th>
+                        <th style="width:90px;"></th>
+                    </tr>
+                </thead>
+                <tbody id="result-table-body">
+                    <tr>
+                        <td colspan="6" class="rl-empty">경기 결과가 없습니다</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- ============================================================
+         상세 뷰
+         ============================================================ -->
+    <div id="view-detail" style="display:none;">
+        <!-- BACK NAV (editorial) -->
+        <div style="padding:16px 0 0; display:flex; align-items:center; gap:14px; margin-bottom:8px;">
+            <a href="javascript:void(0)" onclick="backToList()" style="font-family:var(--f-mono); font-size:11px; color:var(--fg-2); letter-spacing:1px; text-decoration:none; border-bottom:1px solid var(--line-3); padding-bottom:2px;">← BACK TO RESULTS</a>
+            <span style="flex:1; height:1px; background:var(--line-2);"></span>
+            <span id="d-league-tag" style="font-family:var(--f-mono); font-size:10px; color:var(--fg-3); letter-spacing:1.5px;"></span>
+        </div>
+
+        <!-- HERO SCOREBOARD -->
+        <div style="padding:32px 0 28px; border-bottom:1px solid var(--line-2); margin-bottom:0;">
+            <div style="display:flex; gap:18px; margin-bottom:18px; font-family:var(--f-mono); font-size:10px; color:var(--fg-2); letter-spacing:1.5px;">
+                <span><span style="color:var(--fg-3);">DATE — </span><span id="d-date"></span></span>
+                <span><span style="color:var(--fg-3);">VENUE — </span><span id="d-venue">—</span></span>
+                <span class="cv-tag" style="font-size:9px;">FINAL</span>
+            </div>
+            <div style="display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:32px;">
+                <div style="text-align:right;">
+                    <div style="font-family:var(--f-mono); font-size:11px; color:var(--fg-3); letter-spacing:2px; margin-bottom:6px;">HOME</div>
+                    <div id="d-home-name" style="font-family:var(--f-display); font-size:36px; font-weight:700; color:var(--fg-1); letter-spacing:-0.5px; line-height:1;">HOME</div>
+                    <div id="d-home-score" style="font-family:var(--f-display); font-size:96px; font-weight:800; color:var(--fg-2); letter-spacing:-3px; line-height:1; margin-top:8px; font-variant-numeric:tabular-nums;">0</div>
+                    <div id="d-home-win" style="font-family:var(--f-mono); font-size:10px; color:var(--hot); letter-spacing:2px; margin-top:8px; display:none;"></div>
+                </div>
+                <div style="width:1px; height:130px; background:var(--line-2);"></div>
+                <div>
+                    <div style="font-family:var(--f-mono); font-size:11px; color:var(--fg-3); letter-spacing:2px; margin-bottom:6px;">AWAY</div>
+                    <div id="d-away-name" style="font-family:var(--f-display); font-size:36px; font-weight:700; color:var(--fg-1); letter-spacing:-0.5px; line-height:1;">AWAY</div>
+                    <div id="d-away-score" style="font-family:var(--f-display); font-size:96px; font-weight:800; color:var(--fg-2); letter-spacing:-3px; line-height:1; margin-top:8px; font-variant-numeric:tabular-nums;">0</div>
+                    <div id="d-away-win" style="font-family:var(--f-mono); font-size:10px; color:var(--hot); letter-spacing:2px; margin-top:8px; display:none;"></div>
+                </div>
+            </div>
+            <div id="d-winner" style="display:none;"></div>
+        </div>
+
+        <!-- 01 · QUARTER BREAKDOWN -->
+        <div style="padding:28px 0; border-bottom:1px solid var(--line-2);">
+            <div style="display:flex; align-items:baseline; gap:14px; margin-bottom:18px;">
+                <span style="font-family:var(--f-mono); font-size:10px; color:var(--fg-3); letter-spacing:2px;">01 · QUARTER BREAKDOWN</span>
+                <span style="flex:1; height:1px; background:var(--line-2);"></span>
+                <span class="cv-display" style="font-size:18px;">쿼터별 점수</span>
+            </div>
+            <table style="width:100%; border-collapse:collapse; font-family:var(--f-mono);">
+                <thead>
+                    <tr>
+                        <th class="cv-q-th cv-q-th-left">팀</th>
+                        <th class="cv-q-th">1Q</th>
+                        <th class="cv-q-th">2Q</th>
+                        <th class="cv-q-th">3Q</th>
+                        <th class="cv-q-th">4Q</th>
+                        <th class="cv-q-th cv-q-th-accent">합계</th>
+                    </tr>
+                </thead>
+                <tbody id="d-quarter-body"></tbody>
+            </table>
+        </div>
+
+        <!-- 02 · TEAM STATS -->
+        <div style="padding:28px 0; border-bottom:1px solid var(--line-2);">
+            <div style="display:flex; align-items:baseline; gap:14px; margin-bottom:18px;">
+                <span style="font-family:var(--f-mono); font-size:10px; color:var(--fg-3); letter-spacing:2px;">02 · TEAM STATS</span>
+                <span style="flex:1; height:1px; background:var(--line-2);"></span>
+                <span class="cv-display" style="font-size:18px;">팀 통계 비교</span>
+            </div>
+            <div id="d-team-stats" style="display:grid; gap:14px;"></div>
+        </div>
+
+        <!-- BEST / WORST FEATURE CARDS -->
+        <div style="padding:0; border-bottom:1px solid var(--line-2);">
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:1px; background:var(--line-2);">
+                <div style="background:var(--bg-1); padding:24px;">
+                    <div style="display:flex; align-items:center; gap:8px; font-family:var(--f-mono); font-size:10px; color:var(--good); letter-spacing:2px; margin-bottom:14px;">
+                        <span style="width:6px; height:6px; background:var(--good);"></span>
+                        BEST PERFORMER
+                    </div>
+                    <div id="d-best-name" class="cv-display" style="font-size:28px; font-weight:700; color:var(--fg-0); letter-spacing:-0.5px;">-</div>
+                    <div id="d-best-team" style="font-family:var(--f-mono); font-size:11px; color:var(--fg-2); letter-spacing:1px; margin-top:4px;">-</div>
+                    <div id="d-best-stats" style="display:flex; gap:18px; margin-top:16px; padding-top:14px; border-top:1px solid var(--line-1); font-family:var(--f-mono); font-size:11px; color:var(--fg-1);"></div>
+                </div>
+                <div style="background:var(--bg-1); padding:24px;">
+                    <div style="display:flex; align-items:center; gap:8px; font-family:var(--f-mono); font-size:10px; color:var(--bad); letter-spacing:2px; margin-bottom:14px;">
+                        <span style="width:6px; height:6px; background:var(--bad);"></span>
+                        NEEDS IMPROVEMENT
+                    </div>
+                    <div id="d-worst-name" class="cv-display" style="font-size:28px; font-weight:700; color:var(--fg-0); letter-spacing:-0.5px;">-</div>
+                    <div id="d-worst-team" style="font-family:var(--f-mono); font-size:11px; color:var(--fg-2); letter-spacing:1px; margin-top:4px;">-</div>
+                    <div id="d-worst-stats" style="display:flex; gap:18px; margin-top:16px; padding-top:14px; border-top:1px solid var(--line-1); font-family:var(--f-mono); font-size:11px; color:var(--fg-1);"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 03 · CATEGORY LEADERS -->
+        <div style="padding:28px 0; border-bottom:1px solid var(--line-2);">
+            <div style="display:flex; align-items:baseline; gap:14px; margin-bottom:18px;">
+                <span style="font-family:var(--f-mono); font-size:10px; color:var(--fg-3); letter-spacing:2px;">03 · CATEGORY LEADERS</span>
+                <span style="flex:1; height:1px; background:var(--line-2);"></span>
+                <span class="cv-display" style="font-size:18px;">부문별 1위</span>
+            </div>
+            <div id="d-leaders" style="display:grid; grid-template-columns:repeat(4, 1fr); gap:1px; background:var(--line-2); border:1px solid var(--line-2);"></div>
+        </div>
+
+        <!-- 04 · BOX SCORE -->
+        <div style="padding:28px 0; border-bottom:1px solid var(--line-2);">
+            <div style="display:flex; align-items:baseline; gap:14px; margin-bottom:18px;">
+                <span style="font-family:var(--f-mono); font-size:10px; color:var(--fg-3); letter-spacing:2px;">04 · BOX SCORE</span>
+                <span style="flex:1; height:1px; background:var(--line-2);"></span>
+                <div style="display:flex; gap:14px; font-family:var(--f-mono); font-size:9px; color:var(--fg-3); letter-spacing:1px;">
+                    <span><span style="color:var(--hot);">●</span> 1차 (직접)</span>
+                    <span><span style="color:var(--warn);">●</span> 2차 (계산)</span>
+                </div>
+                <span class="cv-display" style="font-size:18px;">선수 기록지</span>
+                <span onclick="document.getElementById('stat-legend').style.display=document.getElementById('stat-legend').style.display==='none'?'block':'none'"
+                      style="width:18px; height:18px; border:1px solid var(--line-3); display:inline-flex; align-items:center; justify-content:center; font-size:10px; cursor:pointer; color:var(--fg-2); font-family:var(--f-mono);" title="스탯 용어 설명">?</span>
+            </div>
+            <!-- 스탯 용어 설명 -->
+            <div id="stat-legend" style="display:none; background:var(--bg-2); border:1px solid var(--line-2); padding:14px; margin-bottom:14px; font-family:var(--f-mono); font-size:10px; color:var(--fg-2); line-height:1.8;">
+                <div style="font-size:10px; font-weight:700; color:var(--hot); letter-spacing:1.5px; margin-bottom:8px;">1차 스탯 · DIRECT INPUT</div>
+                <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:2px 14px;">
+                    <span><strong style="color:var(--fg-0);">MIN</strong> — 출전 시간 (분)</span>
+                    <span><strong style="color:var(--fg-0);">PTS</strong> — 득점</span>
+                    <span><strong style="color:var(--fg-0);">FG</strong> — 야투 (성공-시도)</span>
+                    <span><strong style="color:var(--fg-0);">FG%</strong> — 야투 성공률</span>
+                    <span><strong style="color:var(--fg-0);">3P</strong> — 3점슛 (성공-시도)</span>
+                    <span><strong style="color:var(--fg-0);">3P%</strong> — 3점 성공률</span>
+                    <span><strong style="color:var(--fg-0);">FT</strong> — 자유투 (성공-시도)</span>
+                    <span><strong style="color:var(--fg-0);">FT%</strong> — 자유투 성공률</span>
+                    <span><strong style="color:var(--fg-0);">OREB</strong> — 공격 리바운드</span>
+                    <span><strong style="color:var(--fg-0);">DREB</strong> — 수비 리바운드</span>
+                    <span><strong style="color:var(--fg-0);">REB</strong> — 총 리바운드</span>
+                    <span><strong style="color:var(--fg-0);">AST</strong> — 어시스트</span>
+                    <span><strong style="color:var(--fg-0);">STL</strong> — 스틸</span>
+                    <span><strong style="color:var(--fg-0);">BLK</strong> — 블록</span>
+                    <span><strong style="color:var(--fg-0);">TO</strong> — 턴오버</span>
+                    <span><strong style="color:var(--fg-0);">PF</strong> — 개인 파울</span>
+                </div>
+                <div style="font-size:10px; font-weight:700; color:var(--warn); letter-spacing:1.5px; margin:12px 0 8px;">2차 스탯 · COMPUTED</div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:2px 14px;">
+                    <span><strong style="color:var(--fg-0);">+/-</strong> — 출전 중 팀 득실점 차이</span>
+                    <span><strong style="color:var(--fg-0);">EFF</strong> — 효율 (PTS+REB+AST+STL+BLK−TO−미스샷)</span>
+                    <span><strong style="color:var(--fg-0);">TS%</strong> — 트루 슈팅% = PTS÷(2×(FGA+0.44×FTA))</span>
+                    <span><strong style="color:var(--fg-0);">eFG%</strong> — 유효 야투% = (FGM+0.5×3PM)÷FGA</span>
+                    <span><strong style="color:var(--fg-0);">AST/TO</strong> — 어시스트 대 턴오버 비율</span>
+                </div>
+            </div>
+            <div id="d-home-stats-title" class="cv-display" style="font-size:18px; font-weight:700; color:var(--hot); letter-spacing:-0.3px; margin-bottom:8px;">홈팀</div>
+            <div style="overflow-x:auto; margin-bottom:22px;">
+                <table class="cv-box-table" style="white-space:nowrap; width:100%;">
+                    <thead><tr>
+                        <th>#</th><th class="cv-bs-name">이름</th><th>MIN</th><th class="cv-bs-pts">PTS</th>
+                        <th class="cv-bs-p1">FG</th><th class="cv-bs-p1">FG%</th><th class="cv-bs-p1">3P</th><th class="cv-bs-p1">3P%</th><th class="cv-bs-p1">FT</th><th class="cv-bs-p1">FT%</th>
+                        <th class="cv-bs-p1">OREB</th><th class="cv-bs-p1">DREB</th><th class="cv-bs-p1">REB</th><th class="cv-bs-p1">AST</th><th class="cv-bs-p1">STL</th><th class="cv-bs-p1">BLK</th><th class="cv-bs-p1">TO</th><th class="cv-bs-p1">PF</th>
+                        <th class="cv-bs-p2">+/-</th><th class="cv-bs-p2">EFF</th><th class="cv-bs-p2">TS%</th><th class="cv-bs-p2">eFG%</th><th class="cv-bs-p2">A/T</th>
+                    </tr></thead>
+                    <tbody id="d-home-players"></tbody>
+                </table>
+            </div>
+            <div id="d-away-stats-title" class="cv-display" style="font-size:18px; font-weight:700; color:var(--cool); letter-spacing:-0.3px; margin-bottom:8px;">원정팀</div>
+            <div style="overflow-x:auto;">
+                <table class="cv-box-table" style="white-space:nowrap; width:100%;">
+                    <thead><tr>
+                        <th>#</th><th class="cv-bs-name">이름</th><th>MIN</th><th class="cv-bs-pts">PTS</th>
+                        <th class="cv-bs-p1">FG</th><th class="cv-bs-p1">FG%</th><th class="cv-bs-p1">3P</th><th class="cv-bs-p1">3P%</th><th class="cv-bs-p1">FT</th><th class="cv-bs-p1">FT%</th>
+                        <th class="cv-bs-p1">OREB</th><th class="cv-bs-p1">DREB</th><th class="cv-bs-p1">REB</th><th class="cv-bs-p1">AST</th><th class="cv-bs-p1">STL</th><th class="cv-bs-p1">BLK</th><th class="cv-bs-p1">TO</th><th class="cv-bs-p1">PF</th>
+                        <th class="cv-bs-p2">+/-</th><th class="cv-bs-p2">EFF</th><th class="cv-bs-p2">TS%</th><th class="cv-bs-p2">eFG%</th><th class="cv-bs-p2">A/T</th>
+                    </tr></thead>
+                    <tbody id="d-away-players"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- 05 · SHOT CHART -->
+        <div style="padding:28px 0; border-bottom:1px solid var(--line-2);">
+            <div style="display:flex; align-items:baseline; gap:14px; margin-bottom:18px;">
+                <span style="font-family:var(--f-mono); font-size:10px; color:var(--fg-3); letter-spacing:2px;">05 · SHOT CHART</span>
+                <span style="flex:1; height:1px; background:var(--line-2);"></span>
+                <div id="d-shotmap-legend" style="display:flex; gap:14px; font-family:var(--f-mono); font-size:9px; letter-spacing:1px;"></div>
+                <span class="cv-display" style="font-size:18px;">슛 히트맵</span>
+            </div>
+            <canvas id="d-shotmap" style="width:100%; height:auto; display:block;"></canvas>
+        </div>
+
+        <!-- 06 · MOMENTUM -->
+        <div style="padding:28px 0; border-bottom:1px solid var(--line-2);">
+            <div style="display:flex; align-items:baseline; gap:14px; margin-bottom:18px;">
+                <span style="font-family:var(--f-mono); font-size:10px; color:var(--fg-3); letter-spacing:2px;">06 · MOMENTUM</span>
+                <span style="flex:1; height:1px; background:var(--line-2);"></span>
+                <div style="display:flex; gap:4px;" id="quarter-tabs">
+                    <button class="q-tab active" onclick="switchQuarter('all')">ALL</button>
+                    <button class="q-tab" onclick="switchQuarter(1)">1Q</button>
+                    <button class="q-tab" onclick="switchQuarter(2)">2Q</button>
+                    <button class="q-tab" onclick="switchQuarter(3)">3Q</button>
+                    <button class="q-tab" onclick="switchQuarter(4)">4Q</button>
+                </div>
+                <span class="cv-display" style="font-size:18px;">득점 흐름 · 하이라이트</span>
+            </div>
+            <canvas id="d-score-graph" style="width:100%; height:auto; display:block; cursor:pointer;"></canvas>
+            <div id="d-highlights" style="margin-top:18px;">
+                <div style="text-align:center; color:var(--fg-3); font-family:var(--f-mono); font-size:11px; padding:18px; letter-spacing:1px;">NO HIGHLIGHTS</div>
+            </div>
+            <!-- 하이라이트 영상 플레이어 -->
+            <div id="d-highlight-player" style="display:none; margin-top:14px; padding-top:14px; border-top:1px solid var(--line-2);">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                    <div id="d-player-title" style="font-family:var(--f-mono); font-size:11px; color:var(--fg-1); letter-spacing:0.5px;"></div>
+                    <button onclick="closeHighlightPlayer()" style="background:transparent; border:1px solid var(--line-3); color:var(--fg-2); cursor:pointer; font-family:var(--f-mono); font-size:10px; letter-spacing:1px; padding:4px 10px;">✕ CLOSE</button>
+                </div>
+                <div style="position:relative; aspect-ratio:16/9; background:#000; border:1px solid var(--line-2); overflow:hidden;">
+                    <video id="d-player-video" style="width:100%; height:100%; display:none;" controls playsinline></video>
+                    <div id="d-player-placeholder" style="display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; width:100%; height:100%; font-family:var(--f-mono); color:var(--fg-3); font-size:11px; letter-spacing:1px; position:absolute; top:0; left:0;">
+                        <span style="font-family:var(--f-display); font-size:14px; color:var(--fg-2); letter-spacing:2px;">CLIP STANDBY</span>
+                        <span>영상이 준비되면 이곳에서 재생됩니다</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ACTIONS (editorial) -->
+        <div style="padding:24px 0 48px; display:flex; gap:8px; border-top:1px solid var(--line-2); margin-top:14px;">
+            <button class="cv-btn primary" style="height:36px;" onclick="downloadResult()">↓ JSON 다운로드</button>
+            <button class="cv-btn" style="height:36px;" onclick="window.print()">🖨 PRINT BOX SCORE</button>
+            <span style="flex:1;"></span>
+            <a href="javascript:void(0)" class="cv-btn" style="height:36px; display:inline-flex; align-items:center; padding:0 14px; text-decoration:none;" onclick="backToList()">← BACK TO RESULTS</a>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block styles %}
+<style>
+/* ============== Q-TAB (06 모멘텀 쿼터 필터) ============== */
+.q-tab {
+    height: 26px; padding: 0 10px;
+    font-family: var(--f-mono); font-size: 10px; font-weight: 600;
+    letter-spacing: 0.4px;
+    border: 1px solid var(--line-3); background: var(--bg-3); color: var(--fg-1);
+    cursor: pointer;
+    transition: all 0.12s;
+}
+.q-tab:hover { background: var(--bg-2); border-color: var(--hot); color: var(--hot); }
+.q-tab.active {
+    background: var(--hot); border-color: var(--hot); color: #0A0B0D;
+}
+
+/* ============== RESULT LIST · Editorial archive ============== */
+.rl-hero {
+    padding: 32px 0 24px;
+    border-bottom: 1px solid var(--line-2);
+    position: relative;
+}
+.rl-hero-issue {
+    position: absolute; top: 8px; right: 0;
+    font-family: var(--f-mono); font-size: 11px;
+    color: var(--fg-3); letter-spacing: 1.4px;
+    text-align: right; line-height: 1.6;
+}
+.rl-hero-tagrow {
+    display: flex; gap: 8px; align-items: center;
+    font-family: var(--f-mono); font-size: 11px;
+    color: var(--fg-2); letter-spacing: 1px;
+}
+.rl-hero-title {
+    font-family: var(--f-display); font-weight: 700;
+    font-size: 64px; letter-spacing: -2px; line-height: 0.96;
+    margin: 14px 0 0; max-width: 900px;
+}
+.rl-hero-title .hot { color: var(--hot); }
+.rl-hero-meta {
+    display: flex; flex-wrap: wrap; gap: 28px;
+    margin-top: 16px;
+    font-family: var(--f-mono); font-size: 12px; color: var(--fg-1);
+}
+.rl-hero-meta .lbl { color: var(--fg-3); }
+.rl-hero-actions {
+    position: absolute; top: 60px; right: 0;
+    display: flex; gap: 6px;
+}
+
+.rl-filter-row {
+    display: flex; gap: 6px; align-items: center;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--line-2);
+}
+.rl-filter-label {
+    font-family: var(--f-mono); font-size: 10px;
+    color: var(--fg-3); letter-spacing: 1.5px;
+    margin-right: 10px;
+}
+.rl-chip {
+    height: 28px; padding: 0 14px;
+    background: transparent;
+    border: 1px solid var(--line-3);
+    color: var(--fg-2);
+    font-family: var(--f-mono); font-size: 10px; font-weight: 700;
+    letter-spacing: 1.5px;
+    cursor: pointer;
+    transition: all 0.12s;
+}
+.rl-chip:hover { border-color: var(--hot); color: var(--hot); }
+.rl-chip.active {
+    background: var(--hot); border-color: var(--hot); color: #0A0B0D;
+}
+
+.rl-table-wrap {
+    margin-top: 0;
+    border-bottom: 1px solid var(--line-2);
+}
+.rl-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--f-mono);
+}
+.rl-table th {
+    padding: 14px 16px;
+    text-align: left;
+    background: var(--bg-2);
+    color: var(--fg-2);
+    font-family: var(--f-mono); font-size: 10px; font-weight: 700;
+    letter-spacing: 1.5px;
+    border-bottom: 1px solid var(--line-2);
+}
+.rl-table td {
+    padding: 14px 16px;
+    color: var(--fg-1);
+    font-size: 12px;
+    border-bottom: 1px solid var(--line-2);
+    vertical-align: middle;
+}
+.rl-table tbody tr {
+    cursor: pointer;
+    transition: background 0.1s;
+}
+.rl-table tbody tr:hover td { background: var(--bg-2); }
+
+.rl-row-date {
+    color: var(--fg-2); font-size: 11px; letter-spacing: 0.5px;
+}
+.rl-row-match {
+    font-family: var(--f-display); font-size: 14px; font-weight: 700;
+    color: var(--fg-0); letter-spacing: -0.2px;
+}
+.rl-row-match .vs {
+    color: var(--fg-3); font-family: var(--f-mono); font-size: 11px;
+    margin: 0 8px; letter-spacing: 1px;
+}
+.rl-row-score {
+    font-family: var(--f-mono); font-weight: 700; font-size: 16px;
+    color: var(--hot); font-variant-numeric: tabular-nums; text-align: center;
+}
+.rl-row-mode {
+    text-align: center;
+    font-family: var(--f-mono); font-size: 10px; font-weight: 700;
+    letter-spacing: 1.5px;
+}
+.rl-row-mode.live { color: var(--bad); }
+.rl-row-mode.batch { color: var(--fg-2); }
+.rl-row-sync {
+    text-align: center;
+}
+.rl-row-detail-btn {
+    height: 28px; padding: 0 14px;
+    background: transparent;
+    border: 1px solid var(--line-3);
+    color: var(--fg-1);
+    font-family: var(--f-mono); font-size: 10px; font-weight: 700;
+    letter-spacing: 1px; cursor: pointer;
+    transition: all 0.12s;
+}
+.rl-row-detail-btn:hover { border-color: var(--hot); color: var(--hot); }
+
+.rl-sync-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 3px 10px;
+    border: 1px solid var(--line-3);
+    font-family: var(--f-mono); font-size: 10px; font-weight: 700;
+    letter-spacing: 1px;
+}
+.rl-sync-badge.local {
+    color: var(--warn); border-color: var(--warn);
+    background: rgba(255,197,61,0.08);
+}
+.rl-sync-badge.cloud {
+    color: var(--good); border-color: var(--good);
+    background: rgba(43,212,164,0.08);
+}
+
+.rl-empty {
+    text-align: center;
+    font-family: var(--f-mono); font-size: 12px;
+    color: var(--fg-3); padding: 60px 20px !important;
+    letter-spacing: 1px;
+}
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let allResults = [];
+let currentFilter = 'all';
+let selectedResult = null;
+let currentQuarter = 'all';
+let highlightMarkers = [];
+let currentHighlights = [];
+
+// =============================================================================
+// 경기 결과 목록
+//
+// 데이터 소스 (항상 병합):
+//   1. 로컬 DESK finalize 폴더 — 이 기기에서 방금 끝낸 경기 (source="local")
+//      GET /api/v1/finalize/list
+//   2. bkdunk — 다른 기기에서 기록된 경기 (source="cloud", 선택적)
+//      GET /cloud/api/matches?my=true&status=completed
+//
+// 동일 match_id 가 양쪽에 있으면 로컬이 우선 (최신 데이터).
+// =============================================================================
+
+async function init() {
+    await loadResults();
+
+    // 2026-05-21: URL ?session_id=<id> 있으면 해당 세션 detail 자동 오픈.
+    // REPLAY STOP → finalize → 이 페이지로 redirect 흐름 (replay_view.html:697-701) 에서 사용.
+    try {
+        const params = new URLSearchParams(window.location.search);
+        const targetSid = params.get('session_id');
+        if (targetSid) {
+            const idx = allResults.findIndex(r => r.session_id === targetSid);
+            if (idx >= 0) {
+                // 필터 무관하게 매칭되도록 ALL 로 전환 (showDetail 은 filtered 배열 기준)
+                if (currentFilter !== 'all') {
+                    currentFilter = 'all';
+                    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+                    document.querySelector('.filter-btn[data-filter="all"]')?.classList.add('active');
+                    renderList();
+                }
+                // renderList 이후의 정렬된 인덱스 기준이라 다시 계산
+                const filtered = allResults;
+                const idx2 = filtered.findIndex(r => r.session_id === targetSid);
+                if (idx2 >= 0) showDetail(idx2);
+            } else {
+                console.warn('[result] session_id 매칭 안됨:', targetSid);
+            }
+        }
+    } catch (e) {
+        console.warn('[result] auto-detail 처리 실패:', e);
+    }
+}
+
+function setFilter(f, btn) {
+    currentFilter = f;
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    (btn || event?.target)?.classList?.add('active');
+    renderList();
+}
+
+async function loadResults() {
+    const local = await _loadLocalResults();
+    const cloud = await _loadCloudResults();
+
+    // 병합 — match_id (로컬) / game_id (클라우드) 로 dedup. 로컬 우선.
+    const byId = new Map();
+    for (const r of local) {
+        byId.set(r.game_id || r.session_id, r);
+    }
+    for (const r of cloud) {
+        const key = r.game_id || r.match_id;
+        if (!byId.has(key)) byId.set(key, r);
+    }
+
+    // 최신순 정렬 (created_at 기준)
+    allResults = [...byId.values()].sort((a, b) =>
+        (b.created_at || '').localeCompare(a.created_at || '')
+    );
+    renderList();
+}
+
+// DESK 로컬 finalize 폴더 목록
+async function _loadLocalResults() {
+    try {
+        const api = window.Auth?.fetch || fetch;
+        const resp = await api('/api/v1/finalize/list');
+        if (!resp.ok) return [];
+        const body = await resp.json();
+        const list = body?.matches || [];
+        return list.map(m => ({
+            game_id: m.match_id || m.session_id,
+            session_id: m.session_id,
+            // 2026-05-21: REPLAY/BATCH 분석은 session_id 가 `import_<date>_<time>` 형태.
+            // 라이브 녹화는 `2026-05-21_HHMMSS` 형태 → import_ prefix 로 BATCH 구분.
+            // 백엔드 manifest.json 에 mode 필드 추가 시 m.mode 우선.
+            mode: m.mode || (typeof m.session_id === 'string' && m.session_id.startsWith('import_') ? 'batch' : 'live'),
+            created_at: m.ended_at || m.started_at || m.generated_at || '',
+            source: 'local',
+            upload_status: m.upload_status || 'pending',
+            score: {
+                home_team_name: m.home_team_name || 'HOME',
+                away_team_name: m.away_team_name || 'AWAY',
+                home_score: m.home_score ?? 0,
+                away_score: m.away_score ?? 0,
+                winner: (m.home_score ?? 0) > (m.away_score ?? 0) ? 'home' : 'away',
+                quarter_scores: m.quarter_scores || [],
+            },
+            venue: m.venue || '',
+            duration_sec: m.duration_sec,
+            processing: {
+                clips: m.clip_count || 0,
+                recordings: m.recording_count || 0,
+            },
+        }));
+    } catch (e) {
+        console.warn('[result] 로컬 finalize 로드 실패:', e);
+        return [];
+    }
+}
+
+// bkdunk 클라우드 경기 목록 (선택적 — 서버 꺼져있어도 빈 배열)
+async function _loadCloudResults() {
+    try {
+        const api = window.Auth?.fetch || fetch;
+        const resp = await api('/cloud/api/matches?my=true&status=completed');
+        if (!resp.ok) return [];
+        const body = await resp.json();
+        const list = body?.data ?? body?.matches ?? body;
+        return _normalizeResults(list).map(r => ({ ...r, source: 'cloud' }));
+    } catch (e) {
+        console.warn('[result] bkdunk 로드 실패 (무시):', e);
+        return [];
+    }
+}
+
+// bkdunk 의 매치 → 내부 포맷으로 정규화
+// 서버 응답 스펙 확정 시 여기만 조정
+function _normalizeResults(list) {
+    if (!Array.isArray(list)) return [];
+    return list.map(m => ({
+        game_id:    m.game_id || m.id || m._id || '',
+        mode:       m.mode || (m.live ? 'live' : 'batch'),
+        created_at: m.created_at || m.createdAt || m.ended_at || '',
+        score: {
+            home_team_name: m.home_team_name || m.home?.name || m.home || '',
+            away_team_name: m.away_team_name || m.away?.name || m.away || '',
+            home_score:     m.home_score ?? m.homeScore ?? m.score?.home ?? 0,
+            away_score:     m.away_score ?? m.awayScore ?? m.score?.away ?? 0,
+            winner:         m.winner || ((m.home_score ?? 0) > (m.away_score ?? 0) ? 'home' : 'away'),
+            quarter_scores: m.quarter_scores || m.score?.by_quarter || [],
+        },
+        home_team_stats: m.home_team_stats || {},
+        away_team_stats: m.away_team_stats || {},
+        home_players:    m.home_players || m.home?.players || [],
+        away_players:    m.away_players || m.away?.players || [],
+        highlights:      m.highlights || [],
+        processing:      m.processing || {},
+    }));
+}
+
+// 목록 렌더링
+function renderList() {
+    // 헤더 메타 카운트 갱신
+    const totalEl = document.getElementById('rl-total-cnt');
+    const localEl = document.getElementById('rl-local-cnt');
+    const cloudEl = document.getElementById('rl-cloud-cnt');
+    if (totalEl) totalEl.textContent = allResults.length;
+    if (localEl) localEl.textContent = allResults.filter(r => r.source === 'local').length;
+    if (cloudEl) cloudEl.textContent = allResults.filter(r => r.source === 'cloud').length;
+
+    // 오늘 날짜 (HERO 우상단)
+    const todayEl = document.getElementById('rl-today');
+    if (todayEl) {
+        const d = new Date();
+        const mm = String(d.getMonth()+1).padStart(2,'0');
+        const dd = String(d.getDate()).padStart(2,'0');
+        todayEl.textContent = `${mm} · ${dd} · ${d.getFullYear()}`;
+    }
+
+    const filtered = currentFilter === 'all' ? allResults :
+        allResults.filter(r => r.mode === currentFilter);
+
+    const tbody = document.getElementById('result-table-body');
+    if (!filtered.length) {
+        tbody.innerHTML = '<tr><td colspan="6" class="rl-empty">경기 결과가 없습니다</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = filtered.map((r, idx) => {
+        const date = r.created_at
+            ? new Date(r.created_at).toLocaleString('ko-KR', {year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})
+            : '—';
+        const s = r.score;
+        const modeClass = r.mode === 'live' ? 'live' : 'batch';
+        const modeLabel = r.mode === 'live' ? '● LIVE' : '▢ BATCH';
+
+        // 로컬(아직 업로드 안 됨) / 클라우드 동기화 상태 배지
+        const isLocal = r.source === 'local';
+        const uploadPending = isLocal && r.upload_status !== 'uploaded';
+        const syncBadge = uploadPending
+            ? '<span class="rl-sync-badge local">📂 LOCAL</span>'
+            : '<span class="rl-sync-badge cloud">☁ CLOUD</span>';
+
+        const homeWin = s.home_score > s.away_score;
+        const awayWin = s.away_score > s.home_score;
+
+        return `<tr onclick="showDetail(${idx})">
+            <td class="rl-row-date">${date}</td>
+            <td class="rl-row-match">
+                <span style="${homeWin?'color:var(--hot);':''}">${s.home_team_name}</span>
+                <span class="vs">vs</span>
+                <span style="${awayWin?'color:var(--hot);':''}">${s.away_team_name}</span>
+            </td>
+            <td class="rl-row-score">${s.home_score} : ${s.away_score}</td>
+            <td class="rl-row-mode ${modeClass}">${modeLabel}</td>
+            <td class="rl-row-sync">${syncBadge}</td>
+            <td><button class="rl-row-detail-btn">상세 →</button></td>
+        </tr>`;
+    }).join('');
+}
+
+// DESK 로컬 finalize 상세 fetch → showDetail 기대 포맷으로 변환
+async function _fetchLocalDetail(sessionId) {
+    try {
+        const api = window.Auth?.fetch || fetch;
+        const resp = await api(`/api/v1/finalize/detail/${encodeURIComponent(sessionId)}`);
+        if (!resp.ok) return null;
+        return await resp.json();
+    } catch (e) {
+        console.warn('[result] 로컬 상세 로드 실패:', e);
+        return null;
+    }
+}
+
+function _convLocalPlayer(p) {
+    const s = p.stats || {};
+    const oreb = s.oreb || 0;
+    const dreb = s.dreb || 0;
+    return {
+        jersey: p.number ?? '',
+        name: p.name || '',
+        min: s.min || 0,
+        points: s.pts || 0,
+        fgm: s.fgm || 0, fga: s.fga || 0,
+        tpm: s.tpm || 0, tpa: s.tpa || 0,
+        ftm: s.ftm || 0, fta: s.fta || 0,
+        oreb, dreb,
+        rebounds: oreb + dreb,
+        assists: s.ast || 0,
+        steals: s.stl || 0,
+        blocks: s.blk || 0,
+        turnovers: s.to || 0,
+        fouls: s.pf || 0,
+        plus_minus: s.plus_minus || 0,
+    };
+}
+
+function _aggregateTeamStats(players) {
+    const a = { fgm:0, fga:0, tpm:0, tpa:0, ftm:0, fta:0, rebounds:0, assists:0, steals:0, blocks:0, turnovers:0 };
+    for (const p of players) {
+        a.fgm += p.fgm; a.fga += p.fga;
+        a.tpm += p.tpm; a.tpa += p.tpa;
+        a.ftm += p.ftm; a.fta += p.fta;
+        a.rebounds += p.rebounds;
+        a.assists += p.assists;
+        a.steals += p.steals;
+        a.blocks += p.blocks;
+        a.turnovers += p.turnovers;
+    }
+    return {
+        field_goals: `${a.fgm}-${a.fga}`,
+        three_pointers: `${a.tpm}-${a.tpa}`,
+        free_throws: `${a.ftm}-${a.fta}`,
+        rebounds: a.rebounds,
+        assists: a.assists,
+        steals: a.steals,
+        blocks: a.blocks,
+        turnovers: a.turnovers,
+    };
+}
+
+// 로컬 finalize detail 응답 → 목록 row(r) 에 병합
+function _mergeLocalDetail(r, d) {
+    const match = d.match || {};
+    const players = d.players || {};
+    const highlights = d.highlights || {};
+    const events = d.events || {};
+
+    // 쿼터별 스코어 (match.json 의 score.by_quarter 는 {quarter, home, away} 형식)
+    const scoreBy = (match.score?.by_quarter || []).map(q => ({
+        q: q.quarter, home: q.home, away: q.away,
+    }));
+
+    // 선수 변환
+    const homePlayers = (players.home || []).map(_convLocalPlayer);
+    const awayPlayers = (players.away || []).map(_convLocalPlayer);
+
+    // 하이라이트 변환 — DESK /clips 프록시 경유로 재생 가능하게 video_url 구성
+    const sessionId = r.session_id || '';
+    const hlClips = (highlights.clips || []).map(c => {
+        // 서버가 video_url 이미 제공하면 그대로, 없으면 DESK 경로 조합
+        const serverUrl = c.video_url || c.clip_url || '';
+        const fallback = sessionId && c.event_id
+            ? `/clips/${sessionId}/${c.event_id}.mp4`
+            : '';
+        return {
+            type: c.event_type || c.highlight_type || '',
+            time: c.quarter
+                ? `${c.quarter}Q ${c.game_clock || ''}`.trim()
+                : (c.game_clock || ''),
+            player: c.primary_player_id ? `#${c.primary_player_id}` : '',
+            excitement: c.excitement_score || 0,
+            desc: c.description || '',
+            video_url: serverUrl || fallback,
+        };
+    });
+
+    const homeScore = match.score?.home_total ?? r.score.home_score;
+    const awayScore = match.score?.away_total ?? r.score.away_score;
+
+    return {
+        ...r,
+        score: {
+            ...r.score,
+            home_team_name: match.teams?.home?.name || r.score.home_team_name,
+            away_team_name: match.teams?.away?.name || r.score.away_team_name,
+            home_score: homeScore,
+            away_score: awayScore,
+            winner: homeScore > awayScore ? 'home' : (awayScore > homeScore ? 'away' : 'tie'),
+            quarter_scores: scoreBy,
+        },
+        home_team_stats: _aggregateTeamStats(homePlayers),
+        away_team_stats: _aggregateTeamStats(awayPlayers),
+        home_players: homePlayers,
+        away_players: awayPlayers,
+        highlights: hlClips,
+        processing: {
+            ...(r.processing || {}),
+            events: (events.operator_events || []).length,
+            clips: hlClips.length,
+        },
+        venue: match.venue || r.venue,
+        league: match.league || 'fiba',
+        duration_sec: match.duration_sec,
+    };
+}
+
+// 상세 표시 (async — 로컬 소스면 detail fetch 후 매핑)
+// =============================================================================
+// DEMO SEED — bkdunk 동기화 / DESK finalize 없이도 세부페이지 확인용
+// =============================================================================
+function seedMockResults() {
+    if (allResults.length > 0 && !confirm('현재 결과 위에 데모 경기 2건을 추가합니다. 계속할까요?')) return;
+
+    const now = Date.now();
+    const _iso = (offsetMin) => new Date(now - offsetMin * 60000).toISOString();
+
+    // ── 경기 1: FALCONS 78 vs TITANS 64 (cv-result-detail.jsx 시드 차용) ──
+    const homePlayers1 = [
+        { jersey:11, name:'K. PARK',  position:'PG', min:32, points:24, fgm:8, fga:14, tpm:3, tpa:6, ftm:5, fta:6, oreb:1, dreb:4, rebounds:5,  assists:6, steals:2, blocks:0, turnovers:2, fouls:2, plus_minus:15 },
+        { jersey:23, name:'S. RYU',   position:'SG', min:28, points:14, fgm:5, fga:9,  tpm:2, tpa:4, ftm:2, fta:2, oreb:0, dreb:3, rebounds:3,  assists:9, steals:1, blocks:0, turnovers:1, fouls:1, plus_minus:12 },
+        { jersey:7,  name:'J. OH',    position:'SF', min:26, points:6,  fgm:2, fga:5,  tpm:1, tpa:3, ftm:1, fta:2, oreb:1, dreb:3, rebounds:4,  assists:1, steals:0, blocks:1, turnovers:0, fouls:3, plus_minus:4 },
+        { jersey:4,  name:'D. LEE',   position:'PF', min:25, points:4,  fgm:2, fga:4,  tpm:0, tpa:0, ftm:0, fta:0, oreb:3, dreb:5, rebounds:8,  assists:2, steals:1, blocks:2, turnovers:1, fouls:2, plus_minus:9 },
+        { jersey:15, name:'H. JANG',  position:'C',  min:27, points:9,  fgm:4, fga:7,  tpm:0, tpa:0, ftm:1, fta:2, oreb:4, dreb:7, rebounds:11, assists:1, steals:0, blocks:3, turnovers:1, fouls:1, plus_minus:11 },
+        { jersey:9,  name:'M. SHIN',  position:'G',  min:12, points:8,  fgm:3, fga:4,  tpm:2, tpa:3, ftm:0, fta:0, oreb:0, dreb:1, rebounds:1,  assists:2, steals:1, blocks:0, turnovers:0, fouls:1, plus_minus:5 },
+        { jersey:33, name:'B. CHO',   position:'F',  min:10, points:7,  fgm:3, fga:5,  tpm:0, tpa:0, ftm:1, fta:2, oreb:2, dreb:1, rebounds:3,  assists:0, steals:1, blocks:0, turnovers:1, fouls:0, plus_minus:3 },
+        { jersey:21, name:'T. WOO',   position:'G',  min:8,  points:6,  fgm:2, fga:3,  tpm:1, tpa:2, ftm:1, fta:2, oreb:0, dreb:2, rebounds:2,  assists:1, steals:0, blocks:0, turnovers:0, fouls:1, plus_minus:1 },
+    ];
+    const awayPlayers1 = [
+        { jersey:7,  name:'M. HAN',   position:'C',  min:30, points:18, fgm:7, fga:12, tpm:0, tpa:0, ftm:4, fta:4, oreb:4, dreb:7, rebounds:11, assists:2, steals:0, blocks:2, turnovers:1, fouls:3, plus_minus:-7 },
+        { jersey:3,  name:'T. KO',    position:'PF', min:28, points:12, fgm:5, fga:11, tpm:1, tpa:3, ftm:1, fta:2, oreb:2, dreb:4, rebounds:6,  assists:4, steals:1, blocks:1, turnovers:2, fouls:2, plus_minus:-9 },
+        { jersey:12, name:'Y. KIM',   position:'SF', min:24, points:8,  fgm:3, fga:9,  tpm:1, tpa:4, ftm:1, fta:2, oreb:1, dreb:2, rebounds:3,  assists:1, steals:1, blocks:0, turnovers:0, fouls:2, plus_minus:-6 },
+        { jersey:21, name:'K. AHN',   position:'SG', min:26, points:2,  fgm:1, fga:4,  tpm:0, tpa:2, ftm:0, fta:0, oreb:0, dreb:1, rebounds:1,  assists:5, steals:4, blocks:0, turnovers:4, fouls:4, plus_minus:-12 },
+        { jersey:5,  name:'P. HEO',   position:'PG', min:27, points:6,  fgm:2, fga:8,  tpm:0, tpa:3, ftm:2, fta:2, oreb:1, dreb:3, rebounds:4,  assists:2, steals:0, blocks:0, turnovers:3, fouls:1, plus_minus:-11 },
+        { jersey:17, name:'S. NA',    position:'G',  min:9,  points:8,  fgm:3, fga:4,  tpm:2, tpa:3, ftm:0, fta:0, oreb:0, dreb:1, rebounds:1,  assists:0, steals:0, blocks:0, turnovers:1, fouls:0, plus_minus:-3 },
+        { jersey:8,  name:'O. CHA',   position:'F',  min:14, points:6,  fgm:2, fga:5,  tpm:0, tpa:1, ftm:2, fta:2, oreb:1, dreb:2, rebounds:3,  assists:0, steals:0, blocks:1, turnovers:1, fouls:1, plus_minus:-2 },
+        { jersey:14, name:'D. JUN',   position:'PF', min:6,  points:4,  fgm:1, fga:2,  tpm:0, tpa:0, ftm:2, fta:2, oreb:0, dreb:1, rebounds:1,  assists:0, steals:0, blocks:1, turnovers:1, fouls:0, plus_minus:1 },
+    ];
+
+    const _aggregate = (players) => {
+        const a = { fgm:0,fga:0,tpm:0,tpa:0,ftm:0,fta:0,rebounds:0,assists:0,steals:0,blocks:0,turnovers:0 };
+        players.forEach(p => {
+            a.fgm+=p.fgm; a.fga+=p.fga; a.tpm+=p.tpm; a.tpa+=p.tpa; a.ftm+=p.ftm; a.fta+=p.fta;
+            a.rebounds+=p.rebounds; a.assists+=p.assists; a.steals+=p.steals; a.blocks+=p.blocks; a.turnovers+=p.turnovers;
+        });
+        return {
+            field_goals: `${a.fgm}-${a.fga}`,
+            three_pointers: `${a.tpm}-${a.tpa}`,
+            free_throws: `${a.ftm}-${a.fta}`,
+            rebounds: a.rebounds, assists: a.assists,
+            steals: a.steals, blocks: a.blocks, turnovers: a.turnovers,
+        };
+    };
+
+    const match1 = {
+        game_id: 'DEMO-SMC-SF-001',
+        session_id: 'demo_smc_sf_001',
+        mode: 'live',
+        source: 'local',
+        upload_status: 'uploaded',
+        created_at: _iso(180),
+        venue: 'Olympic Park Gym · COURT 03',
+        league: 'fiba',
+        duration_sec: 2540,
+        score: {
+            home_team_name: 'FALCONS',
+            away_team_name: 'TITANS',
+            home_score: 78,
+            away_score: 64,
+            winner: 'home',
+            quarter_scores: [
+                { q:1, home:22, away:16 },
+                { q:2, home:18, away:19 },
+                { q:3, home:21, away:14 },
+                { q:4, home:17, away:15 },
+            ],
+        },
+        home_team_stats: _aggregate(homePlayers1),
+        away_team_stats: _aggregate(awayPlayers1),
+        home_players: homePlayers1,
+        away_players: awayPlayers1,
+        highlights: [
+            { type:'3pt', time:'1Q 08:42', player:'#11 K. PARK',  excitement:0.92, desc:'corner three over Han' },
+            { type:'dunk', time:'1Q 03:11', player:'#7 M. HAN',   excitement:0.88, desc:'putback dunk' },
+            { type:'fastbreak', time:'2Q 07:30', player:'#23 S. RYU', excitement:0.81, desc:'steal + fastbreak layup' },
+            { type:'and1', time:'2Q 01:48', player:'#15 H. JANG', excitement:0.94, desc:'and-one finish' },
+            { type:'pullup', time:'3Q 06:22', player:'#3 T. KO',  excitement:0.76, desc:'pull-up midrange' },
+            { type:'stepback', time:'3Q 02:04', player:'#11 K. PARK', excitement:0.96, desc:'step-back 3 over double team' },
+            { type:'block', time:'4Q 05:15', player:'#4 D. LEE',  excitement:0.85, desc:'chase-down block + assist' },
+            { type:'clutch_ft', time:'4Q 00:42', player:'#11 K. PARK', excitement:0.79, desc:'clutch sealing free throws' },
+        ],
+        processing: { events: 142, clips: 8, recordings: 4 },
+    };
+
+    // ── 경기 2: VOLTS vs BLAZERS 라이브 진행 중인 미니 데모 (선택 시 진행 중 데이터) ──
+    const homePlayers2 = [
+        { jersey:11, name:'K. PARK', position:'PG', min:18, points:14, fgm:5, fga:8, tpm:2, tpa:3, ftm:2, fta:2, oreb:0, dreb:2, rebounds:2, assists:4, steals:1, blocks:0, turnovers:1, fouls:1, plus_minus:5 },
+        { jersey:23, name:'S. RYU',  position:'SG', min:16, points:8,  fgm:3, fga:6, tpm:1, tpa:2, ftm:1, fta:2, oreb:0, dreb:1, rebounds:1, assists:5, steals:0, blocks:0, turnovers:1, fouls:0, plus_minus:3 },
+        { jersey:7,  name:'J. OH',   position:'SF', min:14, points:5,  fgm:2, fga:4, tpm:1, tpa:2, ftm:0, fta:0, oreb:1, dreb:2, rebounds:3, assists:1, steals:0, blocks:1, turnovers:0, fouls:2, plus_minus:1 },
+        { jersey:4,  name:'D. LEE',  position:'PF', min:13, points:6,  fgm:3, fga:5, tpm:0, tpa:0, ftm:0, fta:0, oreb:2, dreb:2, rebounds:4, assists:0, steals:1, blocks:1, turnovers:0, fouls:1, plus_minus:2 },
+        { jersey:15, name:'H. JANG', position:'C',  min:14, points:8,  fgm:3, fga:5, tpm:0, tpa:0, ftm:2, fta:2, oreb:1, dreb:4, rebounds:5, assists:1, steals:0, blocks:2, turnovers:1, fouls:1, plus_minus:4 },
+    ];
+    const awayPlayers2 = [
+        { jersey:7,  name:'M. HAN',  position:'C',  min:18, points:12, fgm:4, fga:8, tpm:0, tpa:0, ftm:4, fta:4, oreb:2, dreb:4, rebounds:6, assists:1, steals:0, blocks:1, turnovers:1, fouls:2, plus_minus:-3 },
+        { jersey:3,  name:'T. KO',   position:'PF', min:16, points:8,  fgm:3, fga:7, tpm:1, tpa:2, ftm:1, fta:2, oreb:1, dreb:2, rebounds:3, assists:2, steals:1, blocks:0, turnovers:1, fouls:1, plus_minus:-2 },
+        { jersey:12, name:'Y. KIM',  position:'SF', min:14, points:7,  fgm:3, fga:6, tpm:1, tpa:3, ftm:0, fta:0, oreb:0, dreb:1, rebounds:1, assists:1, steals:1, blocks:0, turnovers:0, fouls:1, plus_minus:-1 },
+        { jersey:21, name:'K. AHN',  position:'SG', min:15, points:6,  fgm:2, fga:5, tpm:1, tpa:2, ftm:1, fta:2, oreb:0, dreb:1, rebounds:1, assists:3, steals:2, blocks:0, turnovers:2, fouls:2, plus_minus:-4 },
+        { jersey:5,  name:'P. HEO',  position:'PG', min:15, points:5,  fgm:2, fga:5, tpm:0, tpa:1, ftm:1, fta:2, oreb:1, dreb:2, rebounds:3, assists:1, steals:0, blocks:0, turnovers:1, fouls:1, plus_minus:-2 },
+    ];
+
+    const match2 = {
+        game_id: 'DEMO-SMC-GRPB-014',
+        session_id: 'demo_smc_grpb_014',
+        mode: 'batch',
+        source: 'cloud',
+        upload_status: 'uploaded',
+        created_at: _iso(60 * 24),  // 어제
+        venue: 'Olympic Park Gym · COURT 01',
+        league: 'fiba',
+        duration_sec: 1810,
+        score: {
+            home_team_name: 'VOLTS',
+            away_team_name: 'BLAZERS',
+            home_score: 41,
+            away_score: 38,
+            winner: 'home',
+            quarter_scores: [
+                { q:1, home:14, away:11 },
+                { q:2, home:11, away:13 },
+                { q:3, home:16, away:14 },
+            ],
+        },
+        home_team_stats: _aggregate(homePlayers2),
+        away_team_stats: _aggregate(awayPlayers2),
+        home_players: homePlayers2,
+        away_players: awayPlayers2,
+        highlights: [
+            { type:'3pt', time:'1Q 09:15', player:'#23 S. RYU',  excitement:0.78, desc:'wing three' },
+            { type:'block', time:'2Q 04:30', player:'#15 H. JANG', excitement:0.84, desc:'pin block' },
+            { type:'fastbreak', time:'3Q 06:12', player:'#7 M. HAN',  excitement:0.71, desc:'transition dunk' },
+            { type:'and1', time:'3Q 01:24', player:'#11 K. PARK', excitement:0.89, desc:'drive and-one' },
+        ],
+        processing: { events: 87, clips: 4, recordings: 2 },
+    };
+
+    // 시드 결과를 우선 정렬에 맞춰 prepend (최신순)
+    allResults = [match1, match2, ...allResults.filter(r => !r.game_id?.startsWith('DEMO-'))];
+    renderList();
+    alert('데모 경기 2건을 시드했습니다.\n· FALCONS 78 vs TITANS 64 (3시간 전)\n· VOLTS 41 vs BLAZERS 38 (1일 전)\n\n행을 클릭해 세부페이지를 확인하세요.');
+}
+window.seedMockResults = seedMockResults;
+
+async function showDetail(idx) {
+    const filtered = currentFilter === 'all' ? allResults :
+        allResults.filter(r => r.mode === currentFilter);
+    let r = filtered[idx];
+
+    // 로컬 finalize 는 상세 데이터를 추가 fetch (단, DEMO 시드는 이미 완전한 페이로드라 skip)
+    const isDemo = r?.game_id?.startsWith('DEMO-');
+    if (!isDemo && r?.source === 'local' && r.session_id) {
+        // 로딩 상태 표시 (상세 뷰 진입 + placeholder)
+        document.getElementById('view-list').style.display = 'none';
+        document.getElementById('view-detail').style.display = 'block';
+        document.getElementById('d-home-name').textContent = '로딩 중...';
+        document.getElementById('d-away-name').textContent = '';
+
+        const detail = await _fetchLocalDetail(r.session_id);
+        if (detail) {
+            r = _mergeLocalDetail(r, detail);
+        } else {
+            alert('⚠ 경기 상세 로드 실패 — 엔진 연결을 확인하세요.');
+            backToList();
+            return;
+        }
+    }
+
+    selectedResult = r;
+    const s = r.score;
+
+    document.getElementById('view-list').style.display = 'none';
+    document.getElementById('view-detail').style.display = 'block';
+
+    // 스코어보드
+    // HERO 스코어보드 (editorial)
+    document.getElementById('d-date').textContent = new Date(r.created_at).toLocaleString('ko-KR');
+    document.getElementById('d-venue').textContent = r.venue || '—';
+    document.getElementById('d-league-tag').textContent = (r.league || '').toUpperCase();
+    document.getElementById('d-home-name').textContent = s.home_team_name;
+    document.getElementById('d-away-name').textContent = s.away_team_name;
+    document.getElementById('d-home-score').textContent = s.home_score;
+    document.getElementById('d-away-score').textContent = s.away_score;
+
+    const isHomeWin = s.winner === 'home';
+    const isAwayWin = s.winner === 'away';
+    const margin = Math.abs((s.home_score || 0) - (s.away_score || 0));
+
+    // 승자 강조 (cv-hot) / 패자 dimmed
+    document.getElementById('d-home-name').style.color = isHomeWin ? 'var(--hot)' : 'var(--fg-1)';
+    document.getElementById('d-home-score').style.color = isHomeWin ? 'var(--hot)' : 'var(--fg-2)';
+    document.getElementById('d-away-name').style.color = isAwayWin ? 'var(--hot)' : 'var(--fg-1)';
+    document.getElementById('d-away-score').style.color = isAwayWin ? 'var(--hot)' : 'var(--fg-2)';
+
+    const homeWin = document.getElementById('d-home-win');
+    const awayWin = document.getElementById('d-away-win');
+    homeWin.style.display = isHomeWin ? 'block' : 'none';
+    awayWin.style.display = isAwayWin ? 'block' : 'none';
+    if (isHomeWin) homeWin.textContent = `● WIN · +${margin}`;
+    if (isAwayWin) awayWin.textContent = `● WIN · +${margin}`;
+
+    // 01 쿼터별 점수 (editorial)
+    const qs = s.quarter_scores || [];
+    const homeQs = qs.map(q => q.home);
+    const awayQs = qs.map(q => q.away);
+    const renderQRow = (teamName, color, qScores, oppScores, total) => {
+        const cells = qScores.map((sc, qi) => {
+            const won = sc > (oppScores[qi] || 0);
+            return `<td class="cv-q-td ${won ? 'cv-q-td-winner' : ''}">${sc}</td>`;
+        }).join('');
+        return `<tr>
+            <td class="cv-q-td cv-q-td-left">
+                <span class="cv-display" style="font-size:16px; font-weight:700; color:${color}; letter-spacing:-0.3px;">${teamName}</span>
+            </td>
+            ${cells}
+            <td class="cv-q-td cv-q-td-accent">${total}</td>
+        </tr>`;
+    };
+    document.getElementById('d-quarter-body').innerHTML =
+        renderQRow(s.home_team_name, 'var(--hot)', homeQs, awayQs, s.home_score) +
+        renderQRow(s.away_team_name, 'var(--cool)', awayQs, homeQs, s.away_score);
+
+    // 02 팀 통계 (editorial 양쪽 막대)
+    const h = r.home_team_stats, a = r.away_team_stats;
+    const _num = v => {
+        if (typeof v === 'number') return v;
+        if (typeof v === 'string') {
+            const m = v.match(/^[\d.]+/);
+            return m ? parseFloat(m[0]) : 0;
+        }
+        return 0;
+    };
+    const stats = [
+        { k: 'FG',  h: h.field_goals,    a: a.field_goals },
+        { k: '3P',  h: h.three_pointers, a: a.three_pointers },
+        { k: 'FT',  h: h.free_throws,    a: a.free_throws },
+        { k: 'REB', h: h.rebounds,       a: a.rebounds },
+        { k: 'AST', h: h.assists,        a: a.assists },
+        { k: 'STL', h: h.steals,         a: a.steals },
+        { k: 'BLK', h: h.blocks,         a: a.blocks },
+        { k: 'TO',  h: h.turnovers,      a: a.turnovers, lowerBetter: true },
+    ];
+    document.getElementById('d-team-stats').innerHTML = stats.map(s => {
+        const hn = _num(s.h), an = _num(s.a);
+        const total = hn + an;
+        const hPct = total === 0 ? 50 : (hn / total) * 100;
+        const aPct = 100 - hPct;
+        const hWin = s.lowerBetter ? hn < an : hn > an;
+        return `
+        <div style="display:grid; grid-template-columns:90px 1fr 70px 1fr 90px; align-items:center; gap:14px;">
+            <span class="cv-display" style="font-size:18px; font-weight:700; color:${hWin ? 'var(--hot)' : 'var(--fg-1)'}; text-align:right; font-variant-numeric:tabular-nums;">${s.h}</span>
+            <div style="height:6px; background:var(--bg-2); display:flex; justify-content:flex-end; border:1px solid var(--line-1);">
+                <div style="width:${hPct}%; height:100%; background:${hWin ? 'var(--hot)' : 'var(--fg-3)'};"></div>
+            </div>
+            <span style="font-family:var(--f-mono); font-size:11px; color:var(--fg-2); letter-spacing:1.5px; text-align:center;">${s.k}</span>
+            <div style="height:6px; background:var(--bg-2); border:1px solid var(--line-1);">
+                <div style="width:${aPct}%; height:100%; background:${!hWin ? 'var(--hot)' : 'var(--fg-3)'};"></div>
+            </div>
+            <span class="cv-display" style="font-size:18px; font-weight:700; color:${!hWin ? 'var(--hot)' : 'var(--fg-1)'}; font-variant-numeric:tabular-nums;">${s.a}</span>
+        </div>`;
+    }).join('');
+
+    // 선수 스탯
+    document.getElementById('d-home-stats-title').textContent = s.home_team_name;
+    document.getElementById('d-away-stats-title').textContent = s.away_team_name;
+    const renderPlayers = (players) => {
+        return players.map(p => {
+            const fgm=p.fgm||0, fga=p.fga||0, tpm=p.tpm||0, tpa=p.tpa||0, ftm=p.ftm||0, fta=p.fta||0;
+            const fgPct = fga>0 ? (fgm/fga*100).toFixed(0) : '—';
+            const tpPct = tpa>0 ? (tpm/tpa*100).toFixed(0) : '—';
+            const ftPct = fta>0 ? (ftm/fta*100).toFixed(0) : '—';
+            const eff = p.points + p.rebounds + p.assists + p.steals + p.blocks - p.turnovers - (fga-fgm) - (fta-ftm);
+            return `<tr>
+                <td style="color:var(--hot); font-weight:700;">#${p.jersey}</td>
+                <td class="cv-bs-name">${p.name||'-'}</td>
+                <td>${p.min||0}</td>
+                <td class="cv-bs-pts">${p.points}</td>
+                <td>${fgm}/${fga}</td>
+                <td style="color:${fgPct!=='—'&&fgPct>=50?'var(--good)':'var(--fg-2)'};">${fgPct}</td>
+                <td>${tpm}/${tpa}</td>
+                <td style="color:${tpPct!=='—'&&tpPct>=35?'var(--good)':'var(--fg-2)'};">${tpPct}</td>
+                <td>${ftm}/${fta}</td>
+                <td style="color:${ftPct!=='—'&&ftPct>=75?'var(--good)':'var(--fg-2)'};">${ftPct}</td>
+                <td>${p.oreb||0}</td><td>${p.dreb||0}</td>
+                <td style="color:var(--fg-0);">${p.rebounds}</td>
+                <td>${p.assists}</td><td>${p.steals}</td>
+                <td>${p.blocks}</td><td>${p.turnovers}</td><td>${p.fouls||0}</td>
+                <td class="cv-bs-p2" style="color:${p.plus_minus>=0?'var(--good)':'var(--bad)'};">${p.plus_minus>0?'+':''}${p.plus_minus}</td>
+                <td class="cv-bs-p2" style="color:${eff>=0?'var(--warn)':'var(--bad)'}; font-weight:700;">${eff}</td>
+                <td class="cv-bs-p2">${fga>0?(p.points/(2*(fga+0.44*fta))*100).toFixed(1):'—'}</td>
+                <td class="cv-bs-p2">${fga>0?((fgm+0.5*tpm)/fga*100).toFixed(1):'—'}</td>
+                <td class="cv-bs-p2">${p.turnovers>0?(p.assists/p.turnovers).toFixed(1):p.assists>0?'∞':'—'}</td>
+            </tr>`;
+        }).join('');
+    };
+    document.getElementById('d-home-players').innerHTML = renderPlayers(r.home_players || []);
+    document.getElementById('d-away-players').innerHTML = renderPlayers(r.away_players || []);
+
+    // 쿼터 탭 초기화 + 하이라이트
+    currentQuarter = 'all';
+    document.querySelectorAll('.q-tab').forEach(b => b.classList.remove('active'));
+    document.querySelector('.q-tab')?.classList.add('active');
+    renderHighlights(r, 'all');
+
+    // 베스트/워스트 선수
+    const allPlayers = [...(r.home_players||[]).map(p=>({...p,team:s.home_team_name})), ...(r.away_players||[]).map(p=>({...p,team:s.away_team_name}))];
+    const calcEff = p => p.points + p.rebounds + p.assists + p.steals + p.blocks - p.turnovers - ((p.fga||0)-(p.fgm||0)) - ((p.fta||0)-(p.ftm||0));
+    allPlayers.forEach(p => p._eff = calcEff(p));
+    const best = allPlayers.sort((a,b) => b._eff - a._eff)[0];
+    const worst = allPlayers.sort((a,b) => a._eff - b._eff)[0];
+
+    // BEST / WORST (editorial)
+    const _statBlock = (label, val, color) =>
+        `<span><strong style="color:${color || 'var(--fg-0)'}; font-size:18px;">${val}</strong> <span style="color:var(--fg-3); letter-spacing:1px;">${label}</span></span>`;
+    if (best) {
+        document.getElementById('d-best-name').textContent = `${best.name||'-'} · #${best.jersey}`;
+        document.getElementById('d-best-team').textContent = `${best.team} · ${best.position||''}`.trim();
+        document.getElementById('d-best-stats').innerHTML =
+            _statBlock('PTS', best.points) +
+            _statBlock('REB', best.rebounds) +
+            _statBlock('AST', best.assists) +
+            _statBlock('EFF', best._eff, 'var(--good)');
+    }
+    if (worst) {
+        document.getElementById('d-worst-name').textContent = `${worst.name||'-'} · #${worst.jersey}`;
+        document.getElementById('d-worst-team').textContent = `${worst.team} · ${worst.position||''}`.trim();
+        document.getElementById('d-worst-stats').innerHTML =
+            _statBlock('PTS', worst.points) +
+            _statBlock('TO', worst.turnovers) +
+            _statBlock('EFF', worst._eff, 'var(--bad)');
+    }
+
+    // 03 부문별 1위 (editorial)
+    const leaders = [
+        { cat: 'PTS', key: 'points',   label: 'POINTS' },
+        { cat: 'REB', key: 'rebounds', label: 'REBOUNDS' },
+        { cat: 'AST', key: 'assists',  label: 'ASSISTS' },
+        { cat: 'STL', key: 'steals',   label: 'STEALS' },
+    ];
+    document.getElementById('d-leaders').innerHTML = leaders.map(l => {
+        const sorted = [...allPlayers].sort((a,b) => (b[l.key]||0) - (a[l.key]||0));
+        const top = sorted[0];
+        if (!top) return '<div style="background:var(--bg-1); padding:18px;"></div>';
+        return `<div style="background:var(--bg-1); padding:18px;">
+            <div style="font-family:var(--f-mono); font-size:10px; color:var(--fg-2); letter-spacing:2px; margin-bottom:6px;">${l.cat} LEADER</div>
+            <div class="cv-display" style="font-size:38px; font-weight:700; color:var(--hot); letter-spacing:-1px; line-height:1; font-variant-numeric:tabular-nums;">${top[l.key]||0}</div>
+            <div class="cv-display" style="font-size:14px; font-weight:700; margin-top:8px;">${top.name||'-'}</div>
+            <div style="font-family:var(--f-mono); font-size:10px; color:var(--fg-3); letter-spacing:1px; margin-top:2px;">${top.team} · #${top.jersey}</div>
+        </div>`;
+    }).join('');
+
+    // 슛 히트맵
+    drawShotMap(r);
+
+    // 득점 그래프
+    drawScoreGraph(r);
+}
+
+function backToList() {
+    document.getElementById('view-detail').style.display = 'none';
+    document.getElementById('view-list').style.display = 'block';
+    selectedResult = null;
+}
+
+function downloadResult() {
+    if (!selectedResult) return;
+    const blob = new Blob([JSON.stringify(selectedResult, null, 2)], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `courtview_${selectedResult.game_id}.json`;
+    a.click(); URL.revokeObjectURL(url);
+}
+
+// ═══════════════════════════════════════════
+// 슛 히트맵 — 풀코트 (28m × 15m 가로)
+// ═══════════════════════════════════════════
+function drawShotMap(r) {
+    const canvas = document.getElementById('d-shotmap');
+    if (!canvas) return;
+
+    const W = 840, padX = 14, padY = 12, padBot = 20;
+    const courtL = 28, courtS = 15;
+    const drawW = W - padX * 2;
+    const sc = drawW / courtL;
+    const drawH = courtS * sc;
+    const H = Math.round(drawH + padY + padBot);
+    canvas.width = W; canvas.height = H;
+    const ctx = canvas.getContext('2d');
+
+    const tx = m => padX + m * sc;
+    const ty = m => padY + m * sc;
+    const homeName = r.score?.home_team_name || 'HOME';
+    const awayName = r.score?.away_team_name || 'AWAY';
+
+    // 범례 업데이트
+    document.getElementById('d-shotmap-legend').innerHTML =
+        `<span style="color:#FF9933;">●</span> ${homeName} 성공 <span style="color:rgba(255,120,50,0.55);">✕</span> 실패` +
+        `<span style="margin-left:10px;color:#4488FF;">●</span> ${awayName} 성공 <span style="color:rgba(80,130,255,0.55);">✕</span> 실패`;
+
+    // ── 배경 ──
+    ctx.fillStyle = '#0e0e0e';
+    ctx.fillRect(0, 0, W, H);
+
+    // 마루 바닥
+    const wg = ctx.createLinearGradient(padX, 0, padX + drawW, 0);
+    for (let i = 0; i <= 16; i++) wg.addColorStop(i / 16, i % 2 === 0 ? '#3a2015' : '#4a2d1c');
+    ctx.fillStyle = wg;
+    ctx.fillRect(padX, padY, drawW, drawH);
+
+    // 나무 무늬
+    ctx.strokeStyle = 'rgba(90,55,28,0.18)';
+    ctx.lineWidth = 0.5;
+    const plankW = drawW / 18;
+    for (let i = 1; i < 18; i++) {
+        ctx.beginPath();
+        ctx.moveTo(padX + i * plankW, padY);
+        ctx.lineTo(padX + i * plankW, padY + drawH);
+        ctx.stroke();
+    }
+
+    // ── 코트 라인 ──
+    const LC = 'rgba(255,255,255,0.50)';
+    ctx.strokeStyle = LC; ctx.lineWidth = 1.5;
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+
+    // 경계선
+    ctx.strokeRect(padX, padY, drawW, drawH);
+
+    // 센터라인
+    ctx.beginPath(); ctx.moveTo(tx(14), ty(0)); ctx.lineTo(tx(14), ty(15)); ctx.stroke();
+
+    // 센터서클
+    ctx.beginPath(); ctx.arc(tx(14), ty(7.5), 1.8 * sc, 0, Math.PI * 2); ctx.stroke();
+
+    // ── 반코트 그리기 헬퍼 ──
+    const THREE = 6.75, CRN = 0.9, KEY_W = 4.9, KEY_D = 5.8;
+    function drawHalf(basketMx, baseX, dir) {
+        const bxC = tx(basketMx), byC = ty(7.5);
+
+        // 페인트존
+        const px = dir > 0 ? tx(baseX) : tx(baseX - KEY_D);
+        ctx.fillStyle = 'rgba(160,45,25,0.10)';
+        ctx.fillRect(px, ty(7.5 - KEY_W / 2), KEY_D * sc, KEY_W * sc);
+        ctx.strokeStyle = LC; ctx.lineWidth = 1.5;
+        ctx.strokeRect(px, ty(7.5 - KEY_W / 2), KEY_D * sc, KEY_W * sc);
+
+        // 자유투 서클
+        const ftMx = baseX + dir * KEY_D;
+        const ftCx = tx(ftMx), ftCy = ty(7.5), ftR = 1.8 * sc;
+        const solidS = dir > 0 ? Math.PI / 2 : -Math.PI / 2;
+        const solidE = dir > 0 ? 3 * Math.PI / 2 : Math.PI / 2;
+        ctx.strokeStyle = LC;
+        ctx.beginPath(); ctx.arc(ftCx, ftCy, ftR, solidS, solidE); ctx.stroke();
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath(); ctx.arc(ftCx, ftCy, ftR, solidE, solidS); ctx.stroke();
+        ctx.setLineDash([]);
+
+        // 3점 라인
+        const cDy = 7.5 - CRN;
+        const cDx = Math.sqrt(THREE * THREE - cDy * cDy);
+        const jX = basketMx + dir * cDx;
+        ctx.strokeStyle = LC; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(tx(baseX), ty(CRN)); ctx.lineTo(tx(jX), ty(CRN)); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(tx(baseX), ty(15 - CRN)); ctx.lineTo(tx(jX), ty(15 - CRN)); ctx.stroke();
+        const arcR = THREE * sc;
+        const topA = Math.atan2(ty(CRN) - byC, tx(jX) - bxC);
+        const botA = Math.atan2(ty(15 - CRN) - byC, tx(jX) - bxC);
+        ctx.beginPath();
+        ctx.arc(bxC, byC, arcR, dir > 0 ? topA : botA, dir > 0 ? botA : topA);
+        ctx.stroke();
+
+        // 제한 구역
+        const resR = 1.25 * sc;
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.arc(bxC, byC, resR, dir > 0 ? -Math.PI / 2 : Math.PI / 2, dir > 0 ? Math.PI / 2 : 3 * Math.PI / 2);
+        ctx.closePath(); ctx.stroke();
+
+        // 해시 마크
+        const topK = 7.5 - KEY_W / 2, botK = 7.5 + KEY_W / 2;
+        [1.75, 2.15, 2.55].forEach(d => {
+            const hx = baseX + dir * d;
+            ctx.beginPath(); ctx.moveTo(tx(hx), ty(topK)); ctx.lineTo(tx(hx), ty(topK - 0.2)); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(tx(hx), ty(botK)); ctx.lineTo(tx(hx), ty(botK + 0.2)); ctx.stroke();
+        });
+
+        // 백보드 + 림
+        ctx.strokeStyle = 'rgba(255,255,255,0.6)'; ctx.lineWidth = 2.5;
+        const bbX = baseX + dir * 1.2;
+        ctx.beginPath(); ctx.moveTo(tx(bbX), ty(7.5 - 0.9)); ctx.lineTo(tx(bbX), ty(7.5 + 0.9)); ctx.stroke();
+        ctx.strokeStyle = '#E85530'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(bxC, byC, 0.225 * sc, 0, Math.PI * 2); ctx.stroke();
+        ctx.fillStyle = '#E85530';
+        ctx.beginPath(); ctx.arc(bxC, byC, 1.5, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = LC; ctx.lineWidth = 1.5;
+    }
+
+    drawHalf(1.575, 0, 1);      // 좌측 — 홈팀 공격
+    drawHalf(26.425, 28, -1);    // 우측 — 어웨이팀 공격
+
+    // 팀명 라벨
+    ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(255,153,51,0.30)';
+    ctx.fillText('← ' + homeName, tx(7), padY + drawH + 14);
+    ctx.fillStyle = 'rgba(68,136,255,0.30)';
+    ctx.fillText(awayName + ' →', tx(21), padY + drawH + 14);
+
+    // ── 슛 데이터 생성 ──
+    function genShots(players, basketMx, baseX, dir) {
+        const shots = [];
+        players.forEach(p => {
+            const fga = p.fga || 0, fgm = p.fgm || 0;
+            const tpa = p.tpa || 0, tpm = p.tpm || 0;
+            const fta = p.fta || 0, ftm = p.ftm || 0;
+            const twoPa = fga - tpa, twoPm = fgm - tpm;
+            for (let i = 0; i < twoPa; i++) {
+                let dx, dy; const z = Math.random();
+                if (z < 0.35) { dx = Math.random() * 2.8; dy = (Math.random() - 0.5) * 3.5; }
+                else if (z < 0.65) { const a = (Math.random() - 0.5) * 2.4, d = 2.5 + Math.random() * 2.5; dx = Math.abs(Math.cos(a)) * d; dy = Math.sin(a) * d; }
+                else { const a = (Math.random() - 0.5) * 2.8, d = 3.8 + Math.random() * 2.7; dx = Math.abs(Math.cos(a)) * d; dy = Math.sin(a) * d; }
+                shots.push({ x: Math.max(0.4, Math.min(27.6, basketMx + dir * dx)), y: Math.max(0.5, Math.min(14.5, 7.5 + dy)), made: i < twoPm });
+            }
+            for (let i = 0; i < tpa; i++) {
+                let dx, dy;
+                if (Math.random() < 0.22) { dx = Math.random() * 1.5; const t = Math.random() > 0.5; dy = t ? -(7.5 - 0.3 - Math.random() * 0.6) : (7.5 - 0.3 - Math.random() * 0.6); }
+                else { const a = (Math.random() - 0.5) * 2.4, d = THREE + 0.2 + Math.random() * 1.2; dx = Math.abs(Math.cos(a)) * d; dy = Math.sin(a) * d; }
+                shots.push({ x: Math.max(0.3, Math.min(27.7, basketMx + dir * dx)), y: Math.max(0.3, Math.min(14.7, 7.5 + dy)), made: i < tpm });
+            }
+            const ftX = baseX + dir * 5.8;
+            for (let i = 0; i < fta; i++) shots.push({ x: ftX + (Math.random() - 0.5) * 0.2, y: 7.5 + (Math.random() - 0.5) * 0.2, made: i < ftm });
+        });
+        return shots;
+    }
+
+    const homeShots = genShots(r.home_players || [], 1.575, 0, 1);
+    const awayShots = genShots(r.away_players || [], 26.425, 28, -1);
+
+    // ── 슛 렌더링 ──
+    function renderShots(shots, madeColor, missColor, glowColor) {
+        shots.filter(s => !s.made).forEach(s => {
+            const px = tx(s.x), py = ty(s.y), sz = 3;
+            ctx.strokeStyle = missColor; ctx.lineWidth = 1.4;
+            ctx.beginPath();
+            ctx.moveTo(px - sz, py - sz); ctx.lineTo(px + sz, py + sz);
+            ctx.moveTo(px + sz, py - sz); ctx.lineTo(px - sz, py + sz);
+            ctx.stroke();
+        });
+        shots.filter(s => s.made).forEach(s => {
+            const px = tx(s.x), py = ty(s.y);
+            ctx.fillStyle = glowColor;
+            ctx.beginPath(); ctx.arc(px, py, 6, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = madeColor;
+            ctx.beginPath(); ctx.arc(px, py, 3, 0, Math.PI * 2); ctx.fill();
+        });
+    }
+
+    renderShots(homeShots, '#FF9933', 'rgba(255,120,50,0.50)', 'rgba(255,153,51,0.15)');
+    renderShots(awayShots, '#4488FF', 'rgba(80,130,255,0.50)', 'rgba(68,136,255,0.12)');
+}
+
+// ═══════════════════════════════════════════
+// 득점 흐름 그래프 + 하이라이트 마커
+// ═══════════════════════════════════════════
+function drawScoreGraph(r) {
+    const canvas = document.getElementById('d-score-graph');
+    if (!canvas) return;
+
+    const W = 840, H = 260;
+    canvas.width = W; canvas.height = H;
+    const ctx = canvas.getContext('2d');
+
+    const bg = ctx.createLinearGradient(0, 0, 0, H);
+    bg.addColorStop(0, '#141425'); bg.addColorStop(1, '#0d1a2d');
+    ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+
+    const qs = r.score?.quarter_scores || [];
+    if (!qs.length) {
+        ctx.fillStyle = '#555'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center';
+        ctx.fillText('쿼터 데이터 없음', W / 2, H / 2);
+        return;
+    }
+
+    let homeAcc = [0], awayAcc = [0];
+    qs.forEach(q => {
+        homeAcc.push(homeAcc[homeAcc.length - 1] + q.home);
+        awayAcc.push(awayAcc[awayAcc.length - 1] + q.away);
+    });
+
+    const n = homeAcc.length;
+    const maxS = Math.max(...homeAcc, ...awayAcc, 10);
+    const padL = 42, padR = 18, padT = 30, padB = 36;
+    const cW = W - padL - padR, cH = H - padT - padB;
+
+    const gx = i => padL + (i / (n - 1)) * cW;
+    const gy = s => padT + cH - (s / maxS) * cH;
+
+    // 선택된 쿼터 강조
+    if (currentQuarter !== 'all') {
+        const qi = parseInt(currentQuarter);
+        if (qi >= 1 && qi < n) {
+            const x1 = gx(qi - 1), x2 = gx(qi);
+            ctx.fillStyle = 'rgba(255,153,51,0.06)';
+            ctx.fillRect(x1, padT, x2 - x1, cH);
+        }
+    }
+
+    // Y축 그리드
+    const ySteps = 4;
+    for (let i = 0; i <= ySteps; i++) {
+        const y = padT + (cH * i) / ySteps;
+        const val = Math.round(maxS * (1 - i / ySteps));
+        ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); ctx.stroke();
+        ctx.fillStyle = 'rgba(255,255,255,0.25)';
+        ctx.font = '9px sans-serif'; ctx.textAlign = 'right';
+        ctx.fillText(val, padL - 6, y + 3);
+    }
+
+    // 쿼터 구분선
+    ctx.strokeStyle = 'rgba(255,255,255,0.07)'; ctx.setLineDash([3, 4]);
+    for (let i = 1; i < n; i++) {
+        const x = gx(i);
+        ctx.beginPath(); ctx.moveTo(x, padT); ctx.lineTo(x, padT + cH); ctx.stroke();
+    }
+    ctx.setLineDash([]);
+
+    // X축 라벨
+    const xLabels = ['시작', '1Q', '2Q', '3Q', '4Q', 'OT', 'OT2'];
+    ctx.font = '10px sans-serif'; ctx.textAlign = 'center';
+    for (let i = 0; i < n; i++) {
+        const isActive = currentQuarter === 'all' || parseInt(currentQuarter) === i;
+        ctx.fillStyle = isActive ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.2)';
+        ctx.fillText(xLabels[i] || '', gx(i), padT + cH + 14);
+    }
+
+    // 리드 구간 색칠
+    for (let i = 0; i < n - 1; i++) {
+        const x1 = gx(i), x2 = gx(i + 1);
+        ctx.beginPath();
+        ctx.moveTo(x1, gy(homeAcc[i])); ctx.lineTo(x2, gy(homeAcc[i + 1]));
+        ctx.lineTo(x2, gy(awayAcc[i + 1])); ctx.lineTo(x1, gy(awayAcc[i]));
+        ctx.closePath();
+        const hLead = (homeAcc[i] + homeAcc[i + 1]) > (awayAcc[i] + awayAcc[i + 1]);
+        ctx.fillStyle = hLead ? 'rgba(255,153,51,0.07)' : 'rgba(68,136,255,0.07)';
+        ctx.fill();
+    }
+
+    // 영역 채우기
+    const fillArea = (acc, rv, gv, bv) => {
+        const grad = ctx.createLinearGradient(0, padT, 0, padT + cH);
+        grad.addColorStop(0, `rgba(${rv},${gv},${bv},0.22)`);
+        grad.addColorStop(0.5, `rgba(${rv},${gv},${bv},0.06)`);
+        grad.addColorStop(1, `rgba(${rv},${gv},${bv},0)`);
+        ctx.beginPath(); ctx.moveTo(gx(0), padT + cH);
+        acc.forEach((s, i) => ctx.lineTo(gx(i), gy(s)));
+        ctx.lineTo(gx(n - 1), padT + cH); ctx.closePath();
+        ctx.fillStyle = grad; ctx.fill();
+    };
+    fillArea(homeAcc, 255, 153, 51);
+    fillArea(awayAcc, 68, 136, 255);
+
+    // 글로우 + 라인
+    const drawLine = (acc, color, glowColor) => {
+        ctx.strokeStyle = glowColor; ctx.lineWidth = 8; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        ctx.beginPath(); acc.forEach((s, i) => i === 0 ? ctx.moveTo(gx(i), gy(s)) : ctx.lineTo(gx(i), gy(s))); ctx.stroke();
+        ctx.strokeStyle = color; ctx.lineWidth = 2.5;
+        ctx.beginPath(); acc.forEach((s, i) => i === 0 ? ctx.moveTo(gx(i), gy(s)) : ctx.lineTo(gx(i), gy(s))); ctx.stroke();
+    };
+    drawLine(homeAcc, '#FF9933', 'rgba(255,153,51,0.12)');
+    drawLine(awayAcc, '#4488FF', 'rgba(68,136,255,0.10)');
+
+    // 도트 + 점수 라벨
+    const drawDots = (acc, color, above) => {
+        acc.forEach((s, i) => {
+            const x = gx(i), y = gy(s);
+            ctx.fillStyle = '#141425'; ctx.beginPath(); ctx.arc(x, y, 5.5, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = color; ctx.beginPath(); ctx.arc(x, y, 3.5, 0, Math.PI * 2); ctx.fill();
+            if (i > 0) { ctx.fillStyle = color; ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'center'; ctx.fillText(s, x, y + (above ? -10 : 14)); }
+        });
+    };
+    drawDots(homeAcc, '#FF9933', true);
+    drawDots(awayAcc, '#4488FF', false);
+
+    // 범례
+    const homeName = r.score?.home_team_name || 'HOME';
+    const awayName = r.score?.away_team_name || 'AWAY';
+    let lx = padL + 4;
+    [{ name: homeName, c: '#FF9933' }, { name: awayName, c: '#4488FF' }].forEach(t => {
+        ctx.fillStyle = t.c; ctx.beginPath(); ctx.arc(lx, padT - 14, 4, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.6)'; ctx.font = '10px sans-serif'; ctx.textAlign = 'left';
+        ctx.fillText(t.name, lx + 8, padT - 11); lx += ctx.measureText(t.name).width + 26;
+    });
+
+    // 점수차 (우상단)
+    const diff = homeAcc[n - 1] - awayAcc[n - 1];
+    if (diff !== 0) {
+        const leader = diff > 0 ? homeName : awayName;
+        ctx.fillStyle = diff > 0 ? '#FF9933' : '#4488FF';
+        ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'right';
+        ctx.fillText(`${leader} +${Math.abs(diff)}`, W - padR, padT - 11);
+    }
+
+    // ── 하이라이트 마커 ──
+    highlightMarkers = [];
+    const highlights = r.highlights || [];
+    const filtered = currentQuarter === 'all' ? highlights : highlights.filter(h => {
+        const m = h.time.match(/(\d)Q/); return m && parseInt(m[1]) === parseInt(currentQuarter);
+    });
+
+    filtered.forEach((h, idx) => {
+        const m = h.time.match(/(\d)Q\s*(\d+):(\d+)/);
+        if (!m) return;
+        const qi = parseInt(m[1]);
+        if (qi < 1 || qi >= n) return;
+        const remaining = parseInt(m[2]) * 60 + parseInt(m[3]);
+        const frac = (600 - remaining) / 600;
+        const xPos = gx(qi - 1) + (gx(qi) - gx(qi - 1)) * frac;
+
+        // 점선 가이드
+        ctx.strokeStyle = 'rgba(255,200,50,0.20)'; ctx.lineWidth = 1; ctx.setLineDash([2, 3]);
+        ctx.beginPath(); ctx.moveTo(xPos, padT); ctx.lineTo(xPos, padT + cH); ctx.stroke();
+        ctx.setLineDash([]);
+
+        // 다이아몬드 마커
+        const mY = padT + cH + 26;
+        ctx.fillStyle = 'rgba(255,200,50,0.85)';
+        ctx.beginPath();
+        ctx.moveTo(xPos, mY - 5); ctx.lineTo(xPos + 4, mY);
+        ctx.lineTo(xPos, mY + 5); ctx.lineTo(xPos - 4, mY);
+        ctx.closePath(); ctx.fill();
+
+        // 라벨
+        ctx.fillStyle = 'rgba(255,200,50,0.7)'; ctx.font = '8px sans-serif'; ctx.textAlign = 'center';
+        ctx.fillText('🎬', xPos, mY - 9);
+
+        // 클릭 영역 저장
+        highlightMarkers.push({ x: xPos, y: mY, idx });
+    });
+
+    // 캔버스 클릭 → 하이라이트 마커 감지
+    canvas.onclick = function(e) {
+        const rect = canvas.getBoundingClientRect();
+        const sx = canvas.width / rect.width, sy = canvas.height / rect.height;
+        const cx = (e.clientX - rect.left) * sx, cy = (e.clientY - rect.top) * sy;
+        for (const m of highlightMarkers) {
+            if (Math.abs(cx - m.x) < 16 && Math.abs(cy - m.y) < 16) {
+                selectHighlight(m.idx);
+                return;
+            }
+        }
+    };
+}
+
+// ═══════════════════════════════════════════
+// 쿼터 탭 전환
+// ═══════════════════════════════════════════
+function switchQuarter(q) {
+    currentQuarter = q;
+    document.querySelectorAll('.q-tab').forEach(b => b.classList.remove('active'));
+    event.target.classList.add('active');
+    if (selectedResult) {
+        drawScoreGraph(selectedResult);
+        renderHighlights(selectedResult, q);
+    }
+}
+
+function renderHighlights(r, q) {
+    const hl = r.highlights || [];
+    currentHighlights = q === 'all' ? [...hl] : hl.filter(h => {
+        const m = h.time.match(/(\d)Q/);
+        return m && parseInt(m[1]) === parseInt(q);
+    });
+    document.getElementById('d-highlights').innerHTML = currentHighlights.length ? currentHighlights.map((h, i) => `
+        <div class="event-item hl-item" style="cursor:pointer; transition:background 0.12s;" onclick="selectHighlight(${i})"
+             onmouseenter="this.style.background='var(--bg-2)'" onmouseleave="this.style.background=''">
+            <div class="event-icon score">🎬</div>
+            <div class="event-time">${h.time}</div>
+            <div class="event-text"><strong>${h.player}</strong> ${h.desc}</div>
+            <div style="font-family:var(--f-mono); font-size:10px; color:var(--warn); letter-spacing:0.5px;">⭐ ${(h.excitement*100).toFixed(0)}%</div>
+            <div style="font-family:var(--f-mono); font-size:10px; color:var(--fg-3); margin-left:auto; letter-spacing:1px;">▶ 재생</div>
+        </div>`).join('') : '<div style="text-align:center; font-family:var(--f-mono); color:var(--fg-3); font-size:11px; padding:18px; letter-spacing:1px;">NO HIGHLIGHTS</div>';
+    // 플레이어 숨기기 (쿼터 변경 시)
+    closeHighlightPlayer();
+}
+
+function selectHighlight(idx) {
+    const h = currentHighlights[idx];
+    if (!h) return;
+
+    const player = document.getElementById('d-highlight-player');
+    const video = document.getElementById('d-player-video');
+    const placeholder = document.getElementById('d-player-placeholder');
+    const title = document.getElementById('d-player-title');
+
+    player.style.display = 'block';
+    title.innerHTML = `🎬 <span style="color:var(--hot); font-family:var(--f-mono); letter-spacing:0.5px;">${h.time}</span> — <strong style="font-family:var(--f-display);">${h.player}</strong> <span style="color:var(--fg-2);">${h.desc}</span> <span style="color:var(--warn); font-family:var(--f-mono); letter-spacing:0.5px;">⭐ ${(h.excitement*100).toFixed(0)}%</span>`;
+
+    if (h.video_url) {
+        video.src = h.video_url;
+        video.style.display = 'block';
+        placeholder.style.display = 'none';
+        video.currentTime = 0;
+        video.play().catch(() => {});
+    } else {
+        video.pause();
+        video.removeAttribute('src');
+        video.style.display = 'none';
+        placeholder.style.display = 'flex';
+    }
+
+    // 선택 표시
+    document.querySelectorAll('.hl-item').forEach((el, i) => {
+        el.style.background = i === idx ? 'rgba(255,197,61,0.10)' : '';
+        el.style.borderLeft = i === idx ? '3px solid var(--warn)' : '';
+    });
+
+    player.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function closeHighlightPlayer() {
+    const player = document.getElementById('d-highlight-player');
+    const video = document.getElementById('d-player-video');
+    if (player) player.style.display = 'none';
+    if (video) { video.pause(); video.removeAttribute('src'); }
+    document.querySelectorAll('.hl-item').forEach(el => {
+        el.style.background = ''; el.style.borderLeft = '';
+    });
+}
+
+init();
+</script>
+{% endblock %}

@@ -49,7 +49,9 @@ import argparse
 import hashlib
 import json
 import os
+import subprocess  # noqa: F401  (used by _compile_and_upload_installer)
 import sys
+import time  # v0.5.2: top-level (used by _upload_delta_files + _compile_and_upload_installer)
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -98,9 +100,16 @@ def _build_manifest(
     mandatory: bool,
     notes: str,
     public_url: str,
+    bucket: str = "",
+    region: str = "",
 ) -> dict:
+    """latest.json - 옛 zip 정보 + (v0.5.2+) 델타 manifest URL 동시 노출.
+
+    옛 클라이언트 (v0.5.1 이하): url/sha256 만 봄 → 7GB zip 다운
+    새 클라이언트 (v0.5.2+): manifest_url 우선 → 변경된 파일만 다운
+    """
     size = zip_path.stat().st_size
-    return {
+    out = {
         "version": version,
         "url": public_url,
         "sha256": sha256,
@@ -111,6 +120,14 @@ def _build_manifest(
         "notes": notes or "",
         "platform": "windows-x64",
     }
+    # v0.5.2+: 델타 업데이트 정보 (옛 클라이언트는 무시함)
+    if bucket and region:
+        delta_base = f"https://{bucket}.s3.{region}.amazonaws.com/{channel}/v{version}"
+        out["delta"] = {
+            "manifest_url": f"{delta_base}/manifest.json",
+            "files_base_url": f"{delta_base}/files",
+        }
+    return out
 
 
 # =============================================================================
@@ -157,13 +174,26 @@ def _compile_and_upload_installer(
     print("-" * 60)
 
     # 1. ISCC 컴파일
-    print(f"  [ISCC] {iscc}")
-    print(f"  [ISCC] /DMyAppVersion={version} {iss.name}")
-    t0 = time.monotonic()
-    subprocess.check_call(
-        [str(iscc), f"/DMyAppVersion={version}", str(iss)],
-        cwd=str(ROOT),
+    # ISCC 6 (2026+) 에서 `/D<name>=<value>` 의 `=` 이후를 별도 script 파일로 파싱하는
+    # 회귀 버그가 있어 ("You may not specify more than one script filename.") 안전하게
+    # iss 파일 사본을 만들어 첫 줄에 #define 으로 박아 컴파일.
+    # ⚠️ 임시 iss 는 반드시 ROOT 에 생성 - DIST_DIR 에 두면 iss 안 상대경로 `dist/courtview/*`
+    #    가 ISCC 의 working dir 기준 `dist/dist/courtview/*` 로 해석되어 fail.
+    tmp_iss = ROOT / f"courtview_v{version}.iss"
+    iss_text = iss.read_text(encoding="utf-8")
+    tmp_iss.write_text(
+        f'#define MyAppVersion "{version}"\n' + iss_text, encoding="utf-8",
     )
+    print(f"  [ISCC] {iscc}")
+    print(f"  [ISCC] {tmp_iss.name} (#define MyAppVersion={version})")
+    t0 = time.monotonic()
+    try:
+        subprocess.check_call([str(iscc), str(tmp_iss)], cwd=str(ROOT))
+    finally:
+        try:
+            tmp_iss.unlink(missing_ok=True)
+        except Exception:
+            pass
     print(f"  [ISCC] 완료 ({time.monotonic()-t0:.1f}s)")
 
     # 2. 산출물 수집 - Setup.exe + -1.bin, -2.bin, ...
@@ -210,6 +240,97 @@ def _compile_and_upload_installer(
 
 
 # =============================================================================
+# v0.5.2: 델타 업데이트용 파일별 S3 업로드 + manifest 업로드
+# =============================================================================
+def _upload_delta_files(
+    s3, bucket: str, channel: str, version: str, manifest_path: Path,
+    *, parallel: int = 16,
+) -> None:
+    """build.py 가 만든 manifest-{ver}.json 의 모든 파일을 S3 에 업로드.
+
+    구조:
+        s3://{bucket}/{channel}/v{ver}/manifest.json
+        s3://{bucket}/{channel}/v{ver}/files/{relative_path}    ← 모든 _internal/* 파일
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    import json as _json
+
+    manifest_data = _json.loads(manifest_path.read_text(encoding="utf-8"))
+    file_entries = manifest_data["files"]
+    bundle_dir = DIST_DIR / "courtview"
+
+    # 1. manifest.json 업로드 (immutable cache)
+    manifest_key = _s3_key(channel, version, "manifest.json")
+    print(f"  [delta] manifest.json -> s3://{bucket}/{manifest_key}")
+    s3.upload_file(
+        Filename=str(manifest_path),
+        Bucket=bucket,
+        Key=manifest_key,
+        ExtraArgs={
+            "ContentType": "application/json; charset=utf-8",
+            "CacheControl": "public, max-age=31536000, immutable",
+        },
+    )
+
+    # 2. 파일별 업로드 (병렬)
+    files_prefix = f"{channel}/v{version}/files"
+    total = len(file_entries)
+    total_size_gb = sum(e["size"] for e in file_entries) / (1024**3)
+    print(
+        f"  [delta] 파일 {total} 개, 총 {total_size_gb:.2f} GB, "
+        f"병렬 {parallel} workers"
+    )
+
+    uploaded = [0]
+    failures: list[tuple[str, str]] = []
+
+    def _upload_one(entry: dict) -> tuple[str, bool, str]:
+        rel = entry["path"]
+        local = bundle_dir / rel
+        if not local.exists():
+            return rel, False, "local 없음"
+        key = f"{files_prefix}/{rel}"
+        try:
+            s3.upload_file(
+                Filename=str(local),
+                Bucket=bucket,
+                Key=key,
+                ExtraArgs={
+                    "ContentType": "application/octet-stream",
+                    "CacheControl": "public, max-age=31536000, immutable",
+                },
+            )
+            return rel, True, ""
+        except Exception as e:
+            return rel, False, f"{type(e).__name__}: {e}"
+
+    t0 = time.monotonic()
+    with ThreadPoolExecutor(max_workers=parallel) as ex:
+        futures = [ex.submit(_upload_one, e) for e in file_entries]
+        for f in as_completed(futures):
+            rel, ok, err = f.result()
+            uploaded[0] += 1
+            if not ok:
+                failures.append((rel, err))
+            # 진행률 100 단위
+            if uploaded[0] % 200 == 0 or uploaded[0] == total:
+                elapsed = time.monotonic() - t0
+                pct = 100.0 * uploaded[0] / total
+                print(
+                    f"  [delta] {uploaded[0]:>4}/{total} ({pct:5.1f}%) "
+                    f"{elapsed:.0f}s elapsed"
+                )
+
+    if failures:
+        print(f"  [delta] FAIL {len(failures)} 개 (예: {failures[0][0]} - {failures[0][1]})")
+        raise RuntimeError(f"{len(failures)} files failed to upload")
+
+    elapsed = time.monotonic() - t0
+    mbps = total_size_gb * 1024 / max(0.1, elapsed)
+    print(f"  [delta] OK ({elapsed:.0f}s, {mbps:.1f} MB/s)")
+
+
+# =============================================================================
 def upload(
     version: str,
     channel: str = "stable",
@@ -240,6 +361,8 @@ def upload(
         mandatory=mandatory,
         notes=notes,
         public_url=public_url,
+        bucket=bucket,
+        region=region,
     )
 
     print("=" * 60)
@@ -303,7 +426,22 @@ def upload(
         _put_file(sha_path, sha_key, content_type="text/plain")
     _put_json(manifest, manifest_key, cache_control="public, max-age=31536000, immutable")
 
-    # 2. latest.json (포인터 - 짧은 TTL 로 빠른 전파)
+    # 2. (v0.5.2+) 델타 manifest + 파일별 업로드 - 새 클라이언트가 변경분만 다운로드.
+    delta_manifest_path = DIST_DIR / f"manifest-{version}.json"
+    if delta_manifest_path.exists():
+        print()
+        print("-" * 60)
+        print(f"  델타 업데이트: 파일별 업로드 + manifest")
+        print("-" * 60)
+        try:
+            _upload_delta_files(s3, bucket, channel, version, delta_manifest_path)
+        except Exception as e:
+            print(f"  [WARN] 델타 업로드 실패 - 옛 zip 폴백만 사용: {e}")
+    else:
+        print(f"  [WARN] 델타 manifest 미존재: {delta_manifest_path.name} - zip 폴백만 사용")
+
+    # 3. latest.json (포인터 - 짧은 TTL 로 빠른 전파)
+    #    옛 zip url + (있으면) delta 정보 둘 다 들어있음.
     _put_json(manifest, latest_key, cache_control="public, max-age=60")
 
     print()
@@ -320,6 +458,13 @@ def upload(
 
 # =============================================================================
 def main() -> int:
+    # cp949 콘솔 환경에서 한글/em-dash print 시 UnicodeEncodeError 방지
+    try:
+        import sys as _sys
+        _sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        _sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
     parser = argparse.ArgumentParser(description="COURTVIEW 릴리즈 업로드")
     parser.add_argument("version", help="버전 문자열 (예: 1.2.3)")
     parser.add_argument("--channel", default="stable",

@@ -1,0 +1,713 @@
+{% extends "components/layout.html" %}
+{% set active = "settings" %}
+{% block title %}COURTVIEW — 설정{% endblock %}
+
+{% block styles %}
+<style>
+/* ================================================================
+   SETTINGS · Editorial
+   Hero · stat strip · 좌 nav | 우 form
+   섹션: ACCOUNT · ENGINE · DISPLAY · DATA · COMPETITION RULES · SYSTEM INFO
+   ================================================================ */
+.st-root { color: var(--fg-0); }
+
+/* HERO */
+.st-hero {
+    padding: 28px 0 22px;
+    border-bottom: 1px solid var(--line-2);
+    position: relative;
+}
+.st-hero-issue {
+    position: absolute; top: 6px; right: 0;
+    font-family: var(--f-mono); font-size: 11px;
+    color: var(--fg-3); letter-spacing: 1.4px;
+    text-align: right; line-height: 1.6;
+}
+.st-hero-tagrow {
+    display: flex; gap: 8px; align-items: center;
+    font-family: var(--f-mono); font-size: 11px;
+    color: var(--fg-2); letter-spacing: 1px;
+}
+.st-hero-title {
+    font-family: var(--f-display); font-weight: 700;
+    font-size: 56px; letter-spacing: -2px; line-height: 0.96;
+    margin: 12px 0 0;
+}
+.st-hero-title .hot { color: var(--hot); }
+.st-hero-meta {
+    display: flex; flex-wrap: wrap; gap: 28px;
+    margin-top: 14px;
+    font-family: var(--f-mono); font-size: 12px; color: var(--fg-1);
+}
+.st-hero-meta .lbl { color: var(--fg-3); }
+
+/* BODY */
+.st-body {
+    display: grid; grid-template-columns: 240px 1fr;
+    gap: 1px; background: var(--line-2);
+    border-bottom: 1px solid var(--line-2);
+    min-height: 600px;
+}
+
+/* SIDEBAR NAV */
+.st-nav {
+    background: var(--bg-1);
+    padding: 18px 0;
+}
+.st-nav-item {
+    display: block;
+    padding: 12px 24px;
+    border-left: 2px solid transparent;
+    background: transparent;
+    color: var(--fg-2);
+    font-family: var(--f-mono); font-size: 11px; font-weight: 700;
+    letter-spacing: 1.2px;
+    cursor: pointer;
+    transition: all 0.12s;
+    text-align: left;
+    width: 100%;
+    border-top: none; border-right: none; border-bottom: none;
+}
+.st-nav-item:hover {
+    color: var(--fg-0);
+    background: var(--bg-2);
+}
+.st-nav-item.active {
+    color: var(--fg-0);
+    background: var(--bg-2);
+    border-left-color: var(--hot);
+}
+.st-nav-item .num {
+    color: var(--fg-3); font-size: 9px;
+    margin-right: 8px;
+}
+.st-nav-item.active .num { color: var(--hot); }
+
+/* FORM AREA */
+.st-form {
+    background: var(--bg-1);
+    padding: 28px 36px;
+    overflow-y: auto;
+}
+.st-section { display: none; }
+.st-section.active { display: block; }
+
+.st-section-head {
+    display: flex; align-items: baseline; gap: 12px;
+    margin-bottom: 6px;
+}
+.st-section-head .num {
+    font-family: var(--f-mono); font-size: 10px;
+    color: var(--fg-2); letter-spacing: 2px;
+}
+.st-section-head .title {
+    font-family: var(--f-display); font-size: 22px; font-weight: 700;
+    letter-spacing: -0.5px;
+}
+.st-section-sub {
+    font-family: var(--f-mono); font-size: 11px;
+    color: var(--fg-3); letter-spacing: 0.5px;
+    margin-bottom: 22px;
+}
+
+.st-form-grid {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 20px;
+}
+.st-field { display: flex; flex-direction: column; }
+.st-field label {
+    font-family: var(--f-mono); font-size: 10px;
+    color: var(--fg-2); letter-spacing: 1.5px;
+    margin-bottom: 6px;
+}
+.st-field input,
+.st-field select,
+.st-field textarea {
+    padding: 10px 12px;
+    background: var(--bg-2);
+    border: 1px solid var(--line-3);
+    color: var(--fg-0);
+    font-family: var(--f-mono); font-size: 12px;
+    outline: none;
+}
+.st-field input:focus,
+.st-field select:focus,
+.st-field textarea:focus { border-color: var(--hot); }
+.st-field input[readonly] { background: var(--bg-1); color: var(--fg-2); cursor: default; }
+.st-field .hint {
+    font-family: var(--f-mono); font-size: 10px;
+    color: var(--fg-3); margin-top: 6px; letter-spacing: 0.3px;
+}
+
+.st-checkbox-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--line-2);
+    font-family: var(--f-mono); font-size: 12px;
+    color: var(--fg-1);
+}
+.st-checkbox-row:last-child { border-bottom: none; }
+.st-checkbox-row input { cursor: pointer; }
+.st-checkbox-row label {
+    cursor: pointer; flex: 1;
+    letter-spacing: 0.5px;
+}
+.st-checkbox-row .hint {
+    font-family: var(--f-mono); font-size: 10px;
+    color: var(--fg-3);
+}
+
+.st-density-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+}
+.st-density-card {
+    padding: 16px 18px;
+    background: var(--bg-2);
+    border: 1px solid var(--line-2);
+    cursor: pointer;
+    transition: all 0.12s;
+}
+.st-density-card.active {
+    background: rgba(255,90,31,0.06);
+    border-color: var(--hot);
+}
+.st-density-card .num {
+    font-family: var(--f-mono); font-size: 10px;
+    color: var(--fg-3); letter-spacing: 1px;
+}
+.st-density-card.active .num { color: var(--hot); }
+.st-density-card .name {
+    font-family: var(--f-display); font-size: 16px; font-weight: 700;
+    letter-spacing: -0.2px; margin-top: 4px;
+}
+.st-density-card .desc {
+    font-family: var(--f-mono); font-size: 10px;
+    color: var(--fg-2); margin-top: 6px; line-height: 1.5;
+}
+
+.st-actions {
+    display: flex; gap: 8px; margin-top: 32px;
+    padding-top: 18px;
+    border-top: 1px solid var(--line-2);
+}
+
+/* ============== COMPETITION RULES (cv-rules.jsx 통합) ============== */
+.st-rules-grid {
+    display: grid; grid-template-columns: 280px 1fr;
+    gap: 24px;
+}
+.st-rules-presets { display: flex; flex-direction: column; gap: 6px; }
+.st-rules-preset {
+    text-align: left;
+    padding: 12px 14px;
+    background: var(--bg-2);
+    border: 1px solid var(--line-2);
+    color: var(--fg-0);
+    cursor: pointer;
+    transition: all 0.12s;
+}
+.st-rules-preset:hover { border-color: var(--fg-3); }
+.st-rules-preset.active {
+    background: var(--bg-3);
+    border-color: var(--hot);
+}
+.st-rules-preset .head {
+    display: flex; align-items: baseline; gap: 8px;
+}
+.st-rules-preset .name {
+    font-family: var(--f-display); font-size: 14px; font-weight: 700;
+    letter-spacing: -0.2px;
+}
+.st-rules-preset .active-tag {
+    font-family: var(--f-mono); font-size: 8px;
+    color: var(--hot); letter-spacing: 1.5px; margin-left: auto;
+}
+.st-rules-preset .org {
+    font-family: var(--f-mono); font-size: 10px;
+    color: var(--fg-2); margin-top: 4px;
+}
+.st-rules-preset .meta {
+    display: flex; gap: 8px; margin-top: 6px;
+    font-family: var(--f-mono); font-size: 9px;
+    color: var(--fg-3); letter-spacing: 0.5px;
+}
+
+.st-rules-detail {
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+}
+.st-rule-cell {
+    padding: 14px;
+    background: var(--bg-2);
+    border: 1px solid var(--line-2);
+}
+.st-rule-cell .lab {
+    font-family: var(--f-mono); font-size: 9px;
+    color: var(--fg-3); letter-spacing: 1px;
+}
+.st-rule-cell .val {
+    font-family: var(--f-display); font-size: 22px; font-weight: 700;
+    color: var(--hot); margin-top: 4px;
+    font-variant-numeric: tabular-nums;
+}
+.st-rule-cell .unit {
+    font-family: var(--f-mono); font-size: 11px;
+    color: var(--fg-2); margin-left: 4px;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="st-root">
+
+    <!-- ─── HERO ─── -->
+    <div class="st-hero">
+        <div class="st-hero-issue">
+            <div>ISSUE · CFG</div>
+            <div style="margin-top:4px;" id="st-today">—</div>
+        </div>
+        <div class="st-hero-tagrow">
+            <span class="cv-tag good" style="font-size:10px;">SETTINGS</span>
+            <span>OPERATOR · ENGINE · DISPLAY · DATA · RULES</span>
+        </div>
+        <h1 class="st-hero-title">EVERY KNOB,<br><span class="hot">ON ONE PAGE.</span></h1>
+        <div class="st-hero-meta">
+            <span><span class="lbl">OPERATOR —</span> <span id="st-meta-op">—</span></span>
+            <span><span class="lbl">ROLE —</span> <span id="st-meta-role">ADMIN</span></span>
+            <span><span class="lbl">VENUE —</span> <span id="st-meta-venue">—</span></span>
+        </div>
+    </div>
+
+    <!-- ─── BODY: nav | form ─── -->
+    <div class="st-body">
+
+        <!-- SIDEBAR NAV -->
+        <div class="st-nav">
+            <button class="st-nav-item active" data-tab="account" onclick="stTab('account', this)"><span class="num">01</span>ACCOUNT</button>
+            <button class="st-nav-item" data-tab="engine" onclick="stTab('engine', this)"><span class="num">02</span>ENGINE</button>
+            <button class="st-nav-item" data-tab="display" onclick="stTab('display', this)"><span class="num">03</span>DISPLAY</button>
+            <button class="st-nav-item" data-tab="data" onclick="stTab('data', this)"><span class="num">04</span>DATA</button>
+            <button class="st-nav-item" data-tab="rules" onclick="stTab('rules', this)"><span class="num">05</span>RULES</button>
+            <button class="st-nav-item" data-tab="system" onclick="stTab('system', this)"><span class="num">06</span>SYSTEM</button>
+        </div>
+
+        <!-- FORM AREA -->
+        <div class="st-form">
+
+            <!-- ─── 01 ACCOUNT ─── -->
+            <div id="st-section-account" class="st-section active">
+                <div class="st-section-head">
+                    <span class="num">01 · ACCOUNT</span>
+                    <span class="title">OPERATOR PROFILE</span>
+                </div>
+                <div class="st-section-sub">Identity, language &amp; venue defaults.</div>
+
+                <div class="st-form-grid">
+                    <div class="st-field">
+                        <label>DISPLAY NAME</label>
+                        <input type="text" id="st-name" value="">
+                    </div>
+                    <div class="st-field">
+                        <label>EMAIL</label>
+                        <input type="email" id="st-email" readonly>
+                    </div>
+                    <div class="st-field">
+                        <label>ROLE</label>
+                        <input type="text" id="st-role" value="ADMIN" readonly>
+                    </div>
+                    <div class="st-field">
+                        <label>VENUE</label>
+                        <input type="text" id="st-venue" placeholder="OLYMPIC PARK · COURT 03">
+                    </div>
+                    <div class="st-field">
+                        <label>LANGUAGE</label>
+                        <select id="st-lang">
+                            <option value="ko" selected>한국어 (KO)</option>
+                            <option value="en">ENGLISH (US)</option>
+                            <option value="ja">日本語 (JA)</option>
+                        </select>
+                    </div>
+                    <div class="st-field">
+                        <label>TIMEZONE</label>
+                        <select id="st-tz">
+                            <option value="Asia/Seoul" selected>ASIA/SEOUL · UTC+09</option>
+                            <option value="UTC">UTC</option>
+                            <option value="America/New_York">AMERICA/NEW_YORK · UTC−05</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="st-actions">
+                    <span style="flex:1;"></span>
+                    <button class="cv-btn" style="height:36px; padding:0 18px; font-size:11px; letter-spacing:1px;" onclick="discardSettings()">DISCARD</button>
+                    <button class="cv-btn primary" style="height:36px; padding:0 18px; font-size:11px; letter-spacing:1px;" onclick="saveSettings()">💾 SAVE</button>
+                </div>
+            </div>
+
+            <!-- ─── 02 ENGINE ─── -->
+            <div id="st-section-engine" class="st-section">
+                <div class="st-section-head">
+                    <span class="num">02 · ENGINE</span>
+                    <span class="title">SERVER &amp; CAMERAS</span>
+                </div>
+                <div class="st-section-sub">엔진 서버 주소, 분석 모드, 카메라 채널.</div>
+
+                <div class="st-form-grid">
+                    <div class="st-field">
+                        <label>ENGINE URL</label>
+                        <input type="text" id="engine-url" value="http://localhost:8000">
+                    </div>
+                    <div class="st-field">
+                        <label>CLOUD URL</label>
+                        <input type="text" id="cloud-url" value="http://107.21.157.92:8001/api/v1">
+                    </div>
+                    <div class="st-field">
+                        <label>ANALYSIS MODE</label>
+                        <select id="analysis-mode">
+                            <option value="live" selected>LIVE · 실시간</option>
+                            <option value="batch">BATCH · 배치</option>
+                        </select>
+                    </div>
+                    <div class="st-field">
+                        <label>CAMERA COUNT</label>
+                        <select id="camera-count">
+                            <option value="1">1 cam</option>
+                            <option value="4">4 cams</option>
+                            <option value="8" selected>8 cams</option>
+                        </select>
+                    </div>
+                    <div class="st-field">
+                        <label>RESOLUTION</label>
+                        <select id="resolution">
+                            <option value="1080p" selected>1080p (1920×1080)</option>
+                            <option value="720p">720p (1280×720)</option>
+                            <option value="4k">4K (3840×2160)</option>
+                        </select>
+                    </div>
+                    <div class="st-field">
+                        <label>FPS</label>
+                        <select id="fps">
+                            <option value="30" selected>30 fps</option>
+                            <option value="60">60 fps</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="st-actions">
+                    <span style="flex:1;"></span>
+                    <button class="cv-btn" style="height:36px; padding:0 18px; font-size:11px;" onclick="discardSettings()">DISCARD</button>
+                    <button class="cv-btn primary" style="height:36px; padding:0 18px; font-size:11px;" onclick="saveSettings()">💾 SAVE</button>
+                </div>
+            </div>
+
+            <!-- ─── 03 DISPLAY ─── -->
+            <div id="st-section-display" class="st-section">
+                <div class="st-section-head">
+                    <span class="num">03 · DISPLAY</span>
+                    <span class="title">THEME &amp; DENSITY</span>
+                </div>
+                <div class="st-section-sub">화면 정보 밀도와 폰트 사이즈 선호.</div>
+
+                <div class="st-density-grid" id="st-density">
+                    <div class="st-density-card active" data-density="dense" onclick="setDensity('dense', this)">
+                        <div class="num">01</div>
+                        <div class="name">DENSE</div>
+                        <div class="desc">최대 정보. 오퍼레이터 기본.</div>
+                    </div>
+                    <div class="st-density-card" data-density="comfort" onclick="setDensity('comfort', this)">
+                        <div class="num">02</div>
+                        <div class="name">COMFORT</div>
+                        <div class="desc">균형. 일상 사용용.</div>
+                    </div>
+                    <div class="st-density-card" data-density="spacious" onclick="setDensity('spacious', this)">
+                        <div class="num">03</div>
+                        <div class="name">SPACIOUS</div>
+                        <div class="desc">여유 있는 간격. 데모 모드.</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ─── 04 DATA ─── -->
+            <div id="st-section-data" class="st-section">
+                <div class="st-section-head">
+                    <span class="num">04 · DATA</span>
+                    <span class="title">SYNC &amp; STORAGE</span>
+                </div>
+                <div class="st-section-sub">분석 결과 동기화, 로컬 백업, 학습 데이터 추출.</div>
+
+                <div>
+                    <div class="st-checkbox-row">
+                        <input type="checkbox" id="d-cloud" checked>
+                        <label for="d-cloud">분석 결과 자동 Cloud 전송</label>
+                        <span class="hint">finalize 직후 업로드</span>
+                    </div>
+                    <div class="st-checkbox-row">
+                        <input type="checkbox" id="d-local" checked>
+                        <label for="d-local">로컬 JSON 백업 저장</label>
+                        <span class="hint">_appdata/sessions/</span>
+                    </div>
+                    <div class="st-checkbox-row">
+                        <input type="checkbox" id="d-train">
+                        <label for="d-train">학습 데이터 추출</label>
+                        <span class="hint">model retraining</span>
+                    </div>
+                    <div class="st-checkbox-row">
+                        <input type="checkbox" id="d-anon" checked>
+                        <label for="d-anon">PII 익명화 (선수 얼굴 마스킹)</label>
+                        <span class="hint">privacy</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ─── 05 RULES (cv-rules.jsx 통합) ─── -->
+            <div id="st-section-rules" class="st-section">
+                <div class="st-section-head">
+                    <span class="num">05 · COMPETITION RULES</span>
+                    <span class="title">규칙 프리셋</span>
+                </div>
+                <div class="st-section-sub">FIBA · NBA · KBL · 학원 · 생활체육 · 3×3 · 유소년. 프리셋 클릭 → 우측 디테일 자동 적용.</div>
+
+                <div class="st-rules-grid">
+                    <div class="st-rules-presets" id="st-presets-list"></div>
+
+                    <div>
+                        <div style="font-family:var(--f-mono); font-size:10px; color:var(--fg-2); letter-spacing:1.5px; margin-bottom:10px;">
+                            ACTIVE — <span id="st-rule-name" style="color:var(--hot); font-weight:700;">FIBA</span> ·
+                            <span id="st-rule-org" style="color:var(--fg-3);">International standard</span>
+                        </div>
+                        <div class="st-rules-detail" id="st-rule-detail"></div>
+                        <div style="display:flex; gap:8px; margin-top:18px;">
+                            <button class="cv-btn primary" style="height:32px; padding:0 16px; font-size:11px;" onclick="saveCurrentRule()">💾 현재 설정 저장</button>
+                            <button class="cv-btn" style="height:32px; padding:0 16px; font-size:11px;" onclick="exportRules()">📥 JSON 내보내기</button>
+                        </div>
+                        <div id="st-rule-saved" style="display:none; margin-top:8px; padding:8px 12px; background:var(--bg-2); border:1px solid var(--good); font-family:var(--f-mono); font-size:10px; color:var(--good); letter-spacing:0.5px;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ─── 06 SYSTEM ─── -->
+            <div id="st-section-system" class="st-section">
+                <div class="st-section-head">
+                    <span class="num">06 · SYSTEM</span>
+                    <span class="title">VERSION &amp; HARDWARE</span>
+                </div>
+                <div class="st-section-sub">UI · 엔진 · Python · CUDA 버전 정보.</div>
+
+                <div style="display:flex; flex-direction:column; font-family:var(--f-mono);" id="st-system-info">
+                    <div style="padding:14px 0; border-bottom:1px solid var(--line-2); display:flex; justify-content:space-between; align-items:center;">
+                        <span style="font-size:10px; color:var(--fg-3); letter-spacing:1.5px;">UI VERSION</span>
+                        <span style="font-family:var(--f-display); font-size:14px; font-weight:700;">v0.5.5</span>
+                    </div>
+                    <div style="padding:14px 0; border-bottom:1px solid var(--line-2); display:flex; justify-content:space-between; align-items:center;">
+                        <span style="font-size:10px; color:var(--fg-3); letter-spacing:1.5px;">ENGINE VERSION</span>
+                        <span style="font-family:var(--f-display); font-size:14px; font-weight:700;" id="st-sys-engine">—</span>
+                    </div>
+                    <div style="padding:14px 0; border-bottom:1px solid var(--line-2); display:flex; justify-content:space-between; align-items:center;">
+                        <span style="font-size:10px; color:var(--fg-3); letter-spacing:1.5px;">PYTHON</span>
+                        <span style="font-family:var(--f-display); font-size:14px; font-weight:700;">3.11</span>
+                    </div>
+                    <div style="padding:14px 0; border-bottom:1px solid var(--line-2); display:flex; justify-content:space-between; align-items:center;">
+                        <span style="font-size:10px; color:var(--fg-3); letter-spacing:1.5px;">CUDA</span>
+                        <span style="font-family:var(--f-display); font-size:14px; font-weight:700;">12.8</span>
+                    </div>
+                    <div style="padding:14px 0; display:flex; justify-content:space-between; align-items:center;">
+                        <span style="font-size:10px; color:var(--fg-3); letter-spacing:1.5px;">GPU</span>
+                        <span style="font-family:var(--f-display); font-size:14px; font-weight:700;" id="st-sys-gpu">—</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// =============================================================================
+// 탭 전환
+// =============================================================================
+function stTab(name, btn) {
+    document.querySelectorAll('.st-section').forEach(s => s.classList.remove('active'));
+    document.getElementById('st-section-' + name).classList.add('active');
+    document.querySelectorAll('.st-nav-item').forEach(n => n.classList.remove('active'));
+    btn.classList.add('active');
+}
+
+// =============================================================================
+// HERO 메타 자동 채우기
+// =============================================================================
+const _today = new Date();
+document.getElementById('st-today').textContent =
+    `${String(_today.getMonth()+1).padStart(2,'0')} · ${String(_today.getDate()).padStart(2,'0')} · ${_today.getFullYear()}`;
+
+const userEmail = localStorage.getItem('user_email') || 'operator@spoin.kr';
+const userName = localStorage.getItem('display_name') || localStorage.getItem('user_name') || 'OPERATOR';
+document.getElementById('st-meta-op').textContent = userEmail;
+document.getElementById('st-email').value = userEmail;
+document.getElementById('st-name').value = userName;
+
+try {
+    const venues = JSON.parse(localStorage.getItem('cv_venues') || '[]');
+    if (venues.length > 0) {
+        document.getElementById('st-meta-venue').textContent = venues[0].name;
+        document.getElementById('st-venue').value = venues[0].name;
+    } else {
+        document.getElementById('st-meta-venue').textContent = '—';
+    }
+} catch {}
+
+// =============================================================================
+// 로컬 설정 저장/복원
+// =============================================================================
+const SETTINGS_KEY = 'cv_settings';
+
+function loadSettings() {
+    try {
+        const s = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+        if (s.engineUrl) document.getElementById('engine-url').value = s.engineUrl;
+        if (s.cloudUrl) document.getElementById('cloud-url').value = s.cloudUrl;
+        if (s.mode) document.getElementById('analysis-mode').value = s.mode;
+        if (s.lang) document.getElementById('st-lang').value = s.lang;
+        if (s.tz) document.getElementById('st-tz').value = s.tz;
+        if (s.density) {
+            document.querySelectorAll('.st-density-card').forEach(c =>
+                c.classList.toggle('active', c.dataset.density === s.density));
+        }
+        ['d-cloud','d-local','d-train','d-anon'].forEach(id => {
+            if (s.data && s.data[id] !== undefined) {
+                document.getElementById(id).checked = s.data[id];
+            }
+        });
+    } catch {}
+}
+
+function saveSettings() {
+    const data = {
+        engineUrl: document.getElementById('engine-url').value,
+        cloudUrl: document.getElementById('cloud-url').value,
+        mode: document.getElementById('analysis-mode').value,
+        name: document.getElementById('st-name').value,
+        venue: document.getElementById('st-venue').value,
+        lang: document.getElementById('st-lang').value,
+        tz: document.getElementById('st-tz').value,
+        density: document.querySelector('.st-density-card.active')?.dataset.density || 'dense',
+        data: {
+            'd-cloud': document.getElementById('d-cloud').checked,
+            'd-local': document.getElementById('d-local').checked,
+            'd-train': document.getElementById('d-train').checked,
+            'd-anon': document.getElementById('d-anon').checked,
+        },
+    };
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(data));
+    alert('설정이 저장되었습니다.');
+}
+
+function discardSettings() {
+    if (!confirm('변경사항을 폐기하시겠습니까?')) return;
+    location.reload();
+}
+
+function setDensity(d, el) {
+    document.querySelectorAll('.st-density-card').forEach(c => c.classList.remove('active'));
+    el.classList.add('active');
+}
+
+// =============================================================================
+// 05 RULES — cv-rules.jsx 프리셋 통합
+// =============================================================================
+const RULE_PRESETS = [
+    { id:'fiba',   name:'FIBA',     org:'International / KBL · 정식 룰',  base:{ periods:4, length:'10:00', otLength:'05:00', shotClock:24, resetClock:14, bonus:5, totalTO:5, fouled:5 } },
+    { id:'nba',    name:'NBA',      org:'북미 프로농구',                  base:{ periods:4, length:'12:00', otLength:'05:00', shotClock:24, resetClock:14, bonus:5, totalTO:7, fouled:6 } },
+    { id:'kbl',    name:'KBL',      org:'한국 프로농구',                  base:{ periods:4, length:'10:00', otLength:'05:00', shotClock:24, resetClock:14, bonus:5, totalTO:5, fouled:5 } },
+    { id:'khsl',   name:'학원농구', org:'고교농구연맹 표준',              base:{ periods:4, length:'08:00', otLength:'04:00', shotClock:24, resetClock:14, bonus:5, totalTO:4, fouled:5 } },
+    { id:'social', name:'생활체육', org:'일반 동호회 · 짧은 경기',        base:{ periods:4, length:'07:00', otLength:'03:00', shotClock:30, resetClock:14, bonus:5, totalTO:3, fouled:5 } },
+    { id:'3x3',    name:'3 × 3',    org:'FIBA 3x3 공식',                  base:{ periods:1, length:'10:00', otLength:'—',     shotClock:12, resetClock:12, bonus:7, totalTO:1, fouled:4 } },
+    { id:'youth',  name:'유소년',   org:'초등 / 중등 단축 경기',          base:{ periods:4, length:'06:00', otLength:'02:00', shotClock:30, resetClock:14, bonus:4, totalTO:3, fouled:5 } },
+];
+let activePreset = 'fiba';
+
+function renderRulePresets() {
+    const list = document.getElementById('st-presets-list');
+    list.innerHTML = RULE_PRESETS.map(p => `
+        <button class="st-rules-preset ${p.id===activePreset?'active':''}" onclick="selectPreset('${p.id}')">
+            <div class="head">
+                <span class="name">${p.name}</span>
+                ${p.id===activePreset ? '<span class="active-tag">● ACTIVE</span>' : ''}
+            </div>
+            <div class="org">${p.org}</div>
+            <div class="meta">
+                <span>${p.base.periods}Q × ${p.base.length}</span>
+                <span>·</span>
+                <span>${p.base.shotClock}s</span>
+                <span>·</span>
+                <span>TO ${p.base.totalTO}</span>
+            </div>
+        </button>
+    `).join('');
+}
+
+function renderRuleDetail() {
+    const p = RULE_PRESETS.find(x => x.id === activePreset);
+    if (!p) return;
+    document.getElementById('st-rule-name').textContent = p.name;
+    document.getElementById('st-rule-org').textContent = p.org;
+    const cells = [
+        ['PERIODS', p.base.periods, 'Q'],
+        ['LENGTH', p.base.length, ''],
+        ['OT LENGTH', p.base.otLength, ''],
+        ['SHOT CLOCK', p.base.shotClock, 's'],
+        ['RESET', p.base.resetClock, 's'],
+        ['BONUS @ TF', p.base.bonus, ''],
+        ['TIMEOUTS', p.base.totalTO, '/game'],
+        ['FOULED OUT', p.base.fouled, 'PF'],
+    ];
+    document.getElementById('st-rule-detail').innerHTML = cells.map(([k,v,u]) => `
+        <div class="st-rule-cell">
+            <div class="lab">${k}</div>
+            <div class="val">${v}<span class="unit">${u}</span></div>
+        </div>
+    `).join('');
+}
+
+function selectPreset(id) {
+    activePreset = id;
+    renderRulePresets();
+    renderRuleDetail();
+}
+window.selectPreset = selectPreset;
+
+function saveCurrentRule() {
+    localStorage.setItem('cv_active_ruleset', activePreset);
+    const el = document.getElementById('st-rule-saved');
+    el.style.display = 'block';
+    el.textContent = `✓ "${RULE_PRESETS.find(p => p.id === activePreset)?.name}" 프리셋 저장됨 · ${new Date().toLocaleString('ko-KR')}`;
+    setTimeout(() => { el.style.display = 'none'; }, 4000);
+}
+
+function exportRules() {
+    const p = RULE_PRESETS.find(x => x.id === activePreset);
+    const blob = new Blob([JSON.stringify(p, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+    a.download = `courtview_rule_${p.id}.json`; a.click();
+}
+
+// 초기 활성 프리셋 복원
+const savedRule = localStorage.getItem('cv_active_ruleset');
+if (savedRule && RULE_PRESETS.find(p => p.id === savedRule)) activePreset = savedRule;
+renderRulePresets();
+renderRuleDetail();
+
+// =============================================================================
+// SYSTEM info — 엔진/GPU 자동 fetch
+// =============================================================================
+fetch('/health').then(r => r.ok ? r.json() : null).then(d => {
+    if (d) document.getElementById('st-sys-engine').textContent = d.engine_version || d.version || 'IDLE';
+}).catch(() => {});
+fetch('/api/v1/metrics/gpu').then(r => r.ok ? r.json() : null).then(d => {
+    if (d) document.getElementById('st-sys-gpu').textContent = d.gpu_name || '—';
+}).catch(() => {});
+
+loadSettings();
+</script>
+{% endblock %}

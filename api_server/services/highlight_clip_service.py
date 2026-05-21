@@ -60,6 +60,8 @@ class HighlightClipService:
         "_pending",
         "_lock",
         "_master_camera_id",
+        "_upload_service",
+        "_game_id_provider",
     )
 
     def __init__(
@@ -81,6 +83,23 @@ class HighlightClipService:
         self._lock: RLock = RLock()
         # None 이면 첫 번째 카메라 자동 선택
         self._master_camera_id = master_camera_id
+        # v0.4.0: S3 자동 업로드 (실시간) — 외부에서 set_upload_service 로 주입
+        self._upload_service: Any = None
+        self._game_id_provider: Any = None
+
+    # =========================================================================
+    # v0.4.0: S3 업로드 연동
+    # =========================================================================
+    def set_upload_service(self, upload_service: Any, game_id_provider: Any = None) -> None:
+        """UploadService 주입 + game_id 추출 콜백 등록.
+
+        Args:
+            upload_service: infrastructure.storage.upload_service.UploadService
+            game_id_provider: () -> str. 호출 시점의 game_id 반환.
+                              None 이면 session_id 를 fallback 으로 사용.
+        """
+        self._upload_service = upload_service
+        self._game_id_provider = game_id_provider
 
     # =========================================================================
     # Observer 콜백 (파이프라인에서 호출)
@@ -185,8 +204,34 @@ class HighlightClipService:
             )
         except ClipFileExtractionError as e:
             _logger.warning("클립 추출 실패 (%s): %s", event_id, e)
+            return
         except Exception:
             _logger.exception("클립 추출 중 예외 (%s)", event_id)
+            return
+
+        # v0.4.0: 추출 성공 → S3 업로드 큐 (실시간)
+        if self._upload_service is None:
+            return
+        try:
+            game_id = ""
+            if self._game_id_provider is not None:
+                try:
+                    game_id = self._game_id_provider() or ""
+                except Exception:
+                    game_id = ""
+            if not game_id:
+                game_id = status.get("session_id", "") or session_dir.name
+            self._upload_service.submit_video(
+                game_id=game_id,
+                file_path=out_path,
+                role="highlight",
+                camera_id=cam_id,
+            )
+            _logger.info(
+                "하이라이트 S3 업로드 큐잉: %s (game_id=%s)", out_path.name, game_id,
+            )
+        except Exception:
+            _logger.exception("하이라이트 업로드 큐잉 실패: %s", out_path)
 
     # =========================================================================
     # 라이프사이클

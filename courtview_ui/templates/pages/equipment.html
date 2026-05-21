@@ -1,0 +1,1168 @@
+{% extends "components/layout.html" %}
+{% set active = "equipment" %}
+{% block title %}COURTVIEW — 장비 관리{% endblock %}
+
+{% block styles %}
+<style>
+/* ================================================================
+   EQUIPMENT · Editorial rig
+   Hero · stat strip · health bar · discover panel · 4-col camera grid
+   ================================================================ */
+.eq-root { color: var(--fg-0); }
+
+/* ---------- HERO ---------- */
+.eq-hero {
+    padding: 32px 0 24px;
+    border-bottom: 1px solid var(--line-2);
+    position: relative;
+}
+.eq-hero-issue {
+    position: absolute; top: 8px; right: 0;
+    font-family: var(--f-mono); font-size: 11px;
+    color: var(--fg-3); letter-spacing: 1.4px;
+    text-align: right; line-height: 1.6;
+}
+.eq-hero-tagrow {
+    display: flex; gap: 8px; align-items: center;
+    font-family: var(--f-mono); font-size: 11px;
+    color: var(--fg-2); letter-spacing: 1px;
+}
+.eq-hero-title {
+    font-family: var(--f-display); font-weight: 700;
+    font-size: 64px; letter-spacing: -2px; line-height: 0.96;
+    margin: 14px 0 0; max-width: 900px;
+}
+.eq-hero-title .good { color: var(--good); }
+.eq-hero-meta {
+    display: flex; flex-wrap: wrap; gap: 28px;
+    margin-top: 16px;
+    font-family: var(--f-mono); font-size: 12px; color: var(--fg-1);
+}
+.eq-hero-meta .lbl { color: var(--fg-3); }
+.eq-hero-actions {
+    position: absolute; top: 60px; right: 0;
+    display: flex; gap: 6px;
+}
+
+/* ---------- STAT STRIP ---------- */
+.eq-statbar {
+    display: grid; grid-template-columns: repeat(6, 1fr);
+    border-bottom: 1px solid var(--line-2);
+}
+.eq-stat-cell {
+    padding: 16px 18px;
+    border-right: 1px solid var(--line-2);
+}
+.eq-stat-cell:last-child { border-right: none; }
+.eq-stat-lab {
+    font-family: var(--f-mono); font-size: 10px;
+    color: var(--fg-2); letter-spacing: 1.2px;
+}
+.eq-stat-num {
+    font-family: var(--f-display); font-weight: 700;
+    font-size: 28px; line-height: 1; margin-top: 4px;
+    letter-spacing: -0.5px; font-variant-numeric: tabular-nums;
+    color: var(--fg-0);
+}
+.eq-stat-num.good { color: var(--good); }
+.eq-stat-num.cool { color: var(--cool); }
+.eq-stat-num.warn { color: var(--warn); }
+.eq-stat-num.bad { color: var(--bad); }
+.eq-stat-sub {
+    font-family: var(--f-mono); font-size: 9px;
+    color: var(--fg-3); letter-spacing: 0.5px; margin-top: 4px;
+}
+
+/* ---------- HEALTH BAR ---------- */
+.eq-health-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 16px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--line-2);
+    background: var(--bg-2);
+}
+.eq-health-left {
+    display: flex; align-items: center; gap: 12px;
+}
+.eq-health-dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--fg-3);
+    flex-shrink: 0;
+}
+.eq-health-summary {
+    font-family: var(--f-display); font-size: 13px; font-weight: 700;
+    letter-spacing: -0.2px;
+}
+.eq-health-detail {
+    font-family: var(--f-mono); font-size: 10px;
+    color: var(--fg-3); margin-top: 3px; letter-spacing: 0.5px;
+}
+.eq-health-badges {
+    display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end;
+}
+
+/* badge-pill (health labels) — Editorial rebuild */
+.badge-pill {
+    display: inline-flex; align-items: center;
+    padding: 3px 9px;
+    border: 1px solid var(--line-3);
+    background: transparent;
+    color: var(--fg-2);
+    font-family: var(--f-mono); font-size: 9px; font-weight: 700;
+    letter-spacing: 1.2px;
+}
+.badge-pill.healthy { color: var(--good); border-color: var(--good); background: rgba(43,212,164,0.06); }
+.badge-pill.stalled { color: var(--warn); border-color: var(--warn); background: rgba(255,197,61,0.06); }
+.badge-pill.reconnecting { color: var(--warn); border-color: var(--warn); background: rgba(255,197,61,0.06); }
+.badge-pill.failed { color: var(--bad); border-color: var(--bad); background: rgba(255,59,92,0.06); }
+.badge-pill.unknown { color: var(--fg-3); border-color: var(--line-3); }
+
+/* ---------- DISCOVER PANEL ---------- */
+.eq-discover-panel {
+    margin: 14px 0 0;
+    padding: 14px;
+    background: var(--bg-2);
+    border: 1px solid var(--line-2);
+}
+.eq-discover-head {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 12px;
+}
+.eq-discover-count {
+    font-family: var(--f-mono); font-size: 11px;
+    color: var(--fg-1); letter-spacing: 0.5px;
+}
+.eq-discover-count .num { color: var(--hot); font-weight: 700; }
+
+.eq-discover-loading {
+    text-align: center;
+    padding: 20px;
+    font-family: var(--f-mono); font-size: 11px;
+    color: var(--fg-2); letter-spacing: 1px;
+}
+.eq-discover-loading .pbar {
+    margin-top: 10px;
+    height: 3px;
+    background: var(--bg-3);
+    overflow: hidden;
+}
+.eq-discover-loading .pbar > div {
+    height: 100%; width: 60%;
+    background: var(--hot);
+    animation: scanBar 1.5s ease-in-out infinite;
+}
+@keyframes scanBar {
+    0% { width:10%; margin-left:0; }
+    50% { width:60%; margin-left:20%; }
+    100% { width:10%; margin-left:90%; }
+}
+
+.eq-discover-table {
+    width: 100%; border-collapse: collapse;
+    font-family: var(--f-mono);
+}
+.eq-discover-table th {
+    padding: 8px 10px;
+    text-align: left;
+    color: var(--fg-2); font-size: 10px; font-weight: 700;
+    letter-spacing: 1px;
+    border-bottom: 1px solid var(--line-2);
+    background: var(--bg-1);
+}
+.eq-discover-table td {
+    padding: 8px 10px;
+    color: var(--fg-1); font-size: 11px;
+    border-bottom: 1px solid var(--line-2);
+}
+.eq-discover-table select {
+    background: var(--bg-1); border: 1px solid var(--line-3);
+    color: var(--fg-0);
+    font-family: var(--f-mono); font-size: 10px;
+    padding: 4px 6px; outline: none;
+}
+.eq-discover-table input[type="checkbox"] { cursor: pointer; }
+
+/* ---------- CAMERA GRID ---------- */
+.eq-cam-grid {
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+    padding: 18px 0 32px;
+}
+.eq-cam-card {
+    background: var(--bg-2);
+    border: 1px solid var(--line-2);
+    overflow: hidden;
+    transition: border-color 0.12s;
+}
+.eq-cam-card.live {
+    border-color: var(--hot);
+}
+.eq-cam-card .preview-box {
+    aspect-ratio: 16/9;
+    background: #000;
+    position: relative;
+    overflow: hidden;
+}
+.eq-cam-card .preview-stripes::before {
+    content: ''; position: absolute; inset: 0; pointer-events: none;
+    background: repeating-linear-gradient(45deg, transparent 0 14px, rgba(255,255,255,0.02) 14px 15px),
+                radial-gradient(ellipse at 50% 60%, rgba(255,90,31,0.06), transparent 60%);
+}
+.eq-cam-card .preview-empty {
+    width: 100%; height: 100%;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 6px;
+    font-family: var(--f-mono); font-size: 10px; color: var(--fg-3);
+    letter-spacing: 1px;
+}
+.eq-cam-card .preview-empty .head {
+    font-family: var(--f-display); font-size: 14px; color: var(--fg-2);
+    letter-spacing: 2px;
+}
+.eq-cam-card .preview-label {
+    position: absolute; top: 8px; left: 8px;
+    padding: 3px 8px;
+    background: rgba(0,0,0,0.7);
+    border: 1px solid var(--line-3);
+    font-family: var(--f-mono); font-size: 10px; font-weight: 700;
+    color: var(--fg-0); letter-spacing: 1px; z-index: 2;
+}
+.eq-cam-card .preview-status {
+    position: absolute; top: 8px; right: 8px;
+    padding: 3px 8px;
+    background: rgba(0,0,0,0.7);
+    font-family: var(--f-mono); font-size: 10px; font-weight: 700;
+    letter-spacing: 1px; z-index: 2;
+}
+.eq-cam-card .preview-status.live { color: var(--bad); border: 1px solid var(--bad); }
+.eq-cam-card .preview-status.offline { color: var(--fg-3); border: 1px solid var(--line-3); }
+.eq-cam-card .preview-offline-text {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--f-display); font-size: 22px; font-weight: 700;
+    color: var(--fg-3); letter-spacing: 2px;
+    z-index: 1;
+}
+
+.eq-cam-card .cam-body {
+    padding: 12px 14px;
+    border-top: 1px solid var(--line-2);
+    background: var(--bg-2);
+}
+.eq-cam-card .cam-head {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 10px;
+}
+.eq-cam-card .cam-name {
+    font-family: var(--f-display); font-size: 14px; font-weight: 700;
+    letter-spacing: -0.2px;
+}
+.eq-cam-card .cam-status-row {
+    display: flex; align-items: center; gap: 6px;
+}
+.eq-cam-card .cam-metrics {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 8px; margin-bottom: 10px;
+    padding: 8px 10px;
+    background: var(--bg-1);
+    border: 1px solid var(--line-2);
+}
+.eq-cam-card .cam-metric .lab {
+    font-family: var(--f-mono); font-size: 9px;
+    color: var(--fg-3); letter-spacing: 1px;
+}
+.eq-cam-card .cam-metric .val {
+    font-family: var(--f-mono); font-size: 13px; font-weight: 600;
+    color: var(--fg-0); margin-top: 2px; font-variant-numeric: tabular-nums;
+}
+.eq-cam-card .cam-metric .val.good { color: var(--good); }
+.eq-cam-card .cam-metric .val.warn { color: var(--warn); }
+.eq-cam-card .cam-metric .val.dim { color: var(--fg-3); }
+
+.eq-cam-card .cam-url-row {
+    display: flex; gap: 4px; margin-bottom: 8px;
+}
+.eq-cam-card .cam-url-row select {
+    flex: 1;
+    background: var(--bg-1); border: 1px solid var(--line-3);
+    color: var(--fg-0);
+    font-family: var(--f-mono); font-size: 10px;
+    padding: 6px 8px; outline: none;
+}
+.eq-cam-card .cam-url-row select:focus { border-color: var(--hot); }
+.eq-cam-card .cam-badges {
+    display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 8px;
+}
+.eq-cam-card .cam-actions {
+    display: flex; gap: 4px; flex-wrap: wrap;
+}
+.eq-cam-card .cam-action-btn {
+    flex: 1;
+    height: 28px;
+    background: transparent;
+    border: 1px solid var(--line-3);
+    color: var(--fg-1);
+    font-family: var(--f-mono); font-size: 10px; letter-spacing: 0.5px;
+    cursor: pointer;
+    transition: all 0.12s;
+}
+.eq-cam-card .cam-action-btn:hover { border-color: var(--hot); color: var(--hot); }
+.eq-cam-card .cam-action-btn.danger {
+    border-color: var(--bad); color: var(--bad); flex: 0 0 32px;
+}
+.eq-cam-card .cam-action-btn.danger:hover { background: var(--bad); color: #0A0B0D; }
+.eq-cam-card .cam-action-btn.primary {
+    background: var(--hot); border-color: var(--hot); color: #0A0B0D;
+}
+.eq-cam-card .cam-action-btn.primary:hover { background: #FF7144; }
+
+.feedback {
+    margin-top: 6px;
+    padding: 5px 8px;
+    font-family: var(--f-mono); font-size: 10px;
+    letter-spacing: 0.5px;
+    border: 1px solid var(--line-3);
+    background: var(--bg-1);
+    color: var(--fg-2);
+}
+.feedback.ok { color: var(--good); border-color: var(--good); background: rgba(43,212,164,0.08); }
+.feedback.err { color: var(--bad); border-color: var(--bad); background: rgba(255,59,92,0.08); }
+.feedback.pending { color: var(--warn); border-color: var(--warn); background: rgba(255,197,61,0.08); }
+
+.eq-empty-row {
+    text-align: center;
+    font-family: var(--f-mono); font-size: 11px;
+    color: var(--fg-3); padding: 24px 16px;
+    letter-spacing: 1px;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="eq-root">
+
+    <!-- ─── HERO ─── -->
+    <div class="eq-hero">
+        <div class="eq-hero-issue">
+            <div>ISSUE · RIG</div>
+            <div style="margin-top:4px;" id="eq-today">—</div>
+        </div>
+        <div class="eq-hero-tagrow">
+            <span class="cv-tag good" style="font-size:10px;">EQUIPMENT</span>
+            <span><span id="eq-cam-count">8</span> CAMERA RIG · MULTI-COURT TRACKING</span>
+        </div>
+        <h1 class="eq-hero-title">EIGHT EYES,<br><span class="good">ONE COURT.</span></h1>
+        <div class="eq-hero-meta">
+            <span><span class="lbl">ENGINE —</span> <span id="eq-engine">tracker · standby</span></span>
+            <span><span class="lbl">STREAM —</span> <span id="eq-stream">RTSP · WebRTC · 8 ch</span></span>
+            <span><span class="lbl">RECORD —</span> <span id="eq-record">—</span></span>
+        </div>
+        <div class="eq-hero-actions">
+            <button class="cv-btn primary" style="height:32px; padding:0 16px; font-size:11px; letter-spacing:1px;" id="discover-btn" onclick="discoverCameras()">🔍 자동 탐색</button>
+            <button class="cv-btn" style="height:32px; padding:0 16px; font-size:11px; letter-spacing:1px;" onclick="connectAll()">⚡ 전체 연결</button>
+            <button class="cv-btn" style="height:32px; padding:0 16px; font-size:11px; letter-spacing:1px; border-color:var(--bad); color:var(--bad);" onclick="disconnectAll()">✕ 전체 해제</button>
+            <button class="cv-btn" style="height:32px; padding:0 16px; font-size:11px; letter-spacing:1px;" onclick="refreshAll()">🔄 새로고침</button>
+            <button class="cv-btn" style="height:32px; padding:0 16px; font-size:11px; letter-spacing:1px; border-color:var(--warn); color:var(--warn);" onclick="seedMockEquipment()">🌱 DEMO 시드</button>
+        </div>
+    </div>
+
+    <!-- ─── STAT STRIP ─── -->
+    <div class="eq-statbar">
+        <div class="eq-stat-cell">
+            <div class="eq-stat-lab">TOTAL</div>
+            <div class="eq-stat-num" id="total-cameras">0</div>
+        </div>
+        <div class="eq-stat-cell">
+            <div class="eq-stat-lab">CONNECTED</div>
+            <div class="eq-stat-num good" id="connected-count">0</div>
+        </div>
+        <div class="eq-stat-cell">
+            <div class="eq-stat-lab">CALIBRATED</div>
+            <div class="eq-stat-num cool" id="calibrated-count">0</div>
+        </div>
+        <div class="eq-stat-cell">
+            <div class="eq-stat-lab">AI TESTED</div>
+            <div class="eq-stat-num warn" id="ai-tested-count">0</div>
+        </div>
+        <div class="eq-stat-cell">
+            <div class="eq-stat-lab">DISCOVERED</div>
+            <div class="eq-stat-num" id="discovered-count-stat">0</div>
+            <div class="eq-stat-sub">RTSP scan</div>
+        </div>
+        <div class="eq-stat-cell">
+            <div class="eq-stat-lab">HEALTH POLL</div>
+            <div class="eq-stat-num" id="poll-status" style="font-size:18px;">2s</div>
+            <div class="eq-stat-sub">자동 모니터링</div>
+        </div>
+    </div>
+
+    <!-- ─── HEALTH BAR ─── -->
+    <div class="eq-health-bar" id="health-bar">
+        <div class="eq-health-left">
+            <div class="eq-health-dot" id="health-indicator"></div>
+            <div>
+                <div class="eq-health-summary" id="health-summary">헬스 모니터 대기 중</div>
+                <div class="eq-health-detail" id="health-detail">서버에서 카메라 상태를 조회합니다…</div>
+            </div>
+        </div>
+        <div class="eq-health-badges" id="health-badges"></div>
+    </div>
+
+    <!-- ─── DISCOVER PANEL ─── -->
+    <div id="discover-panel" class="eq-discover-panel" style="display:none;">
+        <div class="eq-discover-head">
+            <div class="eq-discover-count">🔎 탐색 결과 — <span class="num" id="discover-count">0</span>대 발견</div>
+            <div style="display:flex; gap:6px;">
+                <button class="cv-btn primary" style="height:28px; padding:0 12px; font-size:10px; letter-spacing:1px;" onclick="autoAssignAll()">전체 자동 배정</button>
+                <button class="cv-btn" style="height:28px; padding:0 12px; font-size:10px; letter-spacing:1px;" onclick="applyAssignment()">선택 배정 적용</button>
+                <button class="cv-btn" style="height:28px; padding:0 12px; font-size:10px; letter-spacing:1px;" onclick="clearDiscovery()">닫기</button>
+            </div>
+        </div>
+
+        <!-- 탐색 진행 표시 -->
+        <div id="discover-loading" class="eq-discover-loading" style="display:none;">
+            네트워크 스캔 중… RTSP 카메라를 찾고 있습니다
+            <div class="pbar"><div></div></div>
+        </div>
+
+        <!-- 결과 테이블 -->
+        <div id="discover-results" style="display:none;">
+            <div style="max-height:280px; overflow-y:auto;">
+                <table class="eq-discover-table">
+                    <thead>
+                        <tr>
+                            <th style="width:30px; text-align:center;">✓</th>
+                            <th>IP 주소</th>
+                            <th>모델</th>
+                            <th>스트림 URL</th>
+                            <th style="width:60px; text-align:center;">RESP</th>
+                            <th style="width:120px;">슬롯</th>
+                        </tr>
+                    </thead>
+                    <tbody id="discover-tbody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- ─── CAMERA GRID ─── -->
+    <div class="eq-cam-grid" id="camera-grid"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// =============================================================================
+// 상태
+// =============================================================================
+let cameras = [];
+let discoveredCameras = [];  // 탐색된 RTSP 목록
+
+// localStorage 저장 — 페이지 새로고침 후에도 카메라 목록/연결 상태 유지
+function saveCameraState() {
+    localStorage.setItem('cv_cameras', JSON.stringify(cameras));
+    localStorage.setItem('cv_discovered', JSON.stringify(discoveredCameras));
+}
+
+function initCameras() {
+    // localStorage에서 복원 시도
+    try {
+        const saved = localStorage.getItem('cv_cameras');
+        const savedDisc = localStorage.getItem('cv_discovered');
+        if (saved) {
+            cameras = JSON.parse(saved);
+            if (savedDisc) discoveredCameras = JSON.parse(savedDisc);
+            renderCameras();
+            updateSummary();
+            syncCalibrationStatus();
+            return;
+        }
+    } catch {}
+
+    // 없으면 초기화
+    cameras = Array.from({length: 8}, (_, i) => ({
+        id: `cam_${i}`,
+        label: `CAM ${i + 1}`,
+        url: '',
+        connected: false,
+        width: 1920,
+        height: 1080,
+        fps: 30,
+        calibrated: false,
+        calibration_quality: 0,
+        ai_tested: false,
+        ai_result: null,
+    }));
+    renderCameras();
+    updateSummary();
+    // 엔진에서 캘리 상태 동기화 (초기 상태에서도)
+    syncCalibrationStatus();
+}
+
+// 엔진에서 캘리브레이션 상태 동기화
+async function syncCalibrationStatus() {
+    for (const cam of cameras) {
+        try {
+            const resp = await fetch(`/api/v1/camera/${cam.id}/calibration`);
+            // v0.5.2: resp.ok (200) = 캘리 파일 존재 = 캘리됨.
+            // 이전엔 if(data.success) 였는데 server 응답에 success field 없음 →
+            // 영원히 미완료 표시. 404 면 미캘리, 200 이면 캘리됨.
+            if (resp.ok) {
+                const data = await resp.json();
+                cam.calibrated = true;
+                cam.calibration_quality = data.quality_score || 0;
+            }
+        } catch {}
+    }
+    renderCameras();
+    updateSummary();
+}
+
+// =============================================================================
+// 렌더링
+// =============================================================================
+function renderCameras() {
+    const grid = document.getElementById('camera-grid');
+    grid.innerHTML = cameras.map((cam, idx) => {
+        const health = cam.health_status || 'unknown';
+        const isLive = cam.connected && health === 'healthy';
+        const cardClass = isLive ? 'eq-cam-card live' : 'eq-cam-card';
+
+        // 헬스 배지
+        let healthBadge = '';
+        if (cam.connected) {
+            const labels = {
+                healthy: '정상',
+                stalled: 'STALLED',
+                reconnecting: '재연결',
+                failed: '실패',
+                unknown: '확인 중',
+            };
+            healthBadge = `<span class="badge-pill ${health}">${labels[health] || '—'}</span>`;
+        }
+
+        // 메트릭 (프레임/지연) — 연결 시만
+        let metricsHtml = '';
+        if (cam.connected) {
+            const fpsApprox = cam.fps ? cam.fps.toFixed(1) : '—';
+            const decoded = cam.frames_decoded !== undefined ? cam.frames_decoded.toLocaleString() : '—';
+            const silent = cam.seconds_since_last_frame || 0;
+            const lagText = silent < 1 ? 'LIVE' : silent.toFixed(1) + 's';
+            const lagClass = silent < 1 ? 'good' : silent < 3 ? 'warn' : 'dim';
+            metricsHtml = `<div class="cam-metrics">
+                <div class="cam-metric"><div class="lab">FPS</div><div class="val">${fpsApprox}</div></div>
+                <div class="cam-metric"><div class="lab">DECODED</div><div class="val">${decoded}</div></div>
+                <div class="cam-metric"><div class="lab">LAG</div><div class="val ${lagClass}">${lagText}</div></div>
+            </div>`;
+        }
+
+        const calibBadge = cam.calibrated
+            ? `<span class="badge-pill healthy">📐 ${(cam.calibration_quality*100).toFixed(0)}%</span>`
+            : '<span class="badge-pill unknown">📐 미캘리</span>';
+
+        const aiBadge = cam.ai_tested
+            ? '<span class="badge-pill healthy">🤖 AI OK</span>'
+            : '';
+
+        // 미리보기 — go2rtc <video-stream> 웹 컴포넌트
+        let previewBoxHtml;
+        if (cam.connected) {
+            previewBoxHtml = `<div class="preview-box preview-stripes">
+                <span class="preview-label">${cam.label} · ${cam.id.toUpperCase()}</span>
+                ${isLive ? '<span class="preview-status live">● LIVE</span>' : '<span class="preview-status offline">○ STANDBY</span>'}
+                <video-stream id="preview-${cam.id}" class="cam-preview" data-cam="${cam.id}"
+                              mode="webrtc"
+                              style="width:100%;height:100%;background:#000;position:relative;z-index:1;"></video-stream>
+            </div>`;
+        } else {
+            previewBoxHtml = `<div class="preview-box preview-stripes">
+                <span class="preview-label">${cam.label} · ${cam.id.toUpperCase()}</span>
+                <span class="preview-status offline">○ OFFLINE</span>
+                <div class="preview-empty">
+                    <span class="head">CAMERA STANDBY</span>
+                    <span>드롭다운에서 RTSP URL 선택</span>
+                </div>
+            </div>`;
+        }
+
+        return `<div class="${cardClass}">
+            ${previewBoxHtml}
+            <div class="cam-body">
+                <div class="cam-head">
+                    <div class="cam-name">${cam.label}</div>
+                    <div class="cam-status-row">${healthBadge}</div>
+                </div>
+
+                ${metricsHtml}
+
+                <!-- URL 선택 + probe -->
+                <div class="cam-url-row">
+                    <select id="url-${idx}" onchange="updateCamUrl(${idx}, this.value)">
+                        <option value="">— URL 선택 —</option>
+                        ${discoveredCameras.map(dc =>
+                            '<option value="' + dc.url + '"' + (cam.url === dc.url ? ' selected' : '') + '>'
+                            + dc.ip + ' · ' + (dc.model || 'RTSP')
+                            + '</option>'
+                        ).join('')}
+                        ${cam.url && !discoveredCameras.find(dc => dc.url === cam.url)
+                            ? '<option value="' + cam.url + '" selected>' + cam.url + '</option>'
+                            : ''}
+                    </select>
+                    <button class="cam-action-btn" style="flex:0 0 32px;" onclick="probeCam(${idx})" title="연결 가능성 사전 검증">🔍</button>
+                </div>
+                <div id="probe-feedback-${idx}" class="feedback" style="display:none;"></div>
+
+                <!-- 배지 -->
+                <div class="cam-badges">
+                    ${calibBadge}
+                    ${aiBadge}
+                </div>
+
+                <!-- 액션 -->
+                <div class="cam-actions">
+                    ${cam.connected
+                        ? `<button class="cam-action-btn" onclick="snapshot(${idx})" title="스냅샷">📸 SNAP</button>
+                           <button class="cam-action-btn" onclick="calibrate(${idx})" title="캘리브레이션">📐 CALIB</button>
+                           <button class="cam-action-btn" onclick="aiTest(${idx})" title="AI 테스트">🤖 AI</button>
+                           <button class="cam-action-btn" style="flex:0 0 32px;" onclick="reconnectCam(${idx})" title="재연결">🔄</button>
+                           <button class="cam-action-btn danger" onclick="disconnectCam(${idx})" title="연결 해제">✕</button>`
+                        : `<button class="cam-action-btn primary" style="flex:1;" onclick="connectCam(${idx})">⚡ 연결</button>`
+                    }
+                </div>
+            </div>
+        </div>`;
+    }).join('');
+
+    // v0.3.1: 렌더 후 <video-stream.cam-preview> 에 src 주입 — 웹 컴포넌트가 자체적으로
+    // WebSocket 연결·재연결·해제 관리. renderCameras 가 innerHTML 교체 시 이전 요소는
+    // 자동 disconnectedCallback 로 정리됨.
+    // v0.3.2: mode='webrtc' JS property 강제 — 기본 MSE 우선순위가 버퍼링 유발.
+    document.querySelectorAll('.cam-preview').forEach(el => {
+        const camId = el.dataset.cam;
+        if (!camId) return;
+        el.mode = 'webrtc';
+        el.src = `ws://127.0.0.1:1984/api/ws?src=${camId}`;
+    });
+}
+
+function updateSummary() {
+    document.getElementById('total-cameras').textContent = cameras.length;
+    document.getElementById('connected-count').textContent = cameras.filter(c => c.connected).length;
+    document.getElementById('calibrated-count').textContent = cameras.filter(c => c.calibrated).length;
+    document.getElementById('ai-tested-count').textContent = cameras.filter(c => c.ai_tested).length;
+    const camCountEl = document.getElementById('eq-cam-count');
+    if (camCountEl) camCountEl.textContent = cameras.length;
+    const dcStat = document.getElementById('discovered-count-stat');
+    if (dcStat) dcStat.textContent = discoveredCameras.length;
+}
+
+function updateHeroMeta() {
+    const todayEl = document.getElementById('eq-today');
+    if (todayEl) {
+        const d = new Date();
+        const mm = String(d.getMonth()+1).padStart(2,'0');
+        const dd = String(d.getDate()).padStart(2,'0');
+        todayEl.textContent = `${mm} · ${dd} · ${d.getFullYear()}`;
+    }
+
+    // 엔진 / 스트림 / 레코드 메타 — best-effort fetch
+    const liveCount = cameras.filter(c => c.connected).length;
+    const streamEl = document.getElementById('eq-stream');
+    if (streamEl) streamEl.textContent = `RTSP · WebRTC · ${liveCount}/${cameras.length} ch`;
+
+    fetch('/api/v1/metrics/storage').then(r => r.ok ? r.json() : null).then(d => {
+        if (!d) return;
+        const used = d.used_gb || d.used_mb && d.used_mb / 1024;
+        const total = d.total_gb || d.total_mb && d.total_mb / 1024;
+        const el = document.getElementById('eq-record');
+        if (el && used != null && total != null) {
+            el.textContent = `${used.toFixed(0)} / ${total.toFixed(0)} GB`;
+        }
+    }).catch(() => {});
+
+    fetch('/api/v1/game/status').then(r => r.ok ? r.json() : null).then(d => {
+        if (!d) return;
+        const el = document.getElementById('eq-engine');
+        if (el) el.textContent = `tracker · ${(d.engine_state || 'IDLE').toLowerCase()}`;
+    }).catch(() => {});
+}
+
+// =============================================================================
+// DEMO SEED — 엔진 / RTSP 카메라 없이도 카드 시각 확인용
+// =============================================================================
+function seedMockEquipment() {
+    if (!confirm('데모 카메라 8대 데이터를 시드합니다. 기존 연결 상태가 덮어쓰여집니다. 계속할까요?')) return;
+
+    discoveredCameras = [
+        { ip:'192.168.0.101', url:'rtsp://192.168.0.101:554/stream1', model:'Hikvision DS-2CD', latency:8,  checked:true },
+        { ip:'192.168.0.102', url:'rtsp://192.168.0.102:554/stream1', model:'Hikvision DS-2CD', latency:11, checked:true },
+        { ip:'192.168.0.103', url:'rtsp://192.168.0.103:554/stream1', model:'Dahua IPC-HFW',    latency:9,  checked:true },
+        { ip:'192.168.0.104', url:'rtsp://192.168.0.104:554/stream1', model:'Dahua IPC-HFW',    latency:14, checked:true },
+        { ip:'192.168.0.105', url:'rtsp://192.168.0.105:554/stream1', model:'Axis P3245',       latency:7,  checked:true },
+        { ip:'192.168.0.106', url:'rtsp://192.168.0.106:554/stream1', model:'Axis P3245',       latency:10, checked:true },
+        { ip:'192.168.0.107', url:'rtsp://192.168.0.107:554/stream1', model:'Hanwha XNB-6000',  latency:24, checked:true },
+        { ip:'192.168.0.108', url:'rtsp://192.168.0.108:554/stream1', model:'Hanwha XNB-6000',  latency:null, checked:false },  // dead
+    ];
+
+    cameras = Array.from({length: 8}, (_, i) => {
+        const dc = discoveredCameras[i];
+        const alive = dc.latency !== null;
+        const calib = i < 6;  // 처음 6대만 캘리 완료
+        const aiTested = i < 5;
+        return {
+            id: `cam_${i}`,
+            label: `CAM ${i + 1}`,
+            url: dc.url,
+            connected: alive,
+            health_status: !alive ? 'failed' : (i === 6 ? 'stalled' : 'healthy'),
+            width: 1920, height: 1080,
+            fps: alive ? (60 - i * 0.3) : 0,
+            frames_decoded: alive ? (108234 - i * 1247) : 0,
+            frames_failed: alive ? i : 0,
+            consecutive_failures: 0,
+            seconds_since_last_frame: alive ? (i === 6 ? 2.4 : 0.05) : 99,
+            reconnect_attempts: !alive ? 3 : 0,
+            calibrated: calib,
+            calibration_quality: calib ? (0.96 - i * 0.02) : 0,
+            ai_tested: aiTested,
+            ai_result: aiTested ? { players_detected: 8 + (i % 3), ball_detected: true, hoops_detected: 2 } : null,
+        };
+    });
+
+    saveCameraState();
+    renderCameras();
+    updateSummary();
+    updateHeroMeta();
+
+    // 헬스 바 강제 업데이트
+    const healthMap = {};
+    cameras.forEach(c => {
+        healthMap[c.id] = {
+            connected: c.connected,
+            health_status: c.health_status,
+            frames_decoded: c.frames_decoded,
+            frames_failed: c.frames_failed,
+            consecutive_failures: c.consecutive_failures,
+            seconds_since_last_frame: c.seconds_since_last_frame,
+            reconnect_attempts: c.reconnect_attempts,
+        };
+    });
+    updateHealthBar(healthMap);
+
+    alert('데모 카메라 8대를 시드했습니다.\n· CAM1~6: 정상 연결 + 캘리브레이션\n· CAM7: STALLED (재연결 중)\n· CAM8: FAILED');
+}
+window.seedMockEquipment = seedMockEquipment;
+
+// =============================================================================
+// 카메라 제어
+// =============================================================================
+function updateCamUrl(idx, url) {
+    cameras[idx].url = url.trim();
+    saveCameraState();  // 상태 변경 시 자동 저장
+    // 드롭다운에서 카메라 선택 시 자동 연결
+    if (url.trim()) {
+        connectCam(idx);
+    }
+}
+
+async function connectCam(idx) {
+    const selectEl = document.getElementById(`url-${idx}`);
+    const url = cameras[idx].url || (selectEl ? selectEl.value : '');
+    if (!url) { alert('드롭다운에서 카메라를 선택하세요.\n(자동 탐색을 먼저 실행하세요)'); return; }
+    cameras[idx].url = url;
+
+    try {
+        const resp = await fetch('/api/v1/camera/connect', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ camera_id: cameras[idx].id, url: url, label: cameras[idx].label })
+        });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        if (data.connected) {
+            cameras[idx].connected = true;
+            // 해상도/FPS는 엔진 실측값만 사용 — 가짜 기본값 주지 않음
+            if (data.width)  cameras[idx].width  = data.width;
+            if (data.height) cameras[idx].height = data.height;
+            if (data.fps)    cameras[idx].fps    = data.fps;
+        } else {
+            alert(`CAM ${idx+1} 연결 실패 — 엔진이 카메라를 연결하지 못했습니다.`);
+        }
+    } catch (e) {
+        // 엔진 미연결·실패 시 가짜로 connected=true 설정하지 않음
+        cameras[idx].connected = false;
+        alert(`CAM ${idx+1} 연결 실패\n\n엔진 서버(localhost:8000) 또는 카메라를 확인하세요.\n${e.message || e}`);
+    }
+    saveCameraState();
+    renderCameras();
+    updateSummary();
+}
+
+async function disconnectCam(idx) {
+    cameras[idx].connected = false;
+    cameras[idx].calibrated = false;
+    cameras[idx].ai_tested = false;
+    renderCameras();
+    updateSummary();
+}
+
+async function connectAll() {
+    for (let i = 0; i < cameras.length; i++) {
+        if (cameras[i].url && !cameras[i].connected) {
+            await connectCam(i);
+        }
+    }
+}
+
+async function disconnectAll() {
+    if (!confirm('전체 카메라 연결을 해제하시겠습니까?')) return;
+    cameras.forEach(c => { c.connected = false; c.calibrated = false; c.ai_tested = false; });
+    renderCameras();
+    updateSummary();
+}
+
+async function snapshot(idx) {
+    try {
+        const resp = await fetch(`/api/v1/camera/${cameras[idx].id}/snapshot`);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        alert(`CAM ${idx+1} 스냅샷 촬영 완료`);
+    } catch (e) {
+        alert(`CAM ${idx+1} 스냅샷 실패\n\n엔진 서버를 확인하세요.\n${e.message || e}`);
+    }
+}
+
+function calibrate(idx) {
+    const cam = cameras[idx];
+    if (!cam.connected) { alert('카메라를 먼저 연결하세요.'); return; }
+    window.location.href = `/equipment/calibrate/${cam.id}`;
+}
+
+async function aiTest(idx) {
+    const cam = cameras[idx];
+    try {
+        const resp = await fetch(`/api/v1/camera/${cam.id}/ai-test`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ camera_id: cam.id })
+        });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        cam.ai_tested = true;
+        cam.ai_result = data;
+        alert(`CAM ${idx+1} AI 테스트 완료\n선수: ${data.players_detected ?? '?'}명\n공: ${data.ball_detected ? '감지' : '미감지'}\n골대: ${data.hoops_detected ?? 0}개`);
+    } catch (e) {
+        // 엔진 미연결·실패 시 가짜 결과 주지 않음 — 실패를 그대로 표시
+        cam.ai_tested = false;
+        cam.ai_result = null;
+        alert(`CAM ${idx+1} AI 테스트 실패\n\n엔진 서버(localhost:8000)를 확인하세요.\n${e.message || e}`);
+    }
+    renderCameras();
+    updateSummary();
+}
+
+// =============================================================================
+// 자동 탐색 — 결과 패널 방식
+// =============================================================================
+async function discoverCameras() {
+    const btn = document.getElementById('discover-btn');
+    const panel = document.getElementById('discover-panel');
+    const loading = document.getElementById('discover-loading');
+    const results = document.getElementById('discover-results');
+
+    // 패널 열고 로딩 표시
+    panel.style.display = 'block';
+    loading.style.display = 'block';
+    results.style.display = 'none';
+    btn.disabled = true;
+    btn.textContent = '🔍 탐색 중...';
+
+    try {
+        const resp = await fetch('/api/v1/camera/discover');
+        if (resp.ok) {
+            const data = await resp.json();
+            // data.data가 배열이면 직접 사용, 객체면 .cameras 속성 사용
+            const found = Array.isArray(data.data) ? data.data : (data.data?.cameras || []);
+            if (found.length > 0) {
+                discoveredCameras = found.map(c => ({
+                    ip: c.ip || c.url,
+                    url: c.rtsp_url || c.url || `rtsp://${c.ip}:554/stream1`,
+                    model: c.model || 'RTSP',
+                    latency: c.latency_ms ?? 1,  // 발견됐으면 응답 있음 (기본 1ms)
+                    checked: true,
+                }));
+            }
+        }
+    } catch { /* 엔진 미연결 — 아래 fallback 사용 */ }
+
+    // 탐색 결과 없으면 안내
+    if (discoveredCameras.length === 0) {
+        loading.style.display = 'none';
+        results.style.display = 'block';
+        document.getElementById('discover-tbody').innerHTML =
+            '<tr><td colspan="6" class="eq-empty-row">네트워크에서 RTSP 카메라를 찾지 못했습니다.<br>카메라 전원 및 네트워크 연결을 확인하세요.</td></tr>';
+        btn.disabled = false;
+        btn.textContent = '🔍 자동 탐색';
+        document.getElementById('discover-count').textContent = '0';
+        const dcStat = document.getElementById('discovered-count-stat');
+        if (dcStat) dcStat.textContent = '0';
+        return;
+    }
+
+    // 로딩 숨기고 결과 표시
+    loading.style.display = 'none';
+    results.style.display = 'block';
+    btn.disabled = false;
+    btn.textContent = `🔍 자동 탐색 (${discoveredCameras.length}대)`;
+    document.getElementById('discover-count').textContent = discoveredCameras.length;
+    const dcStat = document.getElementById('discovered-count-stat');
+    if (dcStat) dcStat.textContent = discoveredCameras.length;
+
+    renderDiscoverResults();
+}
+
+function renderDiscoverResults() {
+    const tbody = document.getElementById('discover-tbody');
+    const slotOptions = cameras.map((c, i) =>
+        `<option value="${i}">CAM ${i+1}${c.url ? ' (사용중)' : ''}</option>`
+    ).join('');
+
+    tbody.innerHTML = discoveredCameras.map((dc, i) => {
+        const alive = dc.latency !== null;
+        const latencyColor = alive ? (dc.latency < 20 ? 'var(--good)' : 'var(--warn)') : 'var(--bad)';
+        const latencyText = alive ? `${dc.latency}ms` : '응답없음';
+
+        // 자동 배정 슬롯 추천 (빈 슬롯 우선)
+        const freeSlot = cameras.findIndex((c, si) =>
+            !c.url && !discoveredCameras.some((d, di) => di < i && d._assignedSlot === si)
+        );
+
+        return `<tr style="opacity:${alive ? 1 : 0.5};">
+            <td style="text-align:center;">
+                <input type="checkbox" ${dc.checked && alive ? 'checked' : ''} ${!alive ? 'disabled' : ''}
+                       onchange="discoveredCameras[${i}].checked=this.checked">
+            </td>
+            <td style="font-weight:600; color:var(--fg-0);">${dc.ip}</td>
+            <td style="color:var(--fg-2);">${dc.model}</td>
+            <td style="color:var(--fg-3); max-width:200px; overflow:hidden; text-overflow:ellipsis;">${dc.url}</td>
+            <td style="text-align:center; color:${latencyColor}; font-weight:700;">${latencyText}</td>
+            <td>
+                <select id="assign-${i}" ${!alive ? 'disabled' : ''}>
+                    <option value="-1">미배정</option>
+                    ${slotOptions}
+                </select>
+            </td>
+        </tr>`;
+    }).join('');
+
+    // 자동으로 순서대로 배정 추천
+    let nextSlot = 0;
+    discoveredCameras.forEach((dc, i) => {
+        const sel = document.getElementById(`assign-${i}`);
+        if (sel && dc.latency !== null && dc.checked && nextSlot < cameras.length) {
+            sel.value = nextSlot;
+            nextSlot++;
+        }
+    });
+}
+
+function autoAssignAll() {
+    // 체크된 카메라만 순서대로 CAM 슬롯에 배정
+    let slotIdx = 0;
+    discoveredCameras.forEach((dc, i) => {
+        if (!dc.checked || dc.latency === null) return;
+        if (slotIdx >= cameras.length) return;
+
+        cameras[slotIdx].url = dc.url;
+        slotIdx++;
+    });
+
+    // 패널 닫기 + 카메라 그리드 갱신
+    clearDiscovery();
+    renderCameras();
+    updateSummary();
+}
+
+function clearDiscovery() {
+    document.getElementById('discover-panel').style.display = 'none';
+}
+
+function applyAssignment() {
+    // 개별 배정 적용 (assign 드롭다운 값 기준)
+    // 기존 배정 초기화
+    cameras.forEach(c => { if (!c.connected) c.url = ''; });
+
+    discoveredCameras.forEach((dc, i) => {
+        if (!dc.checked || dc.latency === null) return;
+        const sel = document.getElementById(`assign-${i}`);
+        if (!sel) return;
+        const slotIdx = parseInt(sel.value);
+        if (slotIdx >= 0 && slotIdx < cameras.length) {
+            cameras[slotIdx].url = dc.url;
+        }
+    });
+
+    clearDiscovery();
+    renderCameras();
+    updateSummary();
+}
+
+function refreshAll() {
+    renderCameras();
+    updateSummary();
+    fetchHealthOnce();
+}
+
+// =============================================================================
+// Phase 17 S2 — Probe (URL 사전 검증)
+// =============================================================================
+async function probeCam(idx) {
+    const cam = cameras[idx];
+    const url = cam.url || document.getElementById(`url-${idx}`)?.value;
+    const fb = document.getElementById(`probe-feedback-${idx}`);
+    if (!fb) return;
+    if (!url) {
+        fb.style.display = 'block';
+        fb.className = 'feedback err';
+        fb.textContent = '⚠ URL을 먼저 선택하세요';
+        return;
+    }
+
+    fb.style.display = 'block';
+    fb.className = 'feedback pending';
+    fb.textContent = '🔎 연결 가능성 확인 중…';
+
+    try {
+        const data = await API.camera.probe({ camera_id: cam.id, url: url, label: cam.label });
+        const d = data.data || {};
+        if (data.success && d.rtsp_ok) {
+            fb.className = 'feedback ok';
+            fb.textContent = `✓ 응답 OK · ${d.elapsed_ms}ms${d.server ? ' · ' + d.server : ''}`;
+        } else if (d.reachable) {
+            fb.className = 'feedback err';
+            fb.textContent = `✗ TCP 연결됨 (상태코드 ${d.status_code || '?'}) · ${d.error || 'RTSP 응답 이상'}`;
+        } else {
+            fb.className = 'feedback err';
+            fb.textContent = `✗ 연결 실패 · ${d.error || '알 수 없음'}`;
+        }
+    } catch (e) {
+        fb.className = 'feedback err';
+        fb.textContent = `✗ ${e.message}`;
+    }
+}
+
+// =============================================================================
+// Phase 17 S2 — 개별 재연결
+// =============================================================================
+async function reconnectCam(idx) {
+    const cam = cameras[idx];
+    cam.health_status = 'reconnecting';
+    renderCameras();
+
+    try {
+        const data = await API.camera.reconnectOne(cam.id);
+        if (data.connected) {
+            cam.connected = true;
+            cam.health_status = 'healthy';
+        } else {
+            cam.health_status = 'failed';
+            alert(`${cam.label} 재연결 실패`);
+        }
+    } catch (e) {
+        cam.health_status = 'failed';
+        alert(`${cam.label} 재연결 오류: ${e.message}`);
+    }
+    saveCameraState();
+    renderCameras();
+    updateSummary();
+}
+
+// =============================================================================
+// Phase 17 S2 — 헬스 폴링 (2초 간격)
+// =============================================================================
+let _healthTimer = null;
+
+async function fetchHealthOnce() {
+    try {
+        const resp = await API.camera.health();
+        const healthMap = resp.data?.cameras || {};
+
+        // 카메라 상태 머지
+        cameras.forEach(cam => {
+            const h = healthMap[cam.id];
+            if (!h) return;
+            cam.connected = h.connected;
+            cam.health_status = h.health_status || 'unknown';
+            cam.frames_decoded = h.frames_decoded || 0;
+            cam.frames_failed = h.frames_failed || 0;
+            cam.consecutive_failures = h.consecutive_failures || 0;
+            cam.seconds_since_last_frame = h.seconds_since_last_frame || 0;
+            cam.reconnect_attempts = h.reconnect_attempts || 0;
+        });
+
+        updateHealthBar(healthMap);
+        updateSummary();
+        renderCameras();
+    } catch {
+        // 엔진 미연결 — 무시
+    }
+}
+
+function updateHealthBar(healthMap) {
+    const bar = document.getElementById('health-bar');
+    const indicator = document.getElementById('health-indicator');
+    const summary = document.getElementById('health-summary');
+    const detail = document.getElementById('health-detail');
+    const badges = document.getElementById('health-badges');
+
+    const total = cameras.length;
+    const entries = Object.values(healthMap);
+    const connected = entries.filter(h => h.connected).length;
+    const stalled = entries.filter(h => h.health_status === 'stalled' || h.health_status === 'reconnecting').length;
+    const failed = entries.filter(h => h.health_status === 'failed').length;
+    const healthy = entries.filter(h => h.health_status === 'healthy').length;
+
+    // 인디케이터 색 결정
+    if (failed > 0) {
+        indicator.style.background = 'var(--bad)';
+    } else if (stalled > 0) {
+        indicator.style.background = 'var(--warn)';
+    } else if (connected === total && total > 0) {
+        indicator.style.background = 'var(--good)';
+    } else if (connected > 0) {
+        indicator.style.background = 'var(--hot)';
+    } else {
+        indicator.style.background = 'var(--fg-3)';
+    }
+
+    summary.textContent = total > 0
+        ? `카메라 ${connected}/${total} 연결됨 · 정상 ${healthy} · 이상 ${stalled} · 실패 ${failed}`
+        : '카메라가 등록되지 않았습니다';
+    detail.textContent = `2초 간격 자동 모니터링 · 마지막 체크: ${new Date().toLocaleTimeString()}`;
+
+    // 상태별 배지
+    const pills = [];
+    if (healthy > 0) pills.push(`<span class="badge-pill healthy">정상 ${healthy}</span>`);
+    if (stalled > 0) pills.push(`<span class="badge-pill stalled">이상 ${stalled}</span>`);
+    if (failed > 0) pills.push(`<span class="badge-pill failed">실패 ${failed}</span>`);
+    badges.innerHTML = pills.join('');
+}
+
+function startHealthPolling() {
+    stopHealthPolling();
+    fetchHealthOnce();
+    _healthTimer = setInterval(fetchHealthOnce, 2000);
+}
+
+function stopHealthPolling() {
+    if (_healthTimer) { clearInterval(_healthTimer); _healthTimer = null; }
+}
+
+// 페이지 떠날 때 정리
+window.addEventListener('beforeunload', stopHealthPolling);
+
+// 초기화
+initCameras();
+updateHeroMeta();
+startHealthPolling();
+</script>
+{% endblock %}

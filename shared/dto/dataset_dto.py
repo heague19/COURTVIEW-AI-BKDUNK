@@ -83,6 +83,9 @@ class DatasetType(str, Enum):
     REFEREE_CALIBRATION = "referee_calibration"  # 신뢰도 보정 데이터
     FOUL_CONTACT = "foul_contact"              # 접촉+파울 라벨 쌍
     VIOLATION_SEQUENCE = "violation_sequence"  # 바이올레이션 시계열
+    # -- motion_analysis CV-Action / CV-Phase (2026-04-26) --
+    ACTION_CLASS = "action_class"            # 동작 7cls — CV-Action 학습용
+    PHASE_CLASS = "phase_class"              # 위상 6cls — CV-Phase 학습용
     # -- game_analysis 자체 모델 학습용 --
     FRAME_RECORD = "frame_record"            # 프레임 단위 종합
     POSSESSION_RECORD = "possession_record"  # 점유 단위 종합
@@ -91,6 +94,12 @@ class DatasetType(str, Enum):
     TACTICAL_SEQUENCE = "tactical_sequence"  # 전술 시퀀스 → 전술 인식 모델
     PLAYER_PERFORMANCE = "player_performance"  # 선수 프로파일 → 개인화 모델
     PREDICTION_OUTCOME = "prediction_outcome"  # 예측 캘리브레이션 → 예측 모델
+    # -- motion_analysis 통합 모델 학습용 (2026-04-25 추가) --
+    RECORDER_EVENT = "recorder_event"          # CV-Recorder (Score+Rebound+Assist+Steal+Turnover+Block)
+    COACH_SHOT_SUBTYPE = "coach_shot_subtype"  # CV-Coach 슛 13종 서브타입
+    COACH_DRIBBLE_SUBTYPE = "coach_dribble_subtype"  # CV-Coach 드리블 13종
+    COACH_PASS_SUBTYPE = "coach_pass_subtype"  # CV-Coach 패스 11종
+    POSSESSION_FRAME = "possession_frame"      # CV-Possession 매 프레임 소유자 라벨
 
     def __str__(self) -> str:
         return self.value
@@ -640,6 +649,172 @@ class ViolationSequenceRecord:
 
 
 # =============================================================================
+# motion_analysis 통합 모델 학습용 (2026-04-25 추가)
+# =============================================================================
+
+@dataclass(slots=True)
+class RecorderEventRecord:
+    """
+    CV-Recorder 통합 이벤트 레코드.
+
+    recorder_event_extractor에서 추출.
+    Score+Rebound+Assist+Steal+Turnover+Block 6개 이벤트를 한 시퀀스에서
+    인과관계 보존하며 학습 데이터로 사용.
+
+    예: 슛 → 미스 → 리바운드 → 패스 → 어시스트 (5초 시퀀스)
+    """
+
+    trigger_frame: int = 0
+    # 이벤트 타입 (multi-label 가능)
+    primary_event: str = ""             # score/rebound/assist/steal/turnover/block
+    primary_subtype: str = ""           # made/missed (score), offensive/defensive (rebound) 등
+    # 인과관계 보존을 위한 시퀀스 (전 60 + 후 60 프레임 = 약 4초)
+    frame_indices: list[int] = field(default_factory=list)
+    ball_positions: list[tuple[float, float, float] | None] = field(default_factory=list)
+    # 관련 선수들 (slot1=주체, slot2=수혜자/피해자)
+    primary_player_id: int | None = None
+    secondary_player_id: int | None = None
+    primary_keypoints: list[dict[str, tuple[float, float, float]]] = field(default_factory=list)
+    secondary_keypoints: list[dict[str, tuple[float, float, float]]] = field(default_factory=list)
+    # 골대 정보 (해당 시)
+    hoop_position: tuple[float, float, float] | None = None
+    # 게임 상태
+    quarter: int = 1
+    game_clock_sec: float = 0.0
+    score_diff: int = 0                 # 시점 점수차
+    # 라벨 신뢰도 (자동/수동)
+    label_source: str = "auto"          # auto / manual / corrected
+    confidence: float = 1.0
+
+
+@dataclass(slots=True)
+class CoachShotSubtypeRecord:
+    """
+    CV-Coach 슛 서브타입 레코드 (13종).
+
+    슛 시작 ~ 릴리즈 ~ 결과 시퀀스 + 동작 패턴.
+    13종: jump_shot/layup/dunk/floater/hook/fadeaway/stepback/pullup/
+          turnaround/finger_roll/euro_step/reverse_layup/tip_in
+    """
+
+    trigger_frame: int = 0
+    shot_subtype: str = ""              # 13개 클래스 중 1
+    # 시퀀스 (전 30 + 후 30 프레임)
+    frame_indices: list[int] = field(default_factory=list)
+    shooter_id: int = 0
+    shooter_keypoints: list[dict[str, tuple[float, float, float]]] = field(default_factory=list)
+    ball_positions: list[tuple[float, float, float] | None] = field(default_factory=list)
+    # 슛 결과
+    is_made: bool = False
+    shot_distance_m: float = 0.0
+    contested: bool = False
+    label_source: str = "auto"
+
+
+@dataclass(slots=True)
+class CoachDribbleSubtypeRecord:
+    """
+    CV-Coach 드리블 서브타입 레코드 (13종).
+
+    13종: crossover/between_legs/behind_back/spin/hesitation/in_and_out/
+          stepback/half_spin/double_crossover/wrap_around/nash_dribble/
+          push_dribble/pocket_dribble
+    """
+
+    trigger_frame: int = 0
+    dribble_subtype: str = ""           # 13개 클래스
+    frame_indices: list[int] = field(default_factory=list)
+    dribbler_id: int = 0
+    dribbler_keypoints: list[dict[str, tuple[float, float, float]]] = field(default_factory=list)
+    ball_positions: list[tuple[float, float, float] | None] = field(default_factory=list)
+    # 드리블 특성
+    duration_sec: float = 0.0
+    is_change_direction: bool = False
+    label_source: str = "auto"
+
+
+@dataclass(slots=True)
+class CoachPassSubtypeRecord:
+    """
+    CV-Coach 패스 서브타입 레코드 (11종).
+
+    11종: chest_pass/bounce_pass/overhead_pass/outlet_pass/lob_pass/
+          alley_oop/no_look/behind_back/wrap_around/baseball_pass/skip_pass
+    """
+
+    trigger_frame: int = 0
+    pass_subtype: str = ""              # 11개 클래스
+    frame_indices: list[int] = field(default_factory=list)
+    passer_id: int = 0
+    receiver_id: int | None = None
+    passer_keypoints: list[dict[str, tuple[float, float, float]]] = field(default_factory=list)
+    ball_trajectory: list[tuple[float, float, float] | None] = field(default_factory=list)
+    pass_distance_m: float = 0.0
+    is_assist: bool = False
+    label_source: str = "auto"
+
+
+@dataclass(slots=True)
+class ActionClassRecord:
+    """
+    CV-Action 동작 7클래스 레코드 (2026-04-26).
+
+    클래스: shooting / dribbling / passing / layup / rebounding / movement / idle
+    """
+
+    trigger_frame: int = 0
+    action_class: str = ""              # 7cls 중 1
+    # 시퀀스 (전 30 + 후 30 프레임)
+    frame_indices: list[int] = field(default_factory=list)
+    actor_id: int = 0
+    actor_keypoints: list[dict[str, tuple[float, float, float]]] = field(default_factory=list)
+    ball_position: tuple[float, float, float] | None = None
+    confidence: float = 1.0
+    label_source: str = "auto"          # auto / manual / corrected
+
+
+@dataclass(slots=True)
+class PhaseClassRecord:
+    """
+    CV-Phase 위상 6클래스 레코드 (2026-04-26).
+
+    클래스: idle / preparation / loading / execution / follow_through / recovery
+    동작 phase 분류 — Action 과 동시 학습 가능 (multi-task).
+    """
+
+    frame_index: int = 0
+    phase_class: str = ""               # 6cls 중 1
+    actor_id: int = 0
+    actor_keypoints: dict[str, tuple[float, float, float]] = field(default_factory=dict)
+    # 컨텍스트
+    parent_action: str = ""             # ActionClassRecord.action_class 와 연결
+    confidence: float = 1.0
+    label_source: str = "auto"
+
+
+@dataclass(slots=True)
+class PossessionFrameRecord:
+    """
+    CV-Possession 프레임 단위 소유자 레코드.
+
+    매 프레임 현재 볼 소유자를 ML로 판단 (드리블 리듬 + 손 위치 + 볼 제어).
+    """
+
+    frame_index: int = 0
+    # 정답 라벨
+    possessor_id: int | None = None     # None = 공중/free ball
+    confidence: float = 1.0
+    # 입력 특징 (학습 시)
+    candidate_player_ids: list[int] = field(default_factory=list)
+    ball_position: tuple[float, float, float] | None = None
+    candidate_distances_m: list[float] = field(default_factory=list)
+    candidate_hand_distances_m: list[float] = field(default_factory=list)
+    # 직전 N프레임 컨텍스트 (시퀀스 모델용)
+    recent_possessor_ids: list[int | None] = field(default_factory=list)
+    label_source: str = "auto"
+
+
+# =============================================================================
 # 데이터셋 메타데이터 및 추출 결과
 # =============================================================================
 
@@ -754,6 +929,13 @@ __all__ = [
     "CalibrationRecord",
     "FoulContactRecord",
     "ViolationSequenceRecord",
+    "RecorderEventRecord",
+    "ActionClassRecord",
+    "PhaseClassRecord",
+    "CoachShotSubtypeRecord",
+    "CoachDribbleSubtypeRecord",
+    "CoachPassSubtypeRecord",
+    "PossessionFrameRecord",
     # 메타데이터/결과
     "DatasetMetadata",
     "ExtractionResult",

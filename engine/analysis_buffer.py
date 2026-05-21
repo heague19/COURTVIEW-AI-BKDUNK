@@ -70,6 +70,11 @@ _MAX_FRAME_BUFFER: Final[int] = 900
 _MOTION_WINDOW_SIZE: Final[int] = 30
 # 점유 이벤트 최대 보관
 _MAX_POSSESSION_EVENTS: Final[int] = 200
+# 2026-05-14 누수 방어:
+# 게임 전체 이벤트 cap (1게임 평균 500개, 비정상 시 누적 방지)
+_MAX_EVENT_BUFFER: Final[int] = 2000
+# motion window 동시 추적 선수 cap (12명 + ReID 좀비 여유)
+_MAX_MOTION_PLAYERS: Final[int] = 50
 
 
 # =============================================================================
@@ -159,6 +164,7 @@ class GameAnalysisBuffer:
         "_frame_buffer",
         "_event_buffer",
         "_motion_windows",
+        "_motion_player_order",     # 2026-05-14: motion_windows 키 LRU evict 용 deque
         "_possession_frames",
         "_possession_events",
         "_possession_start_frame",
@@ -177,14 +183,32 @@ class GameAnalysisBuffer:
             maxlen=_MAX_FRAME_BUFFER,
         )
         # 전체 이벤트 축적
-        self._event_buffer: list[Any] = []
+        # 2026-05-14 메모리 누수 안전장치: list → deque(maxlen=_MAX_EVENT_BUFFER).
+        # 1게임 평균 ~500 events. 비정상 흐름 시 무한 누적 방지.
+        # build_game_data() 에서 list() 로 복사하므로 deque 도 무방.
+        self._event_buffer: deque[Any] = deque(maxlen=_MAX_EVENT_BUFFER)
 
         # per-player 모션 스냅샷 윈도우
+        # 2026-05-14 메모리 누수 안전장치:
+        # dict 자체는 key→deque 매핑 유지, 추가로 _motion_player_order deque(maxlen)
+        # 가 player_id 의 insertion 순서 추적. maxlen 도달 시 가장 오래된 pid 가
+        # dict 에서도 제거되어 ReID 실패로 인한 무한 키 증가 방지.
         self._motion_windows: dict[int, deque[Any]] = {}
+        self._motion_player_order: deque[int] = deque(maxlen=_MAX_MOTION_PLAYERS)
 
         # 현재 점유 축적
-        self._possession_frames: list[FramePipelineResult] = []
-        self._possession_events: list[Any] = []
+        # 2026-05-13 메모리 누수 안전장치: 무제한 list → deque(maxlen=1800).
+        # 30fps × 60초 = 1800. 점유 종료 cadence(_possession_cb) 가 어떤 이유로
+        # 발화 못 하면 (예: score detection GATE 4-3 실패) 무한 누적되어 RAM 폭주.
+        # 1점유 평균 길이는 ~10초 (300프레임) → 1분 cap 은 정상 흐름엔 영향 없음.
+        # FramePipelineResult 개당 ~100KB 기준 deque 최대 ~180MB 로 상한.
+        self._possession_frames: deque[FramePipelineResult] = deque(maxlen=1800)
+        # 2026-05-14 메모리 누수 안전장치 (일관성):
+        # list → deque(maxlen=_MAX_POSSESSION_EVENTS=200).
+        # _possession_frames 와 같은 lifecycle 인데 cap 누락이었음.
+        # 1점유 평균 event ~10개 → 200 cap 은 정상 흐름엔 영향 없음.
+        # flush_possession() 발화 실패 시 무한 누적 방지.
+        self._possession_events: deque[Any] = deque(maxlen=_MAX_POSSESSION_EVENTS)
         self._possession_start_frame: int = 0
 
         # 쿼터별 점유 요약 축적
@@ -214,6 +238,9 @@ class GameAnalysisBuffer:
             self._frame_buffer.append(result)
             self._possession_frames.append(result)
             self._total_frames += 1
+            _total = self._total_frames
+            _poss = len(self._possession_frames)
+            _evt = len(self._event_buffer)
 
         # per-player 모션 스냅샷 구축
         self._update_motion_windows(result)
@@ -221,6 +248,18 @@ class GameAnalysisBuffer:
         # FRAME 레벨 학습 데이터 추출 (매 N프레임)
         if self._total_frames % self._extraction_interval == 0:
             self._extract_frame_level_data(result)
+
+        # Plan E STEP 3 (2026-05-13): analysis_buffer 수신 흐름
+        try:
+            from infrastructure.diagnostics.flow_logger import log_flow
+            log_flow(
+                "BUFFER",
+                "analysis_buffer.ingest_frame 수신 → frame_buffer/possession_frames 추가 "
+                "(total=%d, possession_frames=%d, events=%d)",
+                _total, _poss, _evt,
+            )
+        except Exception:
+            pass
 
     # =========================================================================
     # 이벤트 결과 수집
@@ -251,11 +290,12 @@ class GameAnalysisBuffer:
         hoop_pos: tuple[float, float, float] | None = None
         if det is not None:
             if det.ball_result and det.ball_result.fused_objects:
-                bp = det.ball_result.fused_objects[0].position_3d
+                # v0.5.3: ball detector 객체는 position_3d 없을 수 있음 — getattr 가드
+                bp = getattr(det.ball_result.fused_objects[0], "position_3d", None)
                 if bp is not None:
                     ball_pos = (bp.x * 100.0, bp.y * 100.0, bp.z * 100.0)
             if det.hoop_result and det.hoop_result.fused_objects:
-                hp = det.hoop_result.fused_objects[0].position_3d
+                hp = getattr(det.hoop_result.fused_objects[0], "position_3d", None)
                 if hp is not None:
                     hoop_pos = (hp.x * 100.0, hp.y * 100.0, hp.z * 100.0)
 
@@ -303,6 +343,16 @@ class GameAnalysisBuffer:
 
             with self._lock:
                 if pid not in self._motion_windows:
+                    # 2026-05-14: deque maxlen 메커니즘으로 dict 키 cap.
+                    # _motion_player_order 가 가득 차서 새 pid append 시 가장 오래된
+                    # pid 가 자동 popleft → dict 에서도 동기 제거.
+                    if (
+                        len(self._motion_player_order)
+                        == self._motion_player_order.maxlen
+                    ):
+                        evicted_pid = self._motion_player_order[0]
+                        self._motion_windows.pop(evicted_pid, None)
+                    self._motion_player_order.append(pid)
                     self._motion_windows[pid] = deque(
                         maxlen=_MOTION_WINDOW_SIZE,
                     )
@@ -323,6 +373,54 @@ class GameAnalysisBuffer:
         """모션 윈도우가 있는 선수 ID 목록."""
         with self._lock:
             return list(self._motion_windows.keys())
+
+    # =========================================================================
+    # 2026-05-21: 엔진 이벤트 직렬화 (finalize → events.json)
+    # =========================================================================
+    def get_engine_events(self) -> list[dict[str, Any]]:
+        """`_event_buffer` 의 엔진 탐지 이벤트들을 JSON-safe dict 로 반환.
+
+        finalize_service._write_events 가 events.json 에 dump 하는 입력.
+        score/shot/foul/turnover 등 모든 detector 의 GameEvent (또는 dataclass)
+        를 일관된 형식으로 변환.
+        """
+        with self._lock:
+            events_snapshot = list(self._event_buffer)
+
+        out: list[dict[str, Any]] = []
+        for e in events_snapshot:
+            try:
+                # Pydantic BaseModel (GameEvent 등)
+                if hasattr(e, "model_dump"):
+                    d = e.model_dump(mode="json")
+                # dataclass
+                elif hasattr(e, "__dataclass_fields__"):
+                    from dataclasses import asdict as _asdict
+                    d = _asdict(e)
+                # 일반 dict
+                elif isinstance(e, dict):
+                    d = dict(e)
+                else:
+                    # 최후 fallback — 핵심 필드만 추출
+                    d = {
+                        "event_type": str(getattr(e, "event_type", "?")),
+                        "frame_number": getattr(e, "frame_number", None),
+                        "timestamp": getattr(e, "timestamp", None),
+                        "quarter": getattr(e, "quarter", None),
+                        "player_id": getattr(e, "primary_player_id",
+                                             getattr(e, "player_id", None)),
+                        "confidence": getattr(e, "confidence", 0.0),
+                    }
+                # Enum / UUID → str 정리 (json.dumps 호환)
+                for k, v in list(d.items()):
+                    if hasattr(v, "value") and hasattr(v, "name"):  # Enum
+                        d[k] = v.value
+                    elif hasattr(v, "hex") and not isinstance(v, (bytes, bytearray)):  # UUID
+                        d[k] = str(v)
+                out.append(d)
+            except Exception:
+                out.append({"raw": str(e), "serialize_error": True})
+        return out
 
     # =========================================================================
     # POSSESSION 데이터 빌드
@@ -502,12 +600,14 @@ class GameAnalysisBuffer:
                 mv = getattr(result.detection, det_type, None)
                 if mv is not None:
                     for obj in mv.fused_objects:
-                        if obj.bbox is not None:
+                        # v0.4.5: fused_objects 의 객체가 bbox 없는 타입일 수 있음 — 안전 처리
+                        bbox = getattr(obj, "bbox", None)
+                        if bbox is not None:
                             det_samples.append({
                                 "type": det_type.replace("_result", ""),
-                                "bbox": [obj.bbox.x, obj.bbox.y,
-                                         obj.bbox.width, obj.bbox.height],
-                                "confidence": obj.confidence,
+                                "bbox": [bbox.x, bbox.y,
+                                         bbox.width, bbox.height],
+                                "confidence": getattr(obj, "confidence", 0.0),
                             })
             if det_samples:
                 record["detections"] = det_samples
@@ -558,6 +658,7 @@ class GameAnalysisBuffer:
             self._frame_buffer.clear()
             self._event_buffer.clear()
             self._motion_windows.clear()
+            self._motion_player_order.clear()  # 2026-05-14: order 추적도 reset
             self._possession_frames.clear()
             self._possession_events.clear()
             self._possession_start_frame = 0

@@ -45,7 +45,7 @@ import cv2
 import numpy as np
 
 
-DATASET_ROOT = Path("D:/SPOIN/training/datasets/digit_v5_all")
+DATASET_ROOT = Path("C:/training/digit_v6_all")
 IMAGES_DIR = DATASET_ROOT / "images"
 LABELS_DIR = DATASET_ROOT / "labels"
 PROGRESS_FILE = DATASET_ROOT / "_review_progress.json"
@@ -133,8 +133,23 @@ def save_progress(state: ReviewState) -> None:
         "unsure": sorted(state.unsure),
         "stats": state.stats,
     }
-    PROGRESS_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False),
-                             encoding="utf-8")
+    # Atomic write — BSOD/크래시 시 파일 NULL 손상 방지
+    # 1. tmp 에 fsync 까지 완료 후 2. rename 으로 atomic 교체
+    tmp_path = PROGRESS_FILE.with_suffix(".json.tmp")
+    payload = json.dumps(data, indent=2, ensure_ascii=False)
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            f.write(payload)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, PROGRESS_FILE)  # atomic on same volume
+    except Exception:
+        # tmp 잔재 정리 시도
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+        raise
 
 
 def load_image_labels(state: ReviewState) -> None:
@@ -223,7 +238,9 @@ def draw_ui(state: ReviewState) -> np.ndarray:
     # 하단 도움말
     help_h = 40
     help_panel = np.full((help_h, CANVAS_W, 3), 20, dtype=np.uint8)
-    help_text = "0-9:class | Tab:sel | d:del bb | x:del img | m:verify | u:unsure | drag:new bb | <-/->:nav | q:quit"
+    help_text = ("0-9:class | Tab:sel | A:prev D:del W:verify E:skip "
+                 "S:unsure Z:clear X:del-img | drag:new RClick:sel | "
+                 "T:save G:jump Q:quit")
     cv2.putText(help_panel, help_text, (10, 25),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
 
@@ -299,6 +316,25 @@ def main() -> None:
     ap.add_argument("--start", type=int, default=0)
     ap.add_argument("--filter", choices=["all", "labeled", "unverified"], default="labeled")
     ap.add_argument("--resume", action="store_true", help="진행률 이어서")
+    ap.add_argument(
+        "--order",
+        choices=["sort", "shuffle", "mix"],
+        default="shuffle",
+        help=(
+            "검수 순서. "
+            "sort=이름순(같은 영상 연속, 같은 숫자 반복). "
+            "shuffle=완전 랜덤 (다양한 숫자/영상). "
+            "mix=영상 prefix별 라운드로빈"
+        ),
+    )
+    ap.add_argument("--seed", type=int, default=42, help="shuffle/mix 시드")
+    ap.add_argument(
+        "--rare-classes",
+        type=str,
+        default="",
+        help="희소 클래스 우선 검수 (콤마 구분, 예: '9,5,2'). "
+             "라벨에 이 클래스가 포함된 이미지만 표시.",
+    )
     args = ap.parse_args()
 
     # 진행률 로드
@@ -330,12 +366,127 @@ def main() -> None:
         img_names = [n for n in img_names if n not in verified]
         print(f"  unverified 필터: {len(img_names):,}")
 
-    # 정렬은 마지막에 (옵션)
-    img_names.sort()
+    # 희소 클래스 우선 — 캐시 활용 + 병렬 스캔
+    if args.rare_classes.strip():
+        try:
+            rare_set = {int(x) for x in args.rare_classes.split(",") if x.strip()}
+        except ValueError:
+            rare_set = set()
+        if rare_set:
+            print(f"  rare-classes 필터: {sorted(rare_set)} 포함된 이미지만 검색...")
+            t = time.time()
+
+            # 캐시 파일: 라벨 stem → 클래스 set
+            cache_file = DATASET_ROOT / "_label_class_cache.json"
+            cache: dict[str, list[int]] = {}
+            if cache_file.exists():
+                try:
+                    cache = json.loads(cache_file.read_text(encoding="utf-8"))
+                    print(f"  캐시 로드: {len(cache):,}개 ({time.time()-t:.1f}s)")
+                except Exception:
+                    cache = {}
+
+            # 캐시에 없는 라벨만 스캔
+            stems_to_scan: list[str] = []
+            for n in img_names:
+                stem = Path(n).stem
+                if stem not in cache:
+                    stems_to_scan.append(stem)
+
+            if stems_to_scan:
+                print(f"  캐시 미스 {len(stems_to_scan):,}개 스캔 중...")
+                from concurrent.futures import ThreadPoolExecutor
+
+                def scan_one(stem: str) -> tuple[str, list[int]]:
+                    lbl = LABELS_DIR / (stem + ".txt")
+                    if not lbl.exists():
+                        return (stem, [])
+                    try:
+                        content = lbl.read_bytes().decode("utf-8", errors="ignore")
+                    except Exception:
+                        return (stem, [])
+                    classes = set()
+                    for line in content.splitlines():
+                        sp = line.strip().split(maxsplit=1)
+                        if not sp:
+                            continue
+                        try:
+                            classes.add(int(sp[0]))
+                        except ValueError:
+                            continue
+                    return (stem, sorted(classes))
+
+                # ThreadPool 32 워커 — IO bound 라 효율적
+                last_print = time.time()
+                done = 0
+                with ThreadPoolExecutor(max_workers=32) as ex:
+                    for stem, cls_list in ex.map(scan_one, stems_to_scan, chunksize=200):
+                        cache[stem] = cls_list
+                        done += 1
+                        if time.time() - last_print > 5:
+                            elapsed = time.time() - t
+                            eta = elapsed / done * (len(stems_to_scan) - done)
+                            print(f"    {done:,}/{len(stems_to_scan):,} | "
+                                  f"경과 {elapsed:.0f}s | ETA {eta:.0f}s",
+                                  flush=True)
+                            last_print = time.time()
+
+                # 캐시 저장
+                cache_file.write_text(
+                    json.dumps(cache, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+                print(f"  캐시 저장 완료 ({time.time()-t:.1f}s)")
+
+            # 필터링
+            kept: list[str] = []
+            for n in img_names:
+                stem = Path(n).stem
+                if any(c in rare_set for c in cache.get(stem, [])):
+                    kept.append(n)
+            img_names = kept
+            print(f"  rare-classes 필터 적용: {len(img_names):,} ({time.time()-t:.1f}s)")
 
     if not img_names:
         print("리뷰할 이미지 없음")
         return
+
+    # 순서 결정 ----------------------------------------------------------
+    import random
+    rng = random.Random(args.seed)
+
+    if args.order == "sort":
+        img_names.sort()
+        print("  order=sort (이름순)")
+    elif args.order == "shuffle":
+        img_names.sort()  # 결정성 위해 먼저 sort
+        rng.shuffle(img_names)
+        print(f"  order=shuffle (완전 랜덤, seed={args.seed})")
+    else:  # mix — prefix 라운드로빈
+        groups: dict[str, list[str]] = {}
+        for n in img_names:
+            # cvat_prep_game1_LXCAMY_... 형태에서 첫 토큰들로 그룹핑
+            parts = n.split("_")
+            prefix = "_".join(parts[:4]) if len(parts) >= 4 else n
+            groups.setdefault(prefix, []).append(n)
+        for k in groups:
+            groups[k].sort()
+            rng.shuffle(groups[k])
+        ordered: list[str] = []
+        keys = sorted(groups.keys())
+        idxs = {k: 0 for k in keys}
+        while True:
+            added = 0
+            for k in keys:
+                i = idxs[k]
+                if i < len(groups[k]):
+                    ordered.append(groups[k][i])
+                    idxs[k] = i + 1
+                    added += 1
+            if added == 0:
+                break
+        img_names = ordered
+        print(f"  order=mix (prefix 라운드로빈 {len(keys)}그룹, seed={args.seed})")
 
     state = ReviewState()
     state.image_paths = [IMAGES_DIR / n for n in img_names]
@@ -373,24 +524,42 @@ def main() -> None:
             state.stats["edited"] += 1
             continue
 
-        # 방향키 (waitKey는 플랫폼 차이 있어서 별도 처리 필요)
-        if key == 81 or key == ord('['):  # ← 또는 [
+        # ===== BBox GUI 와 통일된 단축키 (왼손 홈포지션) =====
+        # A: 이전        W: verify+next        E: skip
+        # S: unsure+next D: 박스 삭제           T: save
+        # Z: clear-all   X: 이미지 삭제         G: jump
+        # 0~9: 클래스    Tab: 박스 선택        Q/ESC: 종료
+        # 기존 키 (m/u/f/c/[/]/←/→) 호환 유지
+
+        # 종료 (Q 또는 ESC)
+        if key == ord('q') or key == 27:
+            break
+
+        # 이전 (A 또는 ← 또는 [)
+        if key == ord('a') or key == 81 or key == ord('['):
             state.idx = max(0, state.idx - 1)
             load_image_labels(state)
-        elif key == 83 or key == ord(']'):  # → 또는 ]
+        # 다음 (→ 또는 ])
+        elif key == 83 or key == ord(']'):
             state.idx = min(len(state.image_paths) - 1, state.idx + 1)
             load_image_labels(state)
-        elif key == ord('\t'):  # Tab
+        elif key == ord('\t'):
             if state.bboxes:
                 state.selected = (state.selected + 1) % len(state.bboxes)
+        # 박스 삭제 (D)
         elif key == ord('d'):
             if state.selected >= 0 and state.selected < len(state.bboxes):
                 state.bboxes.pop(state.selected)
                 state.selected = -1
                 save_label(state)
                 state.stats["edited"] += 1
+        # 모든 박스 클리어 (Z 또는 C)
+        elif key == ord('z') or key == ord('c'):
+            state.bboxes = []
+            state.selected = -1
+            save_label(state)
+        # 이미지 통째 삭제 (X)
         elif key == ord('x'):
-            # 현재 crop + 라벨 완전 삭제
             p = state.image_paths[state.idx]
             lbl = LABELS_DIR / (p.stem + ".txt")
             p.unlink(missing_ok=True)
@@ -400,30 +569,28 @@ def main() -> None:
             if state.idx >= len(state.image_paths):
                 state.idx = max(0, len(state.image_paths) - 1)
             load_image_labels(state)
-        elif key == ord('c'):
-            # 모든 bbox 제거
-            state.bboxes = []
-            state.selected = -1
-            save_label(state)
-        elif key == ord('m'):
+        # verify + next (W 또는 M)
+        elif key == ord('w') or key == ord('m'):
             p = state.image_paths[state.idx]
             state.verified.add(p.name)
             state.stats["verified"] += 1
             save_progress(state)
             state.idx = min(len(state.image_paths) - 1, state.idx + 1)
             load_image_labels(state)
-        elif key == ord('u'):
+        # unsure + next (S 또는 U)
+        elif key == ord('s') or key == ord('u'):
             p = state.image_paths[state.idx]
             state.unsure.add(p.name)
             state.stats["unsure"] += 1
             save_progress(state)
             state.idx = min(len(state.image_paths) - 1, state.idx + 1)
             load_image_labels(state)
-        elif key == ord('f'):
+        # skip (E 또는 F) — 마킹 없이 다음
+        elif key == ord('e') or key == ord('f'):
             state.idx = min(len(state.image_paths) - 1, state.idx + 1)
             load_image_labels(state)
+        # 인덱스 점프 (G)
         elif key == ord('g'):
-            # 이동 대상 인덱스 콘솔에서 입력받음
             cv2.destroyWindow(WIN_NAME)
             try:
                 n = int(input(f"Jump to (0~{len(state.image_paths)-1}): "))
@@ -433,12 +600,11 @@ def main() -> None:
             cv2.namedWindow(WIN_NAME, cv2.WINDOW_AUTOSIZE)
             cv2.setMouseCallback(WIN_NAME, mouse_callback, state)
             load_image_labels(state)
-        elif key == ord('s'):
+        # 명시적 저장 (T)
+        elif key == ord('t'):
             save_label(state)
             save_progress(state)
             print(f"저장: {state.idx} / {len(state.image_paths)}")
-        elif key == ord('q') or key == 27:
-            break
 
         if state.idx < 0 or state.idx >= len(state.image_paths):
             break

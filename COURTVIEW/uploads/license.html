@@ -1,0 +1,199 @@
+{% extends "components/layout.html" %}
+{% set active = "license" %}
+{% block title %}COURTVIEW — 라이선스{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div class="page-title">🔑 라이선스 관리</div>
+    <div class="page-subtitle">bkdunk 계정에 연결된 COURTVIEW DESK 라이선스 상태</div>
+</div>
+
+<div style="display:grid; grid-template-columns:1fr 1fr; gap:20px;">
+    <!-- 라이선스 정보 (bkdunk 프로필에서 동기화) -->
+    <div class="card">
+        <div class="card-header" style="margin-bottom:20px;">
+            <div class="card-title">라이선스 정보</div>
+            <button class="btn btn-secondary btn-sm" onclick="refreshLicense()" style="font-size:10px;">🔄 새로고침</button>
+        </div>
+        <div id="lic-info" style="display:flex; flex-direction:column; gap:14px;">
+            <div style="text-align:center; color:var(--text-muted); padding:20px;">로딩 중...</div>
+        </div>
+        <div id="lic-unbound" style="display:none; padding:16px; background:rgba(255,153,51,0.08); border:1px solid var(--accent-orange); border-radius:var(--radius-sm); margin-top:12px;">
+            <div style="font-size:13px; font-weight:600; color:var(--accent-orange); margin-bottom:6px;">⚠ 라이선스 미확인</div>
+            <div style="font-size:11px; color:var(--text-gray); line-height:1.5;">
+                이 계정에 할당된 라이선스가 없습니다.<br>
+                <a href="https://bkdunk.com" target="_blank" style="color:var(--accent-orange);">bkdunk</a> 에서 구독 또는 B2B 렌탈 등록 후 다시 로그인하세요.
+            </div>
+        </div>
+    </div>
+
+    <!-- 하드웨어 정보 (로컬 엔진 실측) -->
+    <div class="card">
+        <div class="card-title" style="margin-bottom:20px;">하드웨어 정보</div>
+        <div style="display:flex; flex-direction:column; gap:14px;" id="hw-info">
+            <div style="text-align:center; color:var(--text-muted); padding:20px;">로딩 중...</div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// =============================================================================
+// 라이선스 정보 — bkdunk 프로필에서 가져옴
+// =============================================================================
+// 필드 규약 (bkdunk 이 /users/me 또는 /subscription 에서 내려줄 포맷):
+//   {
+//     license: {
+//       plan: "pro" | "standard" | "trial",
+//       type: "b2b_rental" | "subscription" | "trial",
+//       status: "active" | "expired" | "suspended",
+//       expires_at: "2027-03-31",
+//       max_cameras: 8,
+//       features: ["ai_referee", "highlight_ml", "cloud_upload"]
+//     }
+//   }
+// =============================================================================
+const PLAN_LABELS = { pro: 'COURTVIEW DESK Pro', standard: 'COURTVIEW DESK Standard', trial: 'COURTVIEW DESK Trial' };
+const TYPE_LABELS = { b2b_rental: 'B2B 렌탈', subscription: '구독', trial: '체험판' };
+const STATUS_BADGES = {
+    active:    '<span class="badge badge-complete">활성</span>',
+    expired:   '<span class="badge" style="background:var(--accent-red);color:#fff;">만료</span>',
+    suspended: '<span class="badge" style="background:var(--accent-yellow);color:#000;">정지</span>',
+};
+
+function _extractLicense() {
+    // 1순위: localStorage 의 user_profile.license (로그인 시 /users/me 로 받은 것)
+    try {
+        const profile = JSON.parse(localStorage.getItem('user_profile') || '{}');
+        if (profile?.license) return profile.license;
+    } catch {}
+    return null;
+}
+
+function renderLicense(lic) {
+    const info = document.getElementById('lic-info');
+    const unbound = document.getElementById('lic-unbound');
+
+    if (!lic) {
+        info.innerHTML = '';
+        unbound.style.display = 'block';
+        return;
+    }
+    unbound.style.display = 'none';
+
+    const planLabel = PLAN_LABELS[lic.plan] || lic.plan || '알 수 없음';
+    const typeLabel = TYPE_LABELS[lic.type] || lic.type || '-';
+    const statusBadge = STATUS_BADGES[lic.status] || `<span class="badge">${lic.status || '-'}</span>`;
+    const expires = lic.expires_at || '-';
+    const maxCams = lic.max_cameras != null ? `최대 ${lic.max_cameras}대` : '-';
+    const features = Array.isArray(lic.features) ? lic.features : [];
+
+    info.innerHTML = `
+        <div style="display:flex; justify-content:space-between;">
+            <span style="font-size:12px; color:var(--text-gray);">제품</span>
+            <span style="font-size:13px; font-weight:600;">${planLabel}</span>
+        </div>
+        <div style="display:flex; justify-content:space-between;">
+            <span style="font-size:12px; color:var(--text-gray);">라이선스 유형</span>
+            <span style="font-size:13px; font-weight:600; color:var(--accent-orange);">${typeLabel}</span>
+        </div>
+        <div style="display:flex; justify-content:space-between;">
+            <span style="font-size:12px; color:var(--text-gray);">상태</span>
+            ${statusBadge}
+        </div>
+        <div style="display:flex; justify-content:space-between;">
+            <span style="font-size:12px; color:var(--text-gray);">만료일</span>
+            <span style="font-size:13px; font-weight:600;">${expires}</span>
+        </div>
+        <div style="display:flex; justify-content:space-between;">
+            <span style="font-size:12px; color:var(--text-gray);">카메라 수</span>
+            <span style="font-size:13px; font-weight:600;">${maxCams}</span>
+        </div>
+        <div style="display:flex; justify-content:space-between;">
+            <span style="font-size:12px; color:var(--text-gray);">AI 심판</span>
+            <span style="font-size:13px; font-weight:600; color:${features.includes('ai_referee') ? 'var(--accent-green)' : 'var(--text-muted)'};">
+                ${features.includes('ai_referee') ? '포함' : '미포함'}
+            </span>
+        </div>
+        <div style="display:flex; justify-content:space-between;">
+            <span style="font-size:12px; color:var(--text-gray);">클라우드 업로드</span>
+            <span style="font-size:13px; font-weight:600; color:${features.includes('cloud_upload') ? 'var(--accent-green)' : 'var(--text-muted)'};">
+                ${features.includes('cloud_upload') ? '포함' : '미포함'}
+            </span>
+        </div>
+    `;
+}
+
+async function refreshLicense() {
+    // bkdunk 의 최신 프로필·라이선스 동기화 (로그인 직후 저장된 값보다 최신)
+    try {
+        const api = window.Auth?.fetch || fetch;
+        const resp = await api('/spoin/api/v1/users/me', { method: 'GET' });
+        if (resp.ok) {
+            const body = await resp.json();
+            const me = body?.data || body;
+            if (me) {
+                localStorage.setItem('user_profile', JSON.stringify(me));
+            }
+        }
+    } catch (e) {
+        console.warn('[license] 프로필 새로고침 실패:', e);
+    }
+    renderLicense(_extractLicense());
+}
+
+// =============================================================================
+// 하드웨어 정보 (로컬 엔진)
+// =============================================================================
+// 엔진에서 하드웨어 + 버전 정보 실측
+// 버전 하드코딩 제거 — 엔진 응답에 없으면 "-" 로 표시
+async function loadHW() {
+    const el = document.getElementById('hw-info');
+    let gpu = null;
+    let engineInfo = null;
+
+    try {
+        const r = await fetch('/api/v1/metrics/gpu');
+        if (r.ok) gpu = await r.json();
+    } catch {}
+
+    try {
+        // 엔진 헬스/버전 엔드포인트 (없으면 /api/v1/game/status 로 fallback)
+        const r = await fetch('/health');
+        if (r.ok) engineInfo = await r.json();
+    } catch {}
+
+    if (!gpu && !engineInfo) {
+        el.innerHTML = `
+            <div style="text-align:center; color:var(--text-muted); padding:20px; font-size:12px;">
+                엔진(localhost:8000) 미연결<br>
+                <span style="font-size:10px;">엔진 실행 후 🔄 새로고침</span>
+            </div>`;
+        return;
+    }
+
+    const row = (label, value, color) => `
+        <div style="display:flex; justify-content:space-between;">
+            <span style="font-size:12px; color:var(--text-gray);">${label}</span>
+            <span style="font-size:13px; font-weight:600; ${color ? 'color:'+color : ''}">${value}</span>
+        </div>`;
+
+    const rows = [];
+    if (gpu) {
+        rows.push(row('GPU', gpu.gpu_name || '-'));
+        rows.push(row('VRAM', gpu.vram_total_mb ? `${gpu.vram_total_mb} MB` : '-'));
+        if (gpu.temperature_celsius != null) rows.push(row('온도', `${gpu.temperature_celsius}°C`));
+    } else {
+        rows.push(row('GPU', '엔진 미연결', 'var(--text-muted)'));
+    }
+    rows.push(row('엔진 버전', engineInfo?.engine_version || engineInfo?.version || '-'));
+    rows.push(row('모델 버전', engineInfo?.model_version || '-'));
+    el.innerHTML = rows.join('');
+}
+
+// 초기화
+renderLicense(_extractLicense());
+loadHW();
+</script>
+{% endblock %}

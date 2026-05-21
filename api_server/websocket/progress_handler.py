@@ -99,6 +99,20 @@ async def broadcast_loop(interval_ms: float = 500.0) -> None:
             _tick += 1
             conns = _manager.connection_count if _manager else 0
 
+            # v0.5.7.7: 진단 — conns=0 이라도 dispatcher 큐 size 5초마다 찍어 "큐는 차있는데
+            # WS 연결이 없어 broadcast 못 하는 상태" vs "큐 자체가 비어 emit 안 되는 상태" 를
+            # 구분 가능하게 한다. 사용자 디버깅 흐름: F12 콘솔에 [WS] 연결됨 안 뜨면 conns=0 케이스.
+            if _tick % 10 == 0 and _game_service is not None:
+                go = _game_service.orchestrator
+                dispatcher = go.result_dispatcher if go else None
+                _logger.info(
+                    "[WS 큐 진단 @5s] conns=%d, orch=%s, dispatcher=%s, queue=%d",
+                    conns,
+                    "running" if (go and getattr(go, "is_running", False)) else "none",
+                    "ok" if dispatcher else "none",
+                    dispatcher.ws_queue_size if dispatcher else -1,
+                )
+
             if conns > 0 and _game_service is not None:
                 # 데모 모드: DemoBroadcaster ws_queue 소비
                 demo = _game_service.demo_broadcaster
@@ -122,9 +136,22 @@ async def broadcast_loop(interval_ms: float = 500.0) -> None:
                         for msg in messages:
                             await _manager.broadcast(msg)
                         if messages:
+                            # 메시지 종류별 카운트 — frame/event/etc 분리
+                            type_counts: dict[str, int] = {}
+                            event_kinds: list[str] = []
+                            for m in messages:
+                                t = m.get("type", "?") if isinstance(m, dict) else "?"
+                                type_counts[t] = type_counts.get(t, 0) + 1
+                                if t == "event" and isinstance(m, dict):
+                                    et = m.get("event_type", "?")
+                                    event_kinds.append(et)
                             _logger.info(
-                                "[WS] 엔진 브로드캐스트: %d건 전송 (큐 잔여: %d)",
-                                len(messages), dispatcher.ws_queue_size,
+                                "[WS-BROADCAST] 📡 %d건 전송 → conns=%d "
+                                "큐_잔여=%d, 종류=%s%s",
+                                len(messages), conns,
+                                dispatcher.ws_queue_size,
+                                type_counts,
+                                f", events={event_kinds}" if event_kinds else "",
                             )
                     # 10초마다 상태 로그 (메시지 없어도)
                     if _tick % 20 == 0:

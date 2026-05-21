@@ -83,7 +83,11 @@ _DEFAULT_CONFIG: Final[dict[str, Any]] = {
         "fps": 30,
         "resolution_width": 1920,
         "resolution_height": 1080,
-        "sync_tolerance_ms": 1.0,
+        # 2026-05-13: 1.0 → 33.33. 이전 값(1.0)은 GENLOCK 같은 HW 동기화 가정으로
+        #   software RTSP 환경(우리 환경)에서는 frame_aligner 가 매번 None 반환 →
+        #   _frame_cb 가 항상 early return → 분석 자체가 0건. 표준값 33.33ms (= 1
+        #   frame @ 30fps) 로 정정. 다른 모든 yaml config 와 동일.
+        "sync_tolerance_ms": 33.33,
     },
     "system": {
         "log_level": "INFO",

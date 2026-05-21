@@ -1,0 +1,542 @@
+{% extends "components/layout.html" %}
+{% set active = "license" %}
+{% block title %}COURTVIEW — 라이선스{% endblock %}
+
+{% block styles %}
+<style>
+/* ================================================================
+   LICENSE · Editorial
+   Hero · stat strip · LICENSE KEY + ENTITLEMENTS panels
+   ================================================================ */
+.lic-root { color: var(--fg-0); }
+
+/* HERO */
+.lic-hero {
+    padding: 32px 0 24px;
+    border-bottom: 1px solid var(--line-2);
+    position: relative;
+}
+.lic-hero-issue {
+    position: absolute; top: 8px; right: 0;
+    font-family: var(--f-mono); font-size: 11px;
+    color: var(--fg-3); letter-spacing: 1.4px;
+    text-align: right; line-height: 1.6;
+}
+.lic-hero-tagrow {
+    display: flex; gap: 8px; align-items: center;
+    font-family: var(--f-mono); font-size: 11px;
+    color: var(--fg-2); letter-spacing: 1px;
+}
+.lic-hero-title {
+    font-family: var(--f-display); font-weight: 700;
+    font-size: 56px; letter-spacing: -2px; line-height: 0.96;
+    margin: 14px 0 0; max-width: 900px;
+}
+.lic-hero-title .good { color: var(--good); }
+.lic-hero-meta {
+    display: flex; flex-wrap: wrap; gap: 28px;
+    margin-top: 16px;
+    font-family: var(--f-mono); font-size: 12px; color: var(--fg-1);
+}
+.lic-hero-meta .lbl { color: var(--fg-3); }
+.lic-hero-actions {
+    position: absolute; top: 60px; right: 0;
+    display: flex; gap: 6px;
+}
+
+/* STAT STRIP */
+.lic-statbar {
+    display: grid; grid-template-columns: repeat(5, 1fr);
+    border-bottom: 1px solid var(--line-2);
+}
+.lic-stat-cell {
+    padding: 16px 18px;
+    border-right: 1px solid var(--line-2);
+}
+.lic-stat-cell:last-child { border-right: none; }
+.lic-stat-lab {
+    font-family: var(--f-mono); font-size: 10px;
+    color: var(--fg-2); letter-spacing: 1.2px;
+}
+.lic-stat-num {
+    font-family: var(--f-display); font-weight: 700;
+    font-size: 28px; line-height: 1; margin-top: 4px;
+    letter-spacing: -0.5px; font-variant-numeric: tabular-nums;
+    color: var(--fg-0);
+}
+.lic-stat-num.good { color: var(--good); }
+.lic-stat-num.warn { color: var(--warn); }
+.lic-stat-num.bad { color: var(--bad); }
+.lic-stat-num.cool { color: var(--cool); }
+.lic-stat-sub {
+    font-family: var(--f-mono); font-size: 9px;
+    color: var(--fg-3); letter-spacing: 0.5px; margin-top: 4px;
+}
+
+/* PANELS (LICENSE KEY · ENTITLEMENTS · HARDWARE) */
+.lic-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: var(--line-2);
+    border-bottom: 1px solid var(--line-2);
+}
+.lic-panel {
+    background: var(--bg-1);
+    padding: 24px 28px;
+}
+.lic-section-head {
+    display: flex; align-items: baseline; gap: 12px;
+    margin-bottom: 16px;
+}
+.lic-section-head .num {
+    font-family: var(--f-mono); font-size: 10px;
+    color: var(--fg-2); letter-spacing: 2px;
+}
+.lic-section-head .title {
+    font-family: var(--f-display); font-size: 16px; font-weight: 700;
+    letter-spacing: -0.2px;
+}
+.lic-section-head .rule { flex: 1; height: 1px; background: var(--line-2); }
+
+/* LICENSE KEY box */
+.lic-key-box {
+    padding: 20px 24px;
+    background: var(--bg-2);
+    border: 1px solid var(--line-2);
+    text-align: center;
+    font-family: var(--f-mono);
+    font-size: 16px; font-weight: 600;
+    color: var(--hot); letter-spacing: 4px;
+}
+.lic-meta-list {
+    margin-top: 14px;
+    font-family: var(--f-mono); font-size: 11px;
+    color: var(--fg-1); line-height: 1.8;
+}
+.lic-meta-list .row {
+    display: flex; justify-content: space-between;
+    padding: 4px 0;
+}
+.lic-meta-list .lbl { color: var(--fg-3); letter-spacing: 0.5px; }
+.lic-actions-row {
+    display: flex; gap: 6px; margin-top: 18px;
+}
+.lic-warn-box {
+    margin-top: 12px;
+    padding: 14px 16px;
+    background: rgba(255,90,31,0.06);
+    border: 1px solid var(--hot);
+    border-left: 3px solid var(--hot);
+    font-family: var(--f-mono); font-size: 11px;
+    color: var(--fg-1); line-height: 1.6;
+}
+.lic-warn-box .head {
+    font-family: var(--f-display); font-size: 12px; font-weight: 700;
+    color: var(--hot); letter-spacing: 0.5px;
+    margin-bottom: 6px;
+}
+.lic-warn-box a { color: var(--hot); text-decoration: underline; }
+
+/* INFO list (lic-info / hw-info) */
+.lic-info-list {
+    display: flex; flex-direction: column;
+    font-family: var(--f-mono);
+}
+.lic-info-list .row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--line-2);
+}
+.lic-info-list .row:last-child { border-bottom: none; }
+.lic-info-list .lbl {
+    font-size: 10px; color: var(--fg-3);
+    letter-spacing: 1px;
+}
+.lic-info-list .val {
+    font-size: 13px; font-weight: 600;
+    color: var(--fg-0);
+    font-family: var(--f-display);
+}
+.lic-info-list .val.hot { color: var(--hot); }
+.lic-info-list .val.good { color: var(--good); }
+.lic-info-list .val.bad { color: var(--bad); }
+.lic-info-list .val.dim { color: var(--fg-3); }
+
+/* status badge */
+.badge {
+    display: inline-flex; align-items: center;
+    padding: 3px 10px;
+    border: 1px solid var(--line-3);
+    font-family: var(--f-mono); font-size: 10px; font-weight: 700;
+    letter-spacing: 1px;
+}
+.badge.active { color: var(--good); border-color: var(--good); background: rgba(43,212,164,0.06); }
+.badge.expired { color: var(--bad); border-color: var(--bad); background: rgba(255,59,92,0.06); }
+.badge.suspended { color: var(--warn); border-color: var(--warn); background: rgba(255,197,61,0.06); }
+
+/* ENTITLEMENTS */
+.lic-feat-row {
+    display: grid; grid-template-columns: 18px 1fr auto;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--line-2);
+    align-items: center;
+    gap: 12px;
+}
+.lic-feat-row:last-child { border-bottom: none; }
+.lic-feat-row .mark {
+    font-family: var(--f-mono); font-size: 14px;
+    color: var(--good);
+}
+.lic-feat-row.off .mark { color: var(--fg-3); }
+.lic-feat-row .name {
+    font-family: var(--f-display); font-size: 13px; font-weight: 600;
+}
+.lic-feat-row.off .name { color: var(--fg-3); }
+.lic-feat-row .val {
+    font-family: var(--f-mono); font-size: 11px;
+    color: var(--fg-2); letter-spacing: 0.3px;
+}
+.lic-feat-row.off .val { color: var(--fg-3); }
+
+/* empty state */
+.lic-empty {
+    text-align: center;
+    font-family: var(--f-mono); font-size: 11px;
+    color: var(--fg-3); padding: 30px 16px;
+    letter-spacing: 1px;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="lic-root">
+
+    <!-- ─── HERO ─── -->
+    <div class="lic-hero">
+        <div class="lic-hero-issue">
+            <div>ISSUE · LIC</div>
+            <div style="margin-top:4px;" id="lic-today">—</div>
+        </div>
+        <div class="lic-hero-tagrow">
+            <span class="cv-tag good" style="font-size:10px;" id="lic-tag">LICENSE</span>
+            <span id="lic-tagline">COURTVIEW DESK · BKDUNK 계정 연결</span>
+        </div>
+        <h1 class="lic-hero-title">LICENSED.<br><span class="good">OPERATIONAL.</span></h1>
+        <div class="lic-hero-meta">
+            <span><span class="lbl">PLAN —</span> <span id="lic-meta-plan">—</span></span>
+            <span><span class="lbl">SEAT —</span> <span id="lic-meta-seat">—</span></span>
+            <span><span class="lbl">EXPIRES —</span> <span id="lic-meta-exp">—</span></span>
+        </div>
+        <div class="lic-hero-actions">
+            <button class="cv-btn primary" style="height:32px; padding:0 16px; font-size:11px; letter-spacing:1px;" onclick="refreshLicense()">🔄 새로고침</button>
+            <button class="cv-btn" style="height:32px; padding:0 16px; font-size:11px; letter-spacing:1px;" onclick="loadHW()">⚙ 하드웨어 재조회</button>
+        </div>
+    </div>
+
+    <!-- ─── STAT STRIP ─── -->
+    <div class="lic-statbar">
+        <div class="lic-stat-cell">
+            <div class="lic-stat-lab">STATUS</div>
+            <div class="lic-stat-num" id="lic-stat-status" style="font-size:18px;">—</div>
+        </div>
+        <div class="lic-stat-cell">
+            <div class="lic-stat-lab">DAYS LEFT</div>
+            <div class="lic-stat-num" id="lic-stat-days">—</div>
+            <div class="lic-stat-sub" id="lic-stat-days-sub">until renewal</div>
+        </div>
+        <div class="lic-stat-cell">
+            <div class="lic-stat-lab">MAX CAMERAS</div>
+            <div class="lic-stat-num cool" id="lic-stat-cams">—</div>
+            <div class="lic-stat-sub">stream cap</div>
+        </div>
+        <div class="lic-stat-cell">
+            <div class="lic-stat-lab">AI REFEREE</div>
+            <div class="lic-stat-num" id="lic-stat-ai" style="font-size:18px;">—</div>
+        </div>
+        <div class="lic-stat-cell">
+            <div class="lic-stat-lab">CLOUD</div>
+            <div class="lic-stat-num" id="lic-stat-cloud" style="font-size:18px;">—</div>
+            <div class="lic-stat-sub">archive · upload</div>
+        </div>
+    </div>
+
+    <!-- ─── PANELS ─── -->
+    <div class="lic-grid">
+
+        <!-- LICENSE INFO -->
+        <div class="lic-panel">
+            <div class="lic-section-head">
+                <span class="num">01</span>
+                <span class="title">LICENSE INFO</span>
+                <span class="rule"></span>
+            </div>
+
+            <div id="lic-key-box" class="lic-key-box" style="display:none;">—</div>
+            <div id="lic-key-meta" class="lic-meta-list" style="display:none;"></div>
+
+            <div id="lic-info" class="lic-info-list">
+                <div class="lic-empty">로딩 중…</div>
+            </div>
+
+            <div id="lic-unbound" class="lic-warn-box" style="display:none;">
+                <div class="head">⚠ 라이선스 미확인</div>
+                <div>
+                    이 계정에 할당된 라이선스가 없습니다.<br>
+                    <a href="https://bkdunk.com" target="_blank">bkdunk</a>에서 구독 또는 B2B 렌탈 등록 후 다시 로그인하세요.
+                </div>
+            </div>
+        </div>
+
+        <!-- HARDWARE -->
+        <div class="lic-panel">
+            <div class="lic-section-head">
+                <span class="num">02</span>
+                <span class="title">HARDWARE</span>
+                <span class="rule"></span>
+            </div>
+            <div id="hw-info" class="lic-info-list">
+                <div class="lic-empty">로딩 중…</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ─── ENTITLEMENTS ─── -->
+    <div class="lic-panel" style="border-bottom:1px solid var(--line-2);">
+        <div class="lic-section-head">
+            <span class="num">03</span>
+            <span class="title">ENTITLEMENTS</span>
+            <span class="rule"></span>
+            <span style="font-family:var(--f-mono); font-size:10px; color:var(--fg-3); letter-spacing:1px;">WHAT'S INCLUDED</span>
+        </div>
+        <div id="lic-features"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// =============================================================================
+// 라이선스 정보 — bkdunk 프로필에서 가져옴
+// =============================================================================
+const PLAN_LABELS = { pro: 'COURTVIEW DESK Pro', standard: 'COURTVIEW DESK Standard', trial: 'COURTVIEW DESK Trial', enterprise: 'COURTVIEW DESK Enterprise' };
+const TYPE_LABELS = { b2b_rental: 'B2B 렌탈', subscription: '구독', trial: '체험판', enterprise: '엔터프라이즈' };
+
+// 모든 가능한 entitlement 표시 (라이선스 features 배열에 키가 있으면 ON)
+const FEATURES_LIST = [
+    { key: 'multi_camera',    label: 'MULTI-CAMERA TRACKING', sub: '8 streams' },
+    { key: 'broadcast',       label: 'BROADCAST SCOREBOARD',  sub: '4K · 60FPS' },
+    { key: 'fiba',            label: 'FIBA / KBL / NBL CERT.', sub: 'all leagues' },
+    { key: 'analytics',       label: 'PLAYER ANALYTICS',      sub: 'unlimited' },
+    { key: 'export',          label: 'EXPORT · CSV / JSON',   sub: 'unlimited' },
+    { key: 'ai_referee',      label: 'AI REFEREE',            sub: 'license required' },
+    { key: 'cloud_upload',    label: 'CLOUD ARCHIVE',         sub: 'add-on' },
+    { key: 'support',         label: '24/7 SUPPORT',          sub: 'included' },
+];
+
+function _extractLicense() {
+    try {
+        const profile = JSON.parse(localStorage.getItem('user_profile') || '{}');
+        if (profile?.license) return profile.license;
+    } catch {}
+    return null;
+}
+
+function _esc(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c =>
+        ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' })[c]);
+}
+
+function renderLicense(lic) {
+    const info = document.getElementById('lic-info');
+    const unbound = document.getElementById('lic-unbound');
+    const keyBox = document.getElementById('lic-key-box');
+    const keyMeta = document.getElementById('lic-key-meta');
+    const featuresEl = document.getElementById('lic-features');
+
+    // HERO 메타 업데이트
+    document.getElementById('lic-meta-plan').textContent = lic ? (PLAN_LABELS[lic.plan] || lic.plan || '—') : '미할당';
+    document.getElementById('lic-meta-seat').textContent = lic?.seat || localStorage.getItem('user_email') || '—';
+    document.getElementById('lic-meta-exp').textContent = lic?.expires_at || '—';
+
+    // STAT STRIP 업데이트
+    if (lic) {
+        const status = lic.status || 'unknown';
+        const statusEl = document.getElementById('lic-stat-status');
+        statusEl.textContent = status.toUpperCase();
+        statusEl.className = 'lic-stat-num ' + (status === 'active' ? 'good' : status === 'expired' ? 'bad' : 'warn');
+        statusEl.style.fontSize = '18px';
+
+        let daysLeft = '—';
+        if (lic.expires_at) {
+            try {
+                const exp = new Date(lic.expires_at);
+                const ms = exp - new Date();
+                daysLeft = Math.max(0, Math.ceil(ms / 86400000));
+            } catch {}
+        }
+        document.getElementById('lic-stat-days').textContent = daysLeft;
+        const daysSub = document.getElementById('lic-stat-days-sub');
+        if (typeof daysLeft === 'number') {
+            daysSub.textContent = daysLeft <= 30 ? '⚠ 갱신 임박' : 'until renewal';
+        }
+
+        document.getElementById('lic-stat-cams').textContent = lic.max_cameras ?? '—';
+
+        const ai = (lic.features || []).includes('ai_referee');
+        const aiEl = document.getElementById('lic-stat-ai');
+        aiEl.textContent = ai ? 'ON' : 'OFF';
+        aiEl.className = 'lic-stat-num ' + (ai ? 'good' : 'bad');
+        aiEl.style.fontSize = '18px';
+
+        const cloud = (lic.features || []).includes('cloud_upload');
+        const cloudEl = document.getElementById('lic-stat-cloud');
+        cloudEl.textContent = cloud ? 'ON' : 'OFF';
+        cloudEl.className = 'lic-stat-num ' + (cloud ? 'good' : 'bad');
+        cloudEl.style.fontSize = '18px';
+
+        // HERO 태그
+        const tagEl = document.getElementById('lic-tag');
+        tagEl.className = 'cv-tag ' + (status === 'active' ? 'good' : status === 'expired' ? 'live' : 'hot');
+        tagEl.textContent = status.toUpperCase();
+        document.getElementById('lic-tagline').textContent =
+            `${PLAN_LABELS[lic.plan] || lic.plan || 'COURTVIEW DESK'} · ${TYPE_LABELS[lic.type] || lic.type || '—'}`;
+    } else {
+        ['lic-stat-status','lic-stat-days','lic-stat-cams','lic-stat-ai','lic-stat-cloud'].forEach(id => {
+            const el = document.getElementById(id);
+            el.textContent = '—';
+            el.className = 'lic-stat-num';
+            if (['lic-stat-status','lic-stat-ai','lic-stat-cloud'].includes(id)) el.style.fontSize = '18px';
+        });
+    }
+
+    if (!lic) {
+        info.innerHTML = '<div class="lic-empty">라이선스 정보 없음</div>';
+        keyBox.style.display = 'none';
+        keyMeta.style.display = 'none';
+        unbound.style.display = 'block';
+        featuresEl.innerHTML = FEATURES_LIST.map(f => `
+            <div class="lic-feat-row off">
+                <span class="mark">—</span>
+                <span class="name">${f.label}</span>
+                <span class="val">${f.sub}</span>
+            </div>`).join('');
+        return;
+    }
+    unbound.style.display = 'none';
+
+    // LICENSE KEY 박스 (라이선스 키가 있으면 표시)
+    if (lic.key || lic.license_key) {
+        keyBox.style.display = 'block';
+        keyBox.textContent = lic.key || lic.license_key;
+        keyMeta.style.display = 'block';
+        keyMeta.innerHTML = `
+            <div class="row"><span class="lbl">ISSUED —</span><span>${_esc(lic.issued_at || '—')}</span></div>
+            <div class="row"><span class="lbl">HARDWARE ID —</span><span>${_esc(lic.hardware_id || '—')}</span></div>
+            <div class="row"><span class="lbl">BOUND TO —</span><span>${_esc(lic.bound_to || lic.seat || '—')}</span></div>
+        `;
+    } else {
+        keyBox.style.display = 'none';
+        keyMeta.style.display = 'none';
+    }
+
+    // LICENSE INFO list
+    const planLabel = PLAN_LABELS[lic.plan] || lic.plan || '—';
+    const typeLabel = TYPE_LABELS[lic.type] || lic.type || '—';
+    const status = lic.status || '—';
+    const statusBadge = `<span class="badge ${status}">${status.toUpperCase()}</span>`;
+
+    info.innerHTML = `
+        <div class="row"><span class="lbl">PRODUCT</span><span class="val">${_esc(planLabel)}</span></div>
+        <div class="row"><span class="lbl">TYPE</span><span class="val hot">${_esc(typeLabel)}</span></div>
+        <div class="row"><span class="lbl">STATUS</span>${statusBadge}</div>
+        <div class="row"><span class="lbl">EXPIRES</span><span class="val">${_esc(lic.expires_at || '—')}</span></div>
+        <div class="row"><span class="lbl">MAX CAMERAS</span><span class="val">${lic.max_cameras != null ? lic.max_cameras + ' streams' : '—'}</span></div>
+        <div class="row"><span class="lbl">SEAT</span><span class="val">${_esc(lic.seat || localStorage.getItem('user_email') || '—')}</span></div>
+    `;
+
+    // ENTITLEMENTS
+    const features = Array.isArray(lic.features) ? lic.features : [];
+    featuresEl.innerHTML = FEATURES_LIST.map(f => {
+        // 일부 기본 기능은 라이선스 있으면 자동 ON
+        const baseOn = ['multi_camera','broadcast','fiba','analytics','export','support'].includes(f.key);
+        const ok = features.includes(f.key) || baseOn;
+        return `<div class="lic-feat-row ${ok?'':'off'}">
+            <span class="mark">${ok ? '✓' : '—'}</span>
+            <span class="name">${f.label}</span>
+            <span class="val">${f.sub}</span>
+        </div>`;
+    }).join('');
+}
+
+async function refreshLicense() {
+    try {
+        const api = window.Auth?.fetch || fetch;
+        const resp = await api('/spoin/api/v1/users/me', { method: 'GET' });
+        if (resp.ok) {
+            const body = await resp.json();
+            const me = body?.data || body;
+            if (me) localStorage.setItem('user_profile', JSON.stringify(me));
+        }
+    } catch (e) {
+        console.warn('[license] 프로필 새로고침 실패:', e);
+    }
+    renderLicense(_extractLicense());
+}
+
+// =============================================================================
+// 하드웨어 정보
+// =============================================================================
+async function loadHW() {
+    const el = document.getElementById('hw-info');
+    el.innerHTML = '<div class="lic-empty">조회 중…</div>';
+
+    let gpu = null;
+    let engineInfo = null;
+    try {
+        const r = await fetch('/api/v1/metrics/gpu');
+        if (r.ok) gpu = await r.json();
+    } catch {}
+    try {
+        const r = await fetch('/health');
+        if (r.ok) engineInfo = await r.json();
+    } catch {}
+
+    if (!gpu && !engineInfo) {
+        el.innerHTML = `<div class="lic-empty">엔진(localhost:8000) 미연결<br><span style="font-size:9px;">엔진 실행 후 ⚙ 하드웨어 재조회</span></div>`;
+        return;
+    }
+
+    const row = (lbl, val, cls) => `<div class="row"><span class="lbl">${lbl}</span><span class="val ${cls||''}">${_esc(val)}</span></div>`;
+    const rows = [];
+    if (gpu) {
+        rows.push(row('GPU', gpu.gpu_name || '—'));
+        rows.push(row('VRAM', gpu.vram_total_mb ? `${gpu.vram_total_mb} MB` : '—'));
+        if (gpu.vram_used_mb != null) {
+            const pct = gpu.vram_total_mb ? Math.round(gpu.vram_used_mb / gpu.vram_total_mb * 100) : 0;
+            rows.push(row('VRAM USED', `${gpu.vram_used_mb} MB · ${pct}%`, pct > 80 ? 'bad' : pct > 60 ? 'hot' : 'good'));
+        }
+        if (gpu.temperature_celsius != null) {
+            rows.push(row('TEMP', `${gpu.temperature_celsius} °C`, gpu.temperature_celsius > 80 ? 'bad' : 'good'));
+        }
+    } else {
+        rows.push(row('GPU', '엔진 미연결', 'dim'));
+    }
+    rows.push(row('ENGINE', engineInfo?.engine_version || engineInfo?.version || '—'));
+    rows.push(row('MODEL', engineInfo?.model_version || '—'));
+    rows.push(row('STATUS', engineInfo?.engine === 'ok' ? 'OK' : 'OFFLINE',
+        engineInfo?.engine === 'ok' ? 'good' : 'bad'));
+    el.innerHTML = rows.join('');
+}
+
+// =============================================================================
+// 초기화
+// =============================================================================
+const _today = new Date();
+document.getElementById('lic-today').textContent =
+    `${String(_today.getMonth()+1).padStart(2,'0')} · ${String(_today.getDate()).padStart(2,'0')} · ${_today.getFullYear()}`;
+
+renderLicense(_extractLicense());
+loadHW();
+</script>
+{% endblock %}

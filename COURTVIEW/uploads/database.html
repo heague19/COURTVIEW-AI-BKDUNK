@@ -1,0 +1,486 @@
+{% extends "components/layout.html" %}
+{% set active = "database" %}
+{% block title %}COURTVIEW — DB 관리{% endblock %}
+
+{% block styles %}
+<style>
+/* ── 대회 선택 카드 ── */
+.my-tourney {
+    display:flex; align-items:center; gap:12px; padding:12px 14px;
+    cursor:pointer; border-radius:var(--radius-sm); transition:all 0.15s;
+    border:1px solid transparent;
+}
+.my-tourney:hover { background:rgba(255,255,255,0.03); }
+.my-tourney.active { background:rgba(255,153,51,0.08); border-color:var(--accent-orange); }
+.my-tourney .mt-icon {
+    width:40px; height:40px; border-radius:8px; background:var(--bg-dark);
+    display:flex; align-items:center; justify-content:center; font-size:18px; flex-shrink:0;
+}
+.my-tourney.active .mt-icon { background:var(--accent-orange); }
+.my-tourney .mt-name { font-size:13px; font-weight:600; }
+.my-tourney .mt-meta { font-size:10px; color:var(--text-muted); margin-top:2px; }
+
+/* ── 탭 ── */
+.db-tabs { display:flex; gap:2px; background:var(--bg-dark); border-radius:8px; padding:3px; margin-bottom:16px; }
+.db-tab { flex:1; padding:8px 0; border-radius:6px; font-size:12px; font-weight:600; border:none; background:transparent; color:var(--text-muted); cursor:pointer; transition:all 0.2s; text-align:center; }
+.db-tab:hover { color:var(--text-white); }
+.db-tab.active { background:var(--bg-card); color:var(--text-white); box-shadow:0 1px 4px rgba(0,0,0,0.3); }
+
+/* ── 팀 아이템 ── */
+.team-item { display:flex; align-items:center; gap:10px; padding:10px 14px; cursor:pointer; border-radius:var(--radius-sm); transition:all 0.15s; border:1px solid transparent; }
+.team-item:hover { background:rgba(255,255,255,0.03); }
+.team-item.active { background:rgba(255,153,51,0.08); border-color:var(--accent-orange); }
+.team-logo { width:34px; height:34px; border-radius:50%; background:var(--bg-dark); display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:800; color:var(--accent-orange); flex-shrink:0; }
+.team-item.active .team-logo { background:var(--accent-orange); color:#000; }
+
+/* ── 선수 테이블 ── */
+.p-table { width:100%; border-collapse:collapse; }
+.p-table th { font-size:10px; color:var(--text-muted); padding:8px 10px; text-align:center; font-weight:600; border-bottom:1px solid var(--border); position:sticky; top:0; background:var(--bg-card); z-index:1; }
+.p-table th:first-child,.p-table th:nth-child(2) { text-align:left; }
+.p-table td { font-size:12px; padding:8px 10px; text-align:center; border-bottom:1px solid rgba(68,68,68,0.15); }
+.p-table td:first-child { text-align:center; font-weight:700; color:var(--accent-orange); }
+.p-table td:nth-child(2) { text-align:left; font-weight:600; }
+.p-table tr:hover td { background:rgba(255,255,255,0.02); }
+.pos-badge { display:inline-block; padding:2px 8px; border-radius:3px; font-size:10px; font-weight:700; background:var(--bg-dark); }
+.pos-badge.pg{color:#4FC3F7;} .pos-badge.sg{color:#81C784;} .pos-badge.sf{color:#FFB74D;} .pos-badge.pf{color:#E57373;} .pos-badge.c{color:#BA68C8;}
+
+/* ── 모달 ── */
+.modal-overlay { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:1000; display:flex; align-items:center; justify-content:center; }
+.modal-box { background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius-lg); padding:24px; width:440px; max-width:90vw; max-height:85vh; overflow-y:auto; }
+.modal-title { font-size:16px; font-weight:700; margin-bottom:16px; }
+.f-row { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px; }
+.f-full { margin-bottom:10px; }
+
+/* ── 동기화 상태 ── */
+.sync-bar { display:flex; align-items:center; gap:8px; padding:8px 14px; background:var(--bg-dark); border-radius:var(--radius-sm); font-size:11px; color:var(--text-muted); margin-bottom:12px; }
+.sync-dot { width:6px; height:6px; border-radius:50%; flex-shrink:0; }
+.sync-dot.online { background:var(--accent-green); }
+.sync-dot.offline { background:var(--accent-red); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header" style="display:flex; justify-content:space-between; align-items:flex-start;">
+    <div>
+        <div class="page-title">🗄 DB 관리</div>
+        <div class="page-subtitle">Cloud에서 대회/팀/선수 데이터를 동기화합니다</div>
+    </div>
+    <div style="display:flex; gap:8px;">
+        <button class="btn btn-secondary btn-sm" onclick="syncFromCloud()">☁ Cloud 동기화</button>
+        <button class="btn btn-secondary btn-sm" onclick="exportAll()">📥 내보내기</button>
+    </div>
+</div>
+
+<!-- 동기화 상태바 -->
+<div class="sync-bar">
+    <span class="sync-dot" id="sync-dot"></span>
+    <span id="sync-status">동기화 대기</span>
+    <span style="margin-left:auto; font-size:10px;" id="sync-time"></span>
+</div>
+
+<!-- 전체 레이아웃: 좌(대회 목록) + 우(상세) -->
+<div style="display:grid; grid-template-columns:280px 1fr; gap:16px; min-height:calc(100vh - 280px);">
+
+    <!-- ═══ 좌측: 내 대회 목록 ═══ -->
+    <div class="card" style="display:flex; flex-direction:column;">
+        <div class="card-header" style="flex-shrink:0;">
+            <div class="card-title" style="font-size:13px;">내 대회</div>
+            <span style="font-size:10px; color:var(--text-muted);" id="tourney-count"></span>
+        </div>
+        <div style="flex:1; overflow-y:auto; padding:4px 0;" id="tourney-list"></div>
+    </div>
+
+    <!-- ═══ 우측: 선택 대회 상세 ═══ -->
+    <div style="display:flex; flex-direction:column; gap:16px;" id="right-panel">
+        <!-- 대회 미선택 시 -->
+        <div id="no-selection" class="card" style="display:flex; align-items:center; justify-content:center; flex:1;">
+            <div style="text-align:center; color:var(--text-muted); max-width:380px; padding:40px;">
+                <div style="font-size:40px; margin-bottom:12px;">🏆</div>
+                <div id="empty-headline" style="font-size:14px; color:var(--text-white); font-weight:600; margin-bottom:8px;">좌측에서 대회를 선택하세요</div>
+                <div id="empty-subtext" style="font-size:12px; line-height:1.6;">bkdunk 앱에서 대회·팀·선수를 등록한 뒤<br>[☁ Cloud 동기화] 버튼을 눌러 불러오세요.</div>
+                <a href="https://bkdunk.com" target="_blank" style="display:inline-block; margin-top:14px; padding:8px 16px; background:var(--accent-orange); color:#000; border-radius:6px; font-size:12px; font-weight:600; text-decoration:none;">
+                    bkdunk 에서 대회 등록하기 ↗
+                </a>
+            </div>
+        </div>
+
+        <!-- 대회 선택 시 -->
+        <div id="has-selection" style="display:none; flex-direction:column; gap:16px; flex:1;">
+            <!-- 대회 정보 요약 -->
+            <div class="card" style="padding:16px;">
+                <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                    <div>
+                        <div style="font-size:17px; font-weight:700;" id="sel-name"></div>
+                        <div style="font-size:11px; color:var(--text-gray); margin-top:4px;" id="sel-meta"></div>
+                    </div>
+                    <div style="display:flex; gap:12px; text-align:center;">
+                        <div><div style="font-size:20px;font-weight:800;color:var(--accent-orange);" id="sel-team-cnt">0</div><div style="font-size:9px;color:var(--text-muted);">팀</div></div>
+                        <div><div style="font-size:20px;font-weight:800;" id="sel-player-cnt">0</div><div style="font-size:9px;color:var(--text-muted);">선수</div></div>
+                        <div><div style="font-size:20px;font-weight:800;color:var(--accent-green);" id="sel-match-cnt">0</div><div style="font-size:9px;color:var(--text-muted);">경기</div></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 탭: 팀/선수 | 대회 일정 -->
+            <div class="db-tabs">
+                <button class="db-tab active" onclick="dbTab('teams',this)">👕 팀 / 선수</button>
+                <button class="db-tab" onclick="dbTab('schedule',this)">📅 대회 일정</button>
+                <button class="db-tab" onclick="dbTab('groups',this)">📋 조 편성</button>
+            </div>
+
+            <!-- 팀/선수 탭 -->
+            <div id="tab-teams" style="display:grid; grid-template-columns:200px 1fr; gap:12px; flex:1;">
+                <div class="card" style="display:flex; flex-direction:column; max-height:calc(100vh - 460px);">
+                    <div class="card-header" style="flex-shrink:0;"><div class="card-title" style="font-size:12px;">팀 목록</div></div>
+                    <div style="flex:1; overflow-y:auto;" id="team-list"></div>
+                </div>
+                <div class="card" style="display:flex; flex-direction:column; max-height:calc(100vh - 460px);">
+                    <div class="card-header" style="flex-shrink:0;">
+                        <div style="display:flex;align-items:center;gap:8px;"><div class="card-title" style="font-size:12px;" id="roster-title">팀 선택</div><span style="font-size:10px;color:var(--text-muted);" id="roster-count"></span></div>
+                    </div>
+                    <div style="flex:1; overflow-y:auto;" id="roster-body"><div style="display:flex;align-items:center;justify-content:center;height:150px;color:var(--text-muted);font-size:12px;">팀을 선택하세요</div></div>
+                </div>
+            </div>
+
+            <!-- 대회 일정 탭 -->
+            <div id="tab-schedule" style="display:none;">
+                <div class="card" style="max-height:calc(100vh - 460px); overflow-y:auto;">
+                    <div class="card-header"><div class="card-title" style="font-size:12px;">경기 일정</div><span style="font-size:10px;color:var(--text-muted);" id="match-count"></span></div>
+                    <div id="match-list"></div>
+                </div>
+            </div>
+
+            <!-- 조 편성 탭 -->
+            <div id="tab-groups" style="display:none;">
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;" id="group-view"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="modal-area"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// =============================================================================
+// 데이터 (Cloud에서 동기화 → localStorage 캐시)
+// =============================================================================
+const STORE = 'cv_db';
+let db = { tourneys: [], syncedAt: null };
+let selTourney = -1, selTeam = -1;
+
+// 목데이터 마이그레이션: 이전 버전의 defaultData 가 심어놓은 가짜 팀/대회 제거
+function _purgeLegacyMockDB() {
+    try {
+        const raw = localStorage.getItem(STORE);
+        if (!raw) return;
+        const d = JSON.parse(raw);
+        const mockTeams = new Set(['아울스','덩커스','업템포','청량','싱글벙글','블레이즈','스톰','타이탄','팬텀']);
+        const looksMocked = (d.tourneys || []).some(t =>
+            t.id === 'T001' ||
+            t.name === '2026 COURTVIEW 시범 대회' ||
+            t.venue === 'SPOIN 체육관' ||
+            (t.teams || []).some(x => mockTeams.has(x.name))
+        );
+        if (looksMocked) {
+            console.warn('[db] 구버전 목데이터 감지 — cv_db 캐시 정리');
+            localStorage.removeItem(STORE);
+        }
+    } catch { localStorage.removeItem(STORE); }
+}
+
+function loadLocal() {
+    _purgeLegacyMockDB();
+    try { db = JSON.parse(localStorage.getItem(STORE)) || { tourneys:[], syncedAt:null }; } catch { db = { tourneys:[], syncedAt:null }; }
+    saveLocal();
+}
+function saveLocal() { localStorage.setItem(STORE, JSON.stringify(db)); }
+
+// =============================================================================
+// bkdunk 동기화
+//
+// 목표 포맷: [{id, name, venue, startDate, endDate, ruleSet, format, groups, teams, matches}, ...]
+//
+// bkdunk 매핑 (엔드포인트 확정되면 path 만 수정):
+//   GET /cloud/api/tournaments?my=true       ← 가장 자연스러움 (백엔드 추가 필요)
+//   GET /cloud/api/events?type=tournament&my=true   ← events 로 통합되면 이 경로
+//
+// 응답 변환은 _normalizeTourneys() 에서 처리 — 스키마 변경 시 여기만 수정.
+// =============================================================================
+async function syncFromCloud() {
+    const dot = document.getElementById('sync-dot');
+    const status = document.getElementById('sync-status');
+    status.textContent = '☁ 동기화 중...';
+    dot.className = 'sync-dot';
+    dot.style.background = 'var(--accent-yellow)';
+
+    try {
+        const api = window.Auth?.fetch || fetch;
+        // 현재 best-guess 경로 — bkdunk 스펙 확정 시 교체
+        const resp = await api('/cloud/api/tournaments?my=true');
+        if (resp.ok) {
+            const body = await resp.json();
+            // bkdunk ApiResponse 래퍼: { success, data: [...] }
+            const list = body?.data ?? body?.tournaments ?? body;
+            const normalized = _normalizeTourneys(list);
+
+            db.tourneys = normalized;
+            db.syncedAt = new Date().toISOString();
+            saveLocal();
+            dot.className = 'sync-dot online';
+            status.textContent = normalized.length
+                ? `동기화 완료 — ${normalized.length}개 대회`
+                : '동기화 완료 — 대회 없음';
+            selTourney = normalized.length ? 0 : -1;
+            selTeam = -1;
+            renderAll();
+            return;
+        }
+
+        // 401 은 Auth.fetch 가 이미 리프레시/리다이렉트 처리했으므로 여기 안 옴
+        dot.className = 'sync-dot offline';
+        status.textContent = `동기화 실패 (HTTP ${resp.status}) — 로컬 캐시 사용`;
+    } catch (e) {
+        console.warn('[db] 동기화 오류:', e);
+        dot.className = 'sync-dot offline';
+        status.textContent = 'bkdunk 연결 실패 — 로컬 캐시 사용';
+    }
+    updateSyncTime();
+}
+
+// bkdunk 의 대회 스키마를 COURTVIEW 내부 포맷으로 정규화
+// 백엔드 스펙이 다르게 내려오면 이 함수만 조정
+function _normalizeTourneys(list) {
+    if (!Array.isArray(list)) return [];
+    return list.map(t => ({
+        id:        t.id || t._id || '',
+        name:      t.name || t.title || '(이름 없음)',
+        venue:     t.venue || t.location || '',
+        startDate: t.startDate || t.start_date || t.startsAt || '',
+        endDate:   t.endDate   || t.end_date   || t.endsAt   || '',
+        ruleSet:   (t.ruleSet || t.rule_set || 'fiba').toLowerCase(),
+        format:    t.format || '',
+        groups:    t.groups || {},
+        teams:     Array.isArray(t.teams)   ? t.teams   : [],
+        matches:   Array.isArray(t.matches) ? t.matches : [],
+    }));
+}
+
+function updateSyncTime() {
+    const el = document.getElementById('sync-time');
+    if (db.syncedAt) {
+        const d = new Date(db.syncedAt);
+        el.textContent = `마지막 동기화: ${d.toLocaleString('ko-KR')}`;
+    } else {
+        el.textContent = '';
+    }
+}
+
+// =============================================================================
+// 탭 전환
+// =============================================================================
+function dbTab(tab, el) {
+    ['teams','schedule','groups'].forEach(t => {
+        const panel = document.getElementById('tab-'+t);
+        if (panel) panel.style.display = t===tab ? (t==='teams'?'grid':'block') : 'none';
+    });
+    document.querySelectorAll('.db-tab').forEach(b => b.classList.remove('active'));
+    el.classList.add('active');
+}
+
+// =============================================================================
+// 대회 목록 (좌측)
+// =============================================================================
+function renderTourneyList() {
+    document.getElementById('tourney-count').textContent = db.tourneys.length + '개';
+    document.getElementById('tourney-list').innerHTML = db.tourneys.map((t, i) => {
+        const done = (t.matches||[]).filter(m=>m.status==='done').length;
+        const total = (t.matches||[]).length;
+        return `<div class="my-tourney ${i===selTourney?'active':''}" onclick="selectTourney(${i})">
+            <div class="mt-icon">${i===selTourney?'🏆':'🏅'}</div>
+            <div style="min-width:0;">
+                <div class="mt-name" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${t.name}</div>
+                <div class="mt-meta">${t.startDate?.substring(5)||''} ~ ${t.endDate?.substring(5)||''} · ${t.venue||''}</div>
+                <div class="mt-meta">${t.teams?.length||0}팀 · 경기 ${done}/${total} · <span style="color:var(--accent-orange);">${(t.ruleSet||'FIBA').toUpperCase()}</span></div>
+            </div>
+        </div>`;
+    }).join('') || `
+        <div style="text-align:center;color:var(--text-muted);padding:24px 16px;font-size:11px;line-height:1.6;">
+            <div style="font-size:24px; margin-bottom:8px;">📭</div>
+            <div style="font-weight:600; color:var(--text-white); margin-bottom:4px;">대회 없음</div>
+            bkdunk 에서 대회 등록 후<br>상단 <b>☁ Cloud 동기화</b> 클릭
+        </div>
+    `;
+}
+
+function selectTourney(i) {
+    selTourney = i; selTeam = -1;
+    renderAll();
+}
+
+// =============================================================================
+// 우측: 대회 상세
+// =============================================================================
+function renderDetail() {
+    const noSel = document.getElementById('no-selection');
+    const hasSel = document.getElementById('has-selection');
+
+    if (selTourney < 0 || !db.tourneys[selTourney]) {
+        noSel.style.display = 'flex';
+        hasSel.style.display = 'none';
+        // 대회 유무에 따라 빈 상태 메시지 분기
+        const headline = document.getElementById('empty-headline');
+        const subtext  = document.getElementById('empty-subtext');
+        if (headline && subtext) {
+            if (db.tourneys.length === 0) {
+                headline.textContent = '대회가 비어있습니다';
+                subtext.innerHTML = 'bkdunk 앱에서 대회·팀·선수를 등록한 뒤<br>[☁ Cloud 동기화] 버튼을 눌러 불러오세요.';
+            } else {
+                headline.textContent = '좌측에서 대회를 선택하세요';
+                subtext.innerHTML = `${db.tourneys.length}개의 대회가 있습니다.`;
+            }
+        }
+        return;
+    }
+
+    noSel.style.display = 'none';
+    hasSel.style.display = 'flex';
+
+    const t = db.tourneys[selTourney];
+    const totalPlayers = (t.teams||[]).reduce((s,tm) => s + (tm.players?.length||0), 0);
+
+    document.getElementById('sel-name').textContent = t.name;
+    document.getElementById('sel-meta').textContent = `${t.startDate} ~ ${t.endDate} · ${t.venue} · ${(t.ruleSet||'FIBA').toUpperCase()} · ${t.format||''}`;
+    document.getElementById('sel-team-cnt').textContent = t.teams?.length || 0;
+    document.getElementById('sel-player-cnt').textContent = totalPlayers;
+    document.getElementById('sel-match-cnt').textContent = (t.matches||[]).length;
+
+    renderTeamList();
+    renderRoster();
+    renderSchedule();
+    renderGroups();
+}
+
+// =============================================================================
+// 팀/선수
+// =============================================================================
+function renderTeamList() {
+    const t = db.tourneys[selTourney];
+    if (!t) return;
+    document.getElementById('team-list').innerHTML = (t.teams||[]).map((tm, i) => `
+        <div class="team-item ${i===selTeam?'active':''}" onclick="selectTeamItem(${i})">
+            <div class="team-logo" style="${i===selTeam?`background:${tm.color||'var(--accent-orange)'};color:#000;`:''}">${(tm.abbr||tm.name[0]).substring(0,2)}</div>
+            <div style="min-width:0;">
+                <div style="font-size:12px;font-weight:600;">${tm.name}</div>
+                <div style="font-size:10px;color:var(--text-muted);">${tm.players?.length||0}명</div>
+            </div>
+        </div>`).join('') || '<div style="text-align:center;color:var(--text-muted);padding:20px;font-size:11px;">팀 없음</div>';
+}
+
+function selectTeamItem(i) { selTeam = i; renderTeamList(); renderRoster(); }
+
+function renderRoster() {
+    const t = db.tourneys[selTourney];
+    if (!t || selTeam < 0 || !t.teams[selTeam]) {
+        document.getElementById('roster-title').textContent = '팀 선택';
+        document.getElementById('roster-count').textContent = '';
+        document.getElementById('roster-body').innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:150px;color:var(--text-muted);font-size:12px;">팀을 선택하세요</div>';
+        return;
+    }
+    const tm = t.teams[selTeam];
+    document.getElementById('roster-title').textContent = tm.name;
+    document.getElementById('roster-count').textContent = `${tm.players?.length||0}명`;
+
+    if (!tm.players?.length) {
+        document.getElementById('roster-body').innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:150px;color:var(--text-muted);font-size:12px;">등록된 선수가 없습니다</div>';
+        return;
+    }
+
+    const posOrd = {PG:0,SG:1,SF:2,PF:3,C:4};
+    const sorted = [...tm.players].sort((a,b) => (posOrd[a.pos]??9)-(posOrd[b.pos]??9));
+    document.getElementById('roster-body').innerHTML = `<table class="p-table">
+        <thead><tr><th style="width:40px;">#</th><th>이름</th><th style="width:55px;">포지션</th><th style="width:45px;">키</th><th style="width:50px;">몸무게</th><th style="width:45px;">주손</th></tr></thead>
+        <tbody>${sorted.map(p => `<tr>
+            <td>${p.jersey}</td><td>${p.name||'-'}</td>
+            <td><span class="pos-badge ${(p.pos||'').toLowerCase()}">${p.pos||'-'}</span></td>
+            <td>${p.height?p.height+'cm':'-'}</td><td>${p.weight?p.weight+'kg':'-'}</td>
+            <td style="font-size:10px;color:var(--text-muted);">자동</td>
+        </tr>`).join('')}</tbody></table>`;
+}
+
+// =============================================================================
+// 대회 일정
+// =============================================================================
+function renderSchedule() {
+    const t = db.tourneys[selTourney];
+    if (!t) return;
+    const mList = t.matches || [];
+    document.getElementById('match-count').textContent = mList.length + '경기';
+    document.getElementById('match-list').innerHTML = mList.length ? mList.map(m => {
+        const isDone = m.status === 'done';
+        const sc = isDone ? `<span style="font-weight:700;color:var(--accent-orange);">${m.hs} : ${m.as}</span>` : '<span style="color:var(--accent-blue);font-size:10px;">예정</span>';
+        const hw = isDone && m.hs > m.as, aw = isDone && m.as > m.hs;
+        return `<div style="display:grid;grid-template-columns:45px 35px 25px 1fr 60px;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid rgba(68,68,68,0.15);font-size:12px;">
+            <span style="color:var(--text-muted);font-size:10px;">${m.date}</span>
+            <span style="font-weight:600;font-size:11px;">${m.time}</span>
+            <span style="color:var(--accent-orange);font-weight:600;font-size:10px;">${m.group||'-'}</span>
+            <span style="font-weight:600;"><span style="${hw?'color:var(--accent-orange);':''}">${m.home}</span> <span style="color:var(--text-muted);font-weight:400;">vs</span> <span style="${aw?'color:var(--accent-orange);':''}">${m.away}</span></span>
+            <span style="text-align:center;">${sc}</span>
+        </div>`;
+    }).join('') : '<div style="text-align:center;color:var(--text-muted);padding:24px;font-size:12px;">경기 없음</div>';
+}
+
+// =============================================================================
+// 조 편성
+// =============================================================================
+function renderGroups() {
+    const t = db.tourneys[selTourney];
+    if (!t || !t.groups) { document.getElementById('group-view').innerHTML = ''; return; }
+    document.getElementById('group-view').innerHTML = Object.entries(t.groups).map(([g, names]) => `
+        <div class="card">
+            <div class="card-header"><div class="card-title" style="font-size:13px;">${g}조</div><span style="font-size:10px;color:var(--text-muted);">${names.length}팀</span></div>
+            <div style="padding:4px 0;">
+                ${names.map((n, i) => {
+                    const tm = (t.teams||[]).find(x => x.name === n);
+                    return `<div style="display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid rgba(68,68,68,0.1);">
+                        <span style="width:20px;height:20px;border-radius:50%;background:${i<2?'var(--accent-orange)':'var(--bg-dark)'};color:${i<2?'#000':'var(--text-muted)'};display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;">${i+1}</span>
+                        <div style="width:8px;height:8px;border-radius:50%;background:${tm?.color||'var(--text-muted)'};"></div>
+                        <span style="font-size:12px;font-weight:600;">${n}</span>
+                        <span style="font-size:10px;color:var(--text-muted);margin-left:auto;">${tm?.players?.length||0}명</span>
+                    </div>`;
+                }).join('')}
+            </div>
+        </div>`).join('');
+}
+
+// =============================================================================
+// 내보내기
+// =============================================================================
+function exportAll() {
+    if (selTourney < 0) { alert('대회를 선택하세요.'); return; }
+    const t = db.tourneys[selTourney];
+    const blob = new Blob([JSON.stringify(t, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+    a.download = `courtview_${t.id||'tourney'}.json`; a.click();
+}
+
+// =============================================================================
+// 렌더
+// =============================================================================
+function renderAll() {
+    renderTourneyList();
+    renderDetail();
+    updateSyncTime();
+    // 동기화 상태
+    const dot = document.getElementById('sync-dot');
+    dot.className = db.syncedAt ? 'sync-dot online' : 'sync-dot offline';
+    document.getElementById('sync-status').textContent = db.syncedAt ? '로컬 캐시 사용 중' : '동기화 필요';
+}
+
+// 초기화
+loadLocal();
+if (db.tourneys.length) selTourney = 0;
+renderAll();
+</script>
+{% endblock %}

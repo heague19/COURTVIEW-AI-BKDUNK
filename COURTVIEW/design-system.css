@@ -1,0 +1,219 @@
+/* =============================================================
+   COURTVIEW — Refresh Design System
+   Trading-terminal + broadcast graphic fusion
+   ============================================================= */
+
+:root {
+    /* Tone (overridable per-option) */
+    --bg-0: #0A0B0D;       /* deepest */
+    --bg-1: #0F1114;       /* canvas */
+    --bg-2: #14171B;       /* panel */
+    --bg-3: #1B1F24;       /* card */
+    --bg-4: #232830;       /* hover */
+
+    --line-1: #1F242C;
+    --line-2: #2A3038;
+    --line-3: #3A424C;
+
+    --fg-0: #F4F5F7;
+    --fg-1: #B8BDC6;
+    --fg-2: #6E7682;
+    --fg-3: #444A54;
+
+    /* Accent system (single hot, supporting cool) */
+    --hot: #FF5A1F;        /* primary accent — orange but tighter */
+    --hot-deep: #D03E0E;
+    --hot-soft: rgba(255, 90, 31, 0.10);
+
+    --cool: #4DA3FF;       /* away/info */
+    --cool-soft: rgba(77, 163, 255, 0.10);
+
+    --good: #2BD4A4;
+    --bad: #FF3B5C;
+    --warn: #FFC53D;
+
+    /* Type */
+    --f-sans: "IBM Plex Sans", "Pretendard", system-ui, sans-serif;
+    --f-mono: "IBM Plex Mono", "JetBrains Mono", ui-monospace, monospace;
+    --f-display: "Space Grotesk", "IBM Plex Sans", sans-serif;
+
+    /* Radii — sharper than before */
+    --r-1: 2px;
+    --r-2: 4px;
+    --r-3: 6px;
+
+    /* Density */
+    --u: 4px;
+}
+
+/* Reset bits */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+    font-family: var(--f-sans);
+    background: var(--bg-1);
+    color: var(--fg-0);
+    -webkit-font-smoothing: antialiased;
+    font-feature-settings: "ss01", "cv11";
+}
+
+/* ===== Top nav (horizontal — replaces sidebar) ===== */
+.cv-topbar {
+    height: 48px;
+    background: var(--bg-0);
+    border-bottom: 1px solid var(--line-2);
+    display: flex;
+    align-items: stretch;
+    font-family: var(--f-sans);
+    font-size: 12px;
+    user-select: none;
+}
+.cv-brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 18px 0 16px;
+    border-right: 1px solid var(--line-2);
+    font-family: var(--f-display);
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    font-size: 14px;
+}
+.cv-brand .mark {
+    width: 18px; height: 18px;
+    border: 1.5px solid var(--hot);
+    border-radius: 50%;
+    position: relative;
+    flex-shrink: 0;
+}
+.cv-brand .mark::before, .cv-brand .mark::after {
+    content: ''; position: absolute;
+    background: var(--hot);
+}
+.cv-brand .mark::before {
+    inset: 0 50% 0 0; border-right: 1px solid var(--hot); background: transparent;
+}
+.cv-brand .mark::after {
+    left: 0; right: 0; top: 50%; height: 1px;
+}
+.cv-brand .name { color: var(--fg-0); }
+.cv-brand .name b { color: var(--hot); font-weight: 700; }
+
+.cv-nav {
+    display: flex; align-items: stretch; flex: 1;
+}
+.cv-nav-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 0 16px;
+    color: var(--fg-1);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    border-right: 1px solid var(--line-1);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    position: relative;
+    text-decoration: none;
+    transition: background .12s, color .12s;
+}
+.cv-nav-item:hover { background: var(--bg-2); color: var(--fg-0); }
+.cv-nav-item.active {
+    color: var(--fg-0);
+    background: var(--bg-2);
+}
+.cv-nav-item.active::after {
+    content: ''; position: absolute;
+    left: 0; right: 0; bottom: 0;
+    height: 2px; background: var(--hot);
+}
+.cv-nav-item svg { width: 14px; height: 14px; flex-shrink: 0; }
+
+.cv-nav-spacer { flex: 1; }
+
+.cv-nav-meta {
+    display: flex; align-items: center; gap: 0;
+    border-left: 1px solid var(--line-2);
+}
+.cv-nav-meta .pill {
+    height: 100%;
+    display: flex; align-items: center; gap: 8px;
+    padding: 0 14px;
+    font-family: var(--f-mono);
+    font-size: 11px;
+    color: var(--fg-1);
+    border-right: 1px solid var(--line-1);
+}
+.cv-nav-meta .pill .label { color: var(--fg-2); text-transform: uppercase; letter-spacing: 0.8px; font-size: 10px; }
+.cv-nav-meta .pill .val { color: var(--fg-0); font-weight: 600; }
+.cv-nav-meta .pill.live .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--good);
+    box-shadow: 0 0 0 0 rgba(43, 212, 164, 0.6);
+    animation: cvPulse 1.6s infinite;
+}
+@keyframes cvPulse {
+    0% { box-shadow: 0 0 0 0 rgba(43,212,164,0.6); }
+    70% { box-shadow: 0 0 0 6px rgba(43,212,164,0); }
+    100% { box-shadow: 0 0 0 0 rgba(43,212,164,0); }
+}
+.cv-nav-meta .avatar {
+    width: 28px; height: 28px;
+    margin: 0 12px;
+    border-radius: 50%;
+    background: var(--bg-3);
+    border: 1px solid var(--line-3);
+    color: var(--hot);
+    font-size: 10px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--f-mono);
+}
+
+/* ===== Generic UI primitives ===== */
+.cv-tag {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 2px 8px;
+    font-family: var(--f-mono);
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    border: 1px solid var(--line-3);
+    color: var(--fg-1);
+    background: var(--bg-2);
+    border-radius: var(--r-1);
+}
+.cv-tag.hot { color: var(--hot); border-color: var(--hot); background: var(--hot-soft); }
+.cv-tag.live { color: var(--bad); border-color: var(--bad); background: rgba(255,59,92,0.08); }
+.cv-tag.good { color: var(--good); border-color: rgba(43,212,164,0.4); background: rgba(43,212,164,0.08); }
+.cv-tag.cool { color: var(--cool); border-color: rgba(77,163,255,0.4); background: var(--cool-soft); }
+
+.cv-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    height: 30px;
+    padding: 0 14px;
+    font-family: var(--f-sans);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    border: 1px solid var(--line-3);
+    background: var(--bg-3);
+    color: var(--fg-0);
+    border-radius: var(--r-2);
+    cursor: pointer;
+    transition: all .12s;
+}
+.cv-btn:hover { background: var(--bg-4); border-color: var(--fg-3); }
+.cv-btn.primary {
+    background: var(--hot);
+    border-color: var(--hot);
+    color: #0A0B0D;
+}
+.cv-btn.primary:hover { background: #FF7144; }
+.cv-btn.ghost { background: transparent; }
+
+.cv-mono { font-family: var(--f-mono); }
+.cv-display { font-family: var(--f-display); font-weight: 600; letter-spacing: -0.01em; }
+.cv-num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+
+/* Custom pictograms — drawn inline as SVG. Sizes 14/16/20. */
+.cv-icon { display: inline-block; vertical-align: -2px; }

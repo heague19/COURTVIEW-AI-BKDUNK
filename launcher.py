@@ -18,12 +18,35 @@ import multiprocessing
 import os
 import signal
 import sys
+import threading
 import time
 import webbrowser
 from pathlib import Path
 
 # PyInstaller freeze 환경에서 multiprocessing 지원
 multiprocessing.freeze_support()
+
+
+# v0.5.4: frozen EXE 가 ultralytics 의 pip install 시도 등으로 자기 자신을
+# `-m pip install ...` 인자로 호출당할 수 있음 → launcher.main() 새 창.
+# 그것만 차단. multiprocessing.Process 자식은 freeze_support() 가 알아서 처리하므로
+# 절대 차단하면 안 됨 (v0.5.3 regression: worker spawn 차단해서 engine/UI 서버 안 뜸).
+def _is_pip_recursive_call() -> bool:
+    """frozen EXE 가 ultralytics pip install 호출당했는지만 검사."""
+    if not getattr(sys, "frozen", False):
+        return False
+    argv = sys.argv[1:]
+    if not argv:
+        return False
+    # ultralytics 가 시도하는 `-m pip install ...` 만 차단
+    if argv[0] == "-m" and "pip" in argv:
+        return True
+    return False
+
+
+if _is_pip_recursive_call():
+    # 새 launcher 창 안 뜨게 즉시 종료 — ultralytics 는 retry 후 폴백 진행.
+    sys.exit(2147483651)  # STATUS_INVALID_INFO_CLASS
 
 # =============================================================================
 # 프로젝트 경로 설정 (frozen 환경 포함)
@@ -46,13 +69,77 @@ if UI_DIR.exists():
     sys.path.insert(0, str(UI_DIR))
 
 # =============================================================================
-# 로깅
+# 로깅 (v0.4.1: 파일 핸들러 추가 — %APPDATA%\COURTVIEW\logs\courtview.log)
 # =============================================================================
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    datefmt="%H:%M:%S",
-)
+def _setup_logging() -> None:
+    fmt = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    # stream handler (콘솔)
+    sh = logging.StreamHandler()
+    sh.setFormatter(logging.Formatter(fmt, datefmt="%H:%M:%S"))
+    root.addHandler(sh)
+    # file handler (영속)
+    try:
+        import os as _os_log
+        _ad = _os_log.environ.get("APPDATA")
+        log_dir = (
+            Path(_ad) / "COURTVIEW" / "logs"
+            if _ad else Path.home() / ".courtview" / "logs"
+        )
+        log_dir.mkdir(parents=True, exist_ok=True)
+        from logging.handlers import RotatingFileHandler
+        fh = RotatingFileHandler(
+            log_dir / "courtview.log",
+            maxBytes=10 * 1024 * 1024,
+            backupCount=5,
+            encoding="utf-8",
+        )
+        fh.setFormatter(logging.Formatter(
+            "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        ))
+        root.addHandler(fh)
+    except Exception as _exc:  # noqa: BLE001
+        sys.stderr.write(f"[launcher] 파일 로그 핸들러 초기화 실패: {_exc}\n")
+
+    # =========================================================================
+    # 2026-05-11 진단 로그 일괄 침묵 (사용자 요청)
+    #   - 모든 verbose 진단 로그 (SCORE-FLOW / BALL-FLOW / PIPE / DECODE /
+    #     ORCH heartbeat / DISPATCH / WS-BROADCAST / GAME-SVC / PLAYER-FLOW
+    #     / 카메라 connect / 녹화 등) 를 WARNING 레벨로 올려 INFO 묻음.
+    #   - 되돌리려면: 아래 리스트 비우거나 _SILENCE_VERBOSE = False 로.
+    # =========================================================================
+    _SILENCE_VERBOSE: bool = True     # 2026-05-13: RTSP verbose 로그 비활성화 (사용자 요청)
+    _silenced_loggers: list[str] = [
+        # 새로 추가한 진단 로그 모듈
+        "game_analysis.game_state.event_detection.score_detector",
+        "detection.ball_detection.ball_detector",
+        "detection.player_detection.player_detector",
+        "infrastructure.preprocessing.video_decoder",
+        "engine.pipeline.frame_pipeline",
+        "engine.pipeline.fusion.detection_fusion",
+        "engine.io.result_dispatcher",
+        "api_server.websocket.progress_handler",
+        "api_server.services.game_service",
+        "api_server.services.camera_service",
+        "api_server.services.go2rtc_service",
+        "courtview-ui",
+        # 녹화 / 카메라 관련
+        "engine.io.recording",
+        "api_server.routes.v1.recording_routes",
+        "api_server.routes.v1.camera_routes",
+        # orchestrator 의 [DET F#]/[SCORE F#]/[POSS F#]/[ORCH] 등
+        "engine.orchestrator.game_orchestrator",
+        # HTTP / WS 노이즈
+        "httpx",
+        "uvicorn.access",
+    ]
+    if _SILENCE_VERBOSE:
+        for _name in _silenced_loggers:
+            logging.getLogger(_name).setLevel(logging.WARNING)
+
+
+_setup_logging()
 logger = logging.getLogger("launcher")
 
 ENGINE_HOST = "0.0.0.0"
@@ -203,6 +290,58 @@ def _preflight_splash_and_warmup():
 # =============================================================================
 # 메인
 # =============================================================================
+def _monitor_process_memory(
+    engine_proc: multiprocessing.Process,
+    ui_proc: multiprocessing.Process,
+    interval_sec: float = 30.0,
+    alert_threshold_mb: float = 6000.0,
+) -> None:
+    """
+    2026-05-13: engine/UI 자식 프로세스 + 손자(ffmpeg, go2rtc) RSS 모니터링.
+
+    interval_sec 마다 INFO 로 합계 로그. alert_threshold_mb 초과 시 WARNING.
+    psutil 미설치 시 graceful skip — 코드 동작에 영향 없음.
+    """
+    logger = logging.getLogger("launcher.mem")
+    try:
+        import psutil  # type: ignore[import-not-found]
+    except ImportError:
+        logger.warning("[MEM] psutil 미설치 — 메모리 모니터링 skip")
+        return
+
+    while engine_proc.is_alive() or ui_proc.is_alive():
+        try:
+            samples: list[str] = []
+            total_mb = 0.0
+            for label, proc in (("engine", engine_proc), ("ui", ui_proc)):
+                if not proc.is_alive() or proc.pid is None:
+                    continue
+                try:
+                    p = psutil.Process(proc.pid)
+                    rss_mb = p.memory_info().rss / (1024 * 1024)
+                    children_mb = 0.0
+                    for c in p.children(recursive=True):
+                        try:
+                            children_mb += c.memory_info().rss / (1024 * 1024)
+                        except (psutil.NoSuchProcess, psutil.AccessDenied):
+                            continue
+                    samples.append(
+                        f"{label}={rss_mb:.0f}MB(+{children_mb:.0f}MB 자식)"
+                    )
+                    total_mb += rss_mb + children_mb
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+            logger.info("[MEM] %s total=%.0fMB", " ".join(samples), total_mb)
+            if total_mb > alert_threshold_mb:
+                logger.warning(
+                    "[MEM ALERT] 총 메모리 %.0fMB > %.0fMB 초과 ⚠",
+                    total_mb, alert_threshold_mb,
+                )
+        except Exception as e:  # noqa: BLE001
+            logger.debug("[MEM] 샘플링 예외: %s", e)
+        time.sleep(interval_sec)
+
+
 def main() -> None:
     # 버전 정보
     try:
@@ -273,6 +412,16 @@ def main() -> None:
     signal.signal(signal.SIGINT, _shutdown)
     if hasattr(signal, "SIGTERM"):
         signal.signal(signal.SIGTERM, _shutdown)
+
+    # 2026-05-13: RAM 모니터링 스레드 — 30초마다 자식 프로세스 RSS 로그.
+    # psutil 미설치 시 graceful skip. 6GB 초과 시 [MEM ALERT] 경고.
+    mem_monitor = threading.Thread(
+        target=_monitor_process_memory,
+        args=(engine_proc, ui_proc, 30.0, 6000.0),
+        daemon=True,
+        name="mem-monitor",
+    )
+    mem_monitor.start()
 
     # 자식 프로세스 대기
     try:

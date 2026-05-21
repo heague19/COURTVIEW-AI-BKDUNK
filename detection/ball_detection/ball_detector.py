@@ -389,6 +389,67 @@ class BallDetector(IBallDetector[BallDetectorConfig]):
                     self._effective_device,
                     self._effective_half,
                 )
+
+                # ===== BALL-FLOW: 학습 데이터 로드 완료 (상세) =====
+                try:
+                    model_size_mb = model_path.stat().st_size / (1024 * 1024)
+                except OSError:
+                    model_size_mb = -1.0
+
+                # ultralytics YOLO 가 노출하는 메타정보 추출
+                names_dict = getattr(self._model, "names", None) or {}
+                class_count = len(names_dict) if names_dict else 0
+                # task 정보 (detect/segment 등)
+                task = getattr(self._model, "task", "?")
+                # 모델 dtype/parameter count (가능하면)
+                try:
+                    inner = getattr(self._model, "model", None)
+                    n_params = sum(
+                        p.numel() for p in inner.parameters()
+                    ) if inner is not None else 0
+                except Exception:  # noqa: BLE001
+                    n_params = 0
+
+                logger.info(
+                    "[BALL-FLOW] 📦 학습 데이터 로드 완료 → model=%s (%.1f MB) task=%s "
+                    "params=%d classes=%d device=%s fp16=%s input_size=%d",
+                    model_path.name, model_size_mb, task, n_params,
+                    class_count, self._effective_device, self._effective_half,
+                    config.input_size,
+                )
+                logger.info(
+                    "[BALL-FLOW] 📦 클래스 매핑 → %s",
+                    dict(list(names_dict.items())[:10]) if names_dict else "(메타 없음)",
+                )
+                logger.info(
+                    "[BALL-FLOW] 📦 추론 임계 (config) → conf>=%.2f, iou=%.2f, "
+                    "max_det=%d, classes_filter=%s",
+                    config.confidence_threshold, config.nms_iou_threshold,
+                    config.max_detections,
+                    [BALL_DETECTION_CLASS_ID, BALL_DETECTION_COCO_CLASS_ID],
+                )
+                logger.info(
+                    "[BALL-FLOW] 📦 후처리 임계 (constants) → "
+                    "min_conf=%.2f high_conf=%.2f input=%d "
+                    "size_pixels=[%d,%d] size_ratio=[%.4f,%.4f] "
+                    "aspect=[%.2f,%.2f] circ_thr=%.2f",
+                    BALL_DETECTION_MIN_CONFIDENCE, BALL_DETECTION_HIGH_CONFIDENCE,
+                    BALL_DETECTION_INPUT_SIZE,
+                    BALL_MIN_SIZE_PIXELS, BALL_MAX_SIZE_PIXELS,
+                    BALL_DETECTION_MIN_SIZE_RATIO, BALL_DETECTION_MAX_SIZE_RATIO,
+                    BALL_ASPECT_RATIO_MIN, BALL_ASPECT_RATIO_MAX,
+                    BALL_CIRCULARITY_THRESHOLD,
+                )
+                logger.info(
+                    "[BALL-FLOW] 📦 색상 임계 (HSV) → "
+                    "orange=%s~%s, brown=%s~%s",
+                    list(BALL_COLOR_HSV_LOWER), list(BALL_COLOR_HSV_UPPER),
+                    list(_BROWN_HSV_LOWER), list(_BROWN_HSV_UPPER),
+                )
+                logger.info(
+                    "[BALL-FLOW] 📐 점수 가중치 (수식) → "
+                    "combined = 0.70*yolo + 0.15*color + 0.15*shape",
+                )
             except Exception as exc:
                 self._state = DetectionState.ERROR
                 self._metrics.last_error = str(exc)
@@ -435,23 +496,51 @@ class BallDetector(IBallDetector[BallDetectorConfig]):
                 frame_index=frame_index,
             )
 
+        # BALL-FLOW: 호출 카운터 + verbose 결정 (스팸 방지 + 디버깅 다 잡기)
+        # 50f마다 무조건 1번 + raw 후보 > 0 인 프레임은 매번
+        self._call_counter = getattr(self, "_call_counter", 0) + 1
+        verbose_periodic = (self._call_counter % 50 == 0)
+
         with self._lock:
             self._state = DetectionState.DETECTING
 
             try:
-                # 1단계: YOLO 추론
-                candidates = self._yolo_inference(frame)
+                # ===== BALL-FLOW 1️⃣ 데이터 전달 수신 완료 =====
+                if verbose_periodic:
+                    logger.info(
+                        "[BALL-FLOW F#%d] 1️⃣ 데이터 수신 → frame=%dx%d (HxW) "
+                        "ts=%.1fms call#%d state=%s",
+                        frame_index, frame.shape[0], frame.shape[1],
+                        timestamp_ms, self._call_counter, self._state.value,
+                    )
 
-                # 2단계: 크기/종횡비 필터링
+                # 1단계: YOLO 추론 (학습 데이터 기반)
+                candidates = self._yolo_inference(
+                    frame,
+                    frame_index=frame_index,
+                    verbose=verbose_periodic,
+                )
+                raw_n = len(candidates)
+                # 후보가 1개라도 있으면 verbose 강제 (디버깅 핵심 정보)
+                verbose = verbose_periodic or raw_n > 0
+
+                # 2단계: 크기/종횡비 필터링 (수식)
                 candidates = self._filter_by_size(
                     candidates, frame.shape[1], frame.shape[0],
+                    frame_index=frame_index, verbose=verbose,
                 )
 
-                # 3단계: 패턴 보조 검증 (색상 + 형태)
-                candidates = self._pattern_validation(frame, candidates)
+                # 3단계: 패턴 보조 검증 (색상 + 형태) — 수식 사용
+                candidates = self._pattern_validation(
+                    frame, candidates,
+                    frame_index=frame_index, verbose=verbose,
+                )
 
-                # 4단계: 최종 점수 산출 + 정렬
-                candidates = self._compute_combined_scores(candidates)
+                # 4단계: 최종 점수 산출 + 정렬 (수식)
+                candidates = self._compute_combined_scores(
+                    candidates,
+                    frame_index=frame_index, verbose=verbose,
+                )
 
                 # 5단계: 상위 N개 선택
                 candidates = candidates[: self._config.max_detections]
@@ -461,6 +550,16 @@ class BallDetector(IBallDetector[BallDetectorConfig]):
                     time.perf_counter() - start_time
                 ) * 1000.0
                 detected_objects = self._candidates_to_objects(candidates)
+
+                # ===== BALL-FLOW 최종 결과 =====
+                if verbose:
+                    logger.info(
+                        "[BALL-FLOW F#%d] 6️⃣ 최종 결과 → 객체=%d개 "
+                        "처리시간=%.1fms %s",
+                        frame_index, len(detected_objects), processing_time_ms,
+                        f"top_conf={detected_objects[0].bounding_box.confidence:.3f}"
+                        if detected_objects else "(검출 없음)",
+                    )
 
                 result = InterfaceDetectionResult.success_result(
                     objects=detected_objects,
@@ -899,17 +998,44 @@ class BallDetector(IBallDetector[BallDetectorConfig]):
     def _yolo_inference(
         self,
         frame: np.ndarray,
+        frame_index: int = -1,
+        verbose: bool = False,
     ) -> list[_BallCandidate]:
         """
         YOLO 모델 추론으로 공 후보 추출.
 
         Args:
             frame: BGR 이미지
+            frame_index: 프레임 인덱스 (로그용)
+            verbose: 상세 로그 출력 여부
 
         Returns:
             공 후보 목록
         """
         config = self._config
+        # v0.4.4: unified_mode 거나 model 미로드 시 fallback predict 차단 (NoneType 에러 방지).
+        # detection_fusion 이 unified 추론 실패 시 개별 detector 의 detect() 를 부르지만,
+        # unified_mode=True 로 초기화된 detector 는 self._model 이 None 이라 predict 불가.
+        if self._model is None:
+            if verbose:
+                logger.info(
+                    "[BALL-FLOW F#%d] 2️⃣-A YOLO 스킵 → model=None (unified_mode)",
+                    frame_index,
+                )
+            return []
+
+        # ===== BALL-FLOW 2️⃣-A: 학습 데이터 기반 YOLO 추론 시작 =====
+        if verbose:
+            logger.info(
+                "[BALL-FLOW F#%d] 2️⃣-A 학습 데이터 기반 YOLO predict 호출 → "
+                "imgsz=%d conf>=%.2f iou=%.2f half=%s classes=%s device=%s",
+                frame_index, config.input_size, config.confidence_threshold,
+                config.nms_iou_threshold, self._effective_half,
+                [BALL_DETECTION_CLASS_ID, BALL_DETECTION_COCO_CLASS_ID],
+                self._effective_device,
+            )
+
+        t_yolo = time.perf_counter()
         results = self._model.predict(
             frame,
             device=self._effective_device,
@@ -920,18 +1046,34 @@ class BallDetector(IBallDetector[BallDetectorConfig]):
             verbose=False,
             classes=[BALL_DETECTION_CLASS_ID, BALL_DETECTION_COCO_CLASS_ID],
         )
+        yolo_ms = (time.perf_counter() - t_yolo) * 1000.0
 
         candidates: list[_BallCandidate] = []
 
         if not results or len(results) == 0:
+            if verbose:
+                logger.info(
+                    "[BALL-FLOW F#%d] 2️⃣-B YOLO 결과 없음 (results 비어있음) %.1fms",
+                    frame_index, yolo_ms,
+                )
             return candidates
 
         result = results[0]
         if result.boxes is None or len(result.boxes) == 0:
+            if verbose:
+                logger.info(
+                    "[BALL-FLOW F#%d] 2️⃣-B YOLO raw=0 (boxes 비어있음, "
+                    "conf<%.2f 미만이거나 클래스 매칭 실패) %.1fms",
+                    frame_index, config.confidence_threshold, yolo_ms,
+                )
             return candidates
 
         boxes = result.boxes
-        for i in range(len(boxes)):
+        raw_total = len(boxes)
+        invalid_count = 0
+        confs_for_log: list[float] = []
+
+        for i in range(raw_total):
             xyxy = boxes.xyxy[i].cpu().numpy()
             conf = float(boxes.conf[i].cpu().numpy())
             cls_id = int(boxes.cls[i].cpu().numpy())
@@ -942,6 +1084,7 @@ class BallDetector(IBallDetector[BallDetectorConfig]):
 
             # 유효성 기본 검사 (음수 크기 방지)
             if w <= 0 or h <= 0:
+                invalid_count += 1
                 continue
 
             candidates.append(_BallCandidate(
@@ -952,6 +1095,15 @@ class BallDetector(IBallDetector[BallDetectorConfig]):
                 yolo_confidence=conf,
                 class_id=cls_id,
             ))
+            confs_for_log.append(conf)
+
+        if verbose:
+            logger.info(
+                "[BALL-FLOW F#%d] 2️⃣-B YOLO raw=%d (invalid_size=%d → 유효=%d) "
+                "%.1fms confs=%s",
+                frame_index, raw_total, invalid_count, len(candidates),
+                yolo_ms, [f"{c:.3f}" for c in confs_for_log],
+            )
 
         return candidates
 
@@ -964,6 +1116,8 @@ class BallDetector(IBallDetector[BallDetectorConfig]):
         candidates: list[_BallCandidate],
         frame_width: int,
         frame_height: int,
+        frame_index: int = -1,
+        verbose: bool = False,
     ) -> list[_BallCandidate]:
         """
         크기 및 종횡비 기반 필터링.
@@ -974,6 +1128,8 @@ class BallDetector(IBallDetector[BallDetectorConfig]):
             candidates: 후보 목록
             frame_width: 프레임 너비
             frame_height: 프레임 높이
+            frame_index: 프레임 인덱스 (로그용)
+            verbose: 상세 로그 출력 여부
 
         Returns:
             필터링된 후보 목록
@@ -981,28 +1137,86 @@ class BallDetector(IBallDetector[BallDetectorConfig]):
         if not candidates:
             return candidates
 
-        frame_diag = np.sqrt(frame_width ** 2 + frame_height ** 2)
+        # ===== 수식: frame_diag = √(W² + H²) =====
+        frame_diag = float(np.sqrt(frame_width ** 2 + frame_height ** 2))
         min_size = frame_diag * BALL_DETECTION_MIN_SIZE_RATIO
         max_size = frame_diag * BALL_DETECTION_MAX_SIZE_RATIO
 
-        filtered: list[_BallCandidate] = []
+        if verbose:
+            logger.info(
+                "[BALL-FLOW F#%d] 3️⃣ 크기/종횡비 필터 진입 (수식): "
+                "frame_diag=√(%d²+%d²)=%.1fpx, "
+                "min_size=%.1f×%.4f=%.1fpx, max_size=%.1f×%.4f=%.1fpx, "
+                "절대크기=[%dpx,%dpx], 종횡비=[%.2f,%.2f] | 입력=%d개",
+                frame_index, frame_width, frame_height, frame_diag,
+                frame_diag, BALL_DETECTION_MIN_SIZE_RATIO, min_size,
+                frame_diag, BALL_DETECTION_MAX_SIZE_RATIO, max_size,
+                BALL_MIN_SIZE_PIXELS, BALL_MAX_SIZE_PIXELS,
+                BALL_ASPECT_RATIO_MIN, BALL_ASPECT_RATIO_MAX,
+                len(candidates),
+            )
 
-        for c in candidates:
-            # 절대 픽셀 크기 검사
+        filtered: list[_BallCandidate] = []
+        rej_abs = 0       # 절대 픽셀 범위 벗어남
+        rej_rel = 0       # 프레임 비율 벗어남
+        rej_ar = 0        # 종횡비 벗어남
+
+        for idx, c in enumerate(candidates):
             size = max(c.bbox_w, c.bbox_h)
+            ar = c.aspect_ratio
+
+            # 절대 픽셀 크기 검사
             if size < BALL_MIN_SIZE_PIXELS or size > BALL_MAX_SIZE_PIXELS:
+                rej_abs += 1
+                if verbose:
+                    logger.info(
+                        "[BALL-FLOW F#%d]    ├─ #%d ❌ 절대크기 size=%.1f ∉ [%d,%d] "
+                        "(yolo_conf=%.3f)",
+                        frame_index, idx, size,
+                        BALL_MIN_SIZE_PIXELS, BALL_MAX_SIZE_PIXELS,
+                        c.yolo_confidence,
+                    )
                 continue
 
             # 프레임 대비 비율 검사
             if size < min_size or size > max_size:
+                rej_rel += 1
+                if verbose:
+                    logger.info(
+                        "[BALL-FLOW F#%d]    ├─ #%d ❌ 상대비율 size=%.1f ∉ "
+                        "[%.1f,%.1f] (yolo_conf=%.3f)",
+                        frame_index, idx, size, min_size, max_size,
+                        c.yolo_confidence,
+                    )
                 continue
 
             # 종횡비 검사
-            ar = c.aspect_ratio
             if ar < BALL_ASPECT_RATIO_MIN or ar > BALL_ASPECT_RATIO_MAX:
+                rej_ar += 1
+                if verbose:
+                    logger.info(
+                        "[BALL-FLOW F#%d]    ├─ #%d ❌ 종횡비 ar=%.2f ∉ [%.2f,%.2f] "
+                        "(yolo_conf=%.3f)",
+                        frame_index, idx, ar,
+                        BALL_ASPECT_RATIO_MIN, BALL_ASPECT_RATIO_MAX,
+                        c.yolo_confidence,
+                    )
                 continue
 
             filtered.append(c)
+            if verbose:
+                logger.info(
+                    "[BALL-FLOW F#%d]    ├─ #%d ✓ 통과 size=%.1f ar=%.2f "
+                    "yolo_conf=%.3f",
+                    frame_index, idx, size, ar, c.yolo_confidence,
+                )
+
+        if verbose:
+            logger.info(
+                "[BALL-FLOW F#%d] 3️⃣ 크기 필터 결과 → %d개 통과 "
+                "(거부: 절대=%d, 상대=%d, 종횡비=%d)",
+                frame_index, len(filtered), rej_abs, rej_rel, rej_ar,
+            )
 
         return filtered
 
@@ -1014,6 +1228,8 @@ class BallDetector(IBallDetector[BallDetectorConfig]):
         self,
         frame: np.ndarray,
         candidates: list[_BallCandidate],
+        frame_index: int = -1,
+        verbose: bool = False,
     ) -> list[_BallCandidate]:
         """
         패턴 기반 보조 검증 (HSV 색상 + 형태).
@@ -1023,6 +1239,8 @@ class BallDetector(IBallDetector[BallDetectorConfig]):
         Args:
             frame: BGR 이미지
             candidates: 후보 목록
+            frame_index: 프레임 인덱스 (로그용)
+            verbose: 상세 로그 출력 여부
 
         Returns:
             검증 점수가 반영된 후보 목록
@@ -1033,16 +1251,37 @@ class BallDetector(IBallDetector[BallDetectorConfig]):
         config = self._config
         h, w = frame.shape[:2]
 
+        if verbose:
+            logger.info(
+                "[BALL-FLOW F#%d] 4️⃣ 패턴 검증 진입: high_conf_skip=%.2f, "
+                "color_validation=%s, shape_validation=%s | 입력=%d개",
+                frame_index, config.high_confidence_threshold,
+                config.enable_color_validation, config.enable_shape_validation,
+                len(candidates),
+            )
+
         # HSV 변환 (전체 프레임 1회)
         hsv_frame: NDArray[np.uint8] | None = None
         if config.enable_color_validation:
             hsv_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
-        for c in candidates:
+        skipped_high_conf = 0
+        skipped_small_roi = 0
+        validated = 0
+
+        for idx, c in enumerate(candidates):
             # 고신뢰도는 검증 생략
             if c.yolo_confidence >= config.high_confidence_threshold:
                 c.color_score = 1.0
                 c.shape_score = 1.0
+                skipped_high_conf += 1
+                if verbose:
+                    logger.info(
+                        "[BALL-FLOW F#%d]    ├─ #%d ✨ 고신뢰도 검증 생략 "
+                        "yolo=%.3f >= %.2f → color=1.0 shape=1.0",
+                        frame_index, idx, c.yolo_confidence,
+                        config.high_confidence_threshold,
+                    )
                 continue
 
             # ROI 추출 (bbox + 여백)
@@ -1055,24 +1294,56 @@ class BallDetector(IBallDetector[BallDetectorConfig]):
             if x2 - x1 < 3 or y2 - y1 < 3:
                 c.color_score = 0.0
                 c.shape_score = 0.0
+                skipped_small_roi += 1
+                if verbose:
+                    logger.info(
+                        "[BALL-FLOW F#%d]    ├─ #%d ⚠ ROI 너무 작음 "
+                        "(%dx%d < 3) → color=0 shape=0",
+                        frame_index, idx, x2 - x1, y2 - y1,
+                    )
                 continue
 
             # 색상 검증
             if config.enable_color_validation and hsv_frame is not None:
-                c.color_score = self._validate_color(hsv_frame[y1:y2, x1:x2])
+                c.color_score = self._validate_color(
+                    hsv_frame[y1:y2, x1:x2],
+                    frame_index=frame_index, cand_idx=idx, verbose=verbose,
+                )
 
             # 형태 검증
             if config.enable_shape_validation:
                 gray_roi = cv2.cvtColor(
                     frame[y1:y2, x1:x2], cv2.COLOR_BGR2GRAY,
                 )
-                c.shape_score = self._validate_shape(gray_roi)
+                c.shape_score = self._validate_shape(
+                    gray_roi,
+                    frame_index=frame_index, cand_idx=idx, verbose=verbose,
+                )
+
+            validated += 1
+            if verbose:
+                logger.info(
+                    "[BALL-FLOW F#%d]    └─ #%d 결과 yolo=%.3f color=%.3f "
+                    "shape=%.3f (ROI=%dx%d)",
+                    frame_index, idx, c.yolo_confidence,
+                    c.color_score, c.shape_score, x2 - x1, y2 - y1,
+                )
+
+        if verbose:
+            logger.info(
+                "[BALL-FLOW F#%d] 4️⃣ 패턴 검증 결과 → 검증=%d / 고신뢰스킵=%d / "
+                "ROI_무시=%d",
+                frame_index, validated, skipped_high_conf, skipped_small_roi,
+            )
 
         return candidates
 
     def _validate_color(
         self,
         hsv_roi: NDArray[np.uint8],
+        frame_index: int = -1,
+        cand_idx: int = -1,
+        verbose: bool = False,
     ) -> float:
         """
         HSV 색상 검증.
@@ -1081,6 +1352,9 @@ class BallDetector(IBallDetector[BallDetectorConfig]):
 
         Args:
             hsv_roi: HSV 색상 공간 ROI
+            frame_index: 프레임 인덱스 (로그용)
+            cand_idx: 후보 인덱스 (로그용)
+            verbose: 상세 로그 출력 여부
 
         Returns:
             색상 점수 (0.0 ~ 1.0)
@@ -1104,18 +1378,46 @@ class BallDetector(IBallDetector[BallDetectorConfig]):
         total_pixels = hsv_roi.shape[0] * hsv_roi.shape[1]
 
         if total_pixels == 0:
+            if verbose:
+                logger.info(
+                    "[BALL-FLOW F#%d]       └─ 🎨 #%d color: total_pixels=0 → 0.0",
+                    frame_index, cand_idx,
+                )
             return 0.0
 
-        color_ratio = float(np.count_nonzero(combined_mask)) / total_pixels
+        # ===== 수식: color_ratio = count(orange|brown_mask) / total_pixels =====
+        orange_count = int(np.count_nonzero(orange_mask))
+        brown_count = int(np.count_nonzero(brown_mask))
+        combined_count = int(np.count_nonzero(combined_mask))
+        color_ratio = combined_count / total_pixels
 
         # 비율 → 점수 매핑 (0.3 이상이면 1.0, 아래면 비례)
         if color_ratio >= _MIN_COLOR_RATIO:
-            return 1.0
-        return color_ratio / _MIN_COLOR_RATIO
+            score = 1.0
+        else:
+            score = color_ratio / _MIN_COLOR_RATIO
+
+        if verbose:
+            logger.info(
+                "[BALL-FLOW F#%d]       ├─ 🎨 #%d color (수식): "
+                "orange_px=%d, brown_px=%d, combined=%d / total=%d → "
+                "ratio=%.3f → score=%s (%.3f)",
+                frame_index, cand_idx,
+                orange_count, brown_count, combined_count, total_pixels,
+                color_ratio,
+                "1.0 (>=%.2f)" % _MIN_COLOR_RATIO if score == 1.0
+                else "ratio/%.2f" % _MIN_COLOR_RATIO,
+                score,
+            )
+
+        return score
 
     def _validate_shape(
         self,
         gray_roi: NDArray[np.uint8],
+        frame_index: int = -1,
+        cand_idx: int = -1,
+        verbose: bool = False,
     ) -> float:
         """
         원형도 검증.
@@ -1124,6 +1426,9 @@ class BallDetector(IBallDetector[BallDetectorConfig]):
 
         Args:
             gray_roi: 그레이스케일 ROI
+            frame_index: 프레임 인덱스 (로그용)
+            cand_idx: 후보 인덱스 (로그용)
+            verbose: 상세 로그 출력 여부
 
         Returns:
             형태 점수 (0.0 ~ 1.0)
@@ -1139,22 +1444,43 @@ class BallDetector(IBallDetector[BallDetectorConfig]):
         )
 
         if not contours:
+            if verbose:
+                logger.info(
+                    "[BALL-FLOW F#%d]       └─ ⭕ #%d shape: 컨투어 없음 → 0.5 (중립)",
+                    frame_index, cand_idx,
+                )
             return 0.5  # 컨투어 없으면 중립 점수
 
         # 가장 큰 컨투어 선택
         largest = max(contours, key=cv2.contourArea)
-        area = cv2.contourArea(largest)
-        perimeter = cv2.arcLength(largest, True)
+        area = float(cv2.contourArea(largest))
+        perimeter = float(cv2.arcLength(largest, True))
 
         if perimeter == 0:
+            if verbose:
+                logger.info(
+                    "[BALL-FLOW F#%d]       └─ ⭕ #%d shape: perimeter=0 → 0.5 (중립)",
+                    frame_index, cand_idx,
+                )
             return 0.5
 
-        # 원형도: 4π × area / perimeter²  (완전한 원 = 1.0)
+        # ===== 수식: circularity = 4π × area / perimeter²   (완전한 원 = 1.0) =====
         circularity = (4.0 * np.pi * area) / (perimeter ** 2)
 
         if circularity >= BALL_CIRCULARITY_THRESHOLD:
-            return 1.0
-        return circularity / BALL_CIRCULARITY_THRESHOLD
+            score = 1.0
+        else:
+            score = circularity / BALL_CIRCULARITY_THRESHOLD
+
+        if verbose:
+            logger.info(
+                "[BALL-FLOW F#%d]       └─ ⭕ #%d shape (수식): "
+                "4π × area(%.1f) / perimeter(%.1f)² = %.3f vs threshold=%.2f "
+                "→ score=%.3f",
+                frame_index, cand_idx, area, perimeter, circularity,
+                BALL_CIRCULARITY_THRESHOLD, score,
+            )
+        return score
 
     # =========================================================================
     # 내부 메서드: 최종 점수 산출
@@ -1163,6 +1489,8 @@ class BallDetector(IBallDetector[BallDetectorConfig]):
     def _compute_combined_scores(
         self,
         candidates: list[_BallCandidate],
+        frame_index: int = -1,
+        verbose: bool = False,
     ) -> list[_BallCandidate]:
         """
         최종 결합 점수 산출 + 정렬.
@@ -1171,19 +1499,53 @@ class BallDetector(IBallDetector[BallDetectorConfig]):
 
         Args:
             candidates: 후보 목록
+            frame_index: 프레임 인덱스 (로그용)
+            verbose: 상세 로그 출력 여부
 
         Returns:
             점수순 정렬된 후보 목록
         """
-        for c in candidates:
-            c.combined_score = (
-                c.yolo_confidence * 0.70
-                + c.color_score * 0.15
-                + c.shape_score * 0.15
+        if not candidates:
+            return candidates
+
+        if verbose:
+            logger.info(
+                "[BALL-FLOW F#%d] 5️⃣ 결합 점수 산출 (수식): "
+                "combined = 0.70×yolo + 0.15×color + 0.15×shape | 입력=%d개",
+                frame_index, len(candidates),
             )
+
+        # ===== 수식: combined = 0.70 × yolo + 0.15 × color + 0.15 × shape =====
+        for idx, c in enumerate(candidates):
+            yolo_part = c.yolo_confidence * 0.70
+            color_part = c.color_score * 0.15
+            shape_part = c.shape_score * 0.15
+            c.combined_score = yolo_part + color_part + shape_part
+
+            if verbose:
+                logger.info(
+                    "[BALL-FLOW F#%d]    ├─ #%d 0.70×%.3f(=%.3f) + "
+                    "0.15×%.3f(=%.3f) + 0.15×%.3f(=%.3f) = %.3f",
+                    frame_index, idx,
+                    c.yolo_confidence, yolo_part,
+                    c.color_score, color_part,
+                    c.shape_score, shape_part,
+                    c.combined_score,
+                )
 
         # 결합 점수 내림차순 정렬
         candidates.sort(key=lambda c: c.combined_score, reverse=True)
+
+        if verbose:
+            top_str = ", ".join(
+                f"#{i}={c.combined_score:.3f}"
+                for i, c in enumerate(candidates[:3])
+            )
+            logger.info(
+                "[BALL-FLOW F#%d] 5️⃣ 결합 점수 정렬 후 top-3 → %s",
+                frame_index, top_str,
+            )
+
         return candidates
 
     # =========================================================================

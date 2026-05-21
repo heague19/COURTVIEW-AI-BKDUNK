@@ -193,6 +193,12 @@ class GameOrchestrator:
         "_action_classifier",
         "_shot_classifier",
         "_dribble_classifier",
+        # v0.4.0: motion_analysis data_extraction (자가학습 데이터 추출 + 자동 S3 업로드)
+        "_recorder_event_extractor",
+        "_coach_subtype_extractor",
+        "_possession_frame_extractor",
+        "_action_extractor",
+        "_extraction_finalizer",     # ExtractionFinalizerService 참조 (외부 주입)
         # Motion Analysis Tier3~5
         "_shot_phase_analyzer",
         "_dribble_phase_analyzer",
@@ -227,6 +233,11 @@ class GameOrchestrator:
         "_court_zones",
         "_attack_direction",
         "_event_converter",
+        # v0.4.3: 외부 주입 — game_service 가 build_from_config 후 setattr.
+        # 이전엔 __slots__ 에 누락되어 silent 실패 → game_id 미주입 상태로 동작.
+        "_game_id",
+        "_home_team",
+        "_away_team",
     )
 
     def __init__(
@@ -287,6 +298,12 @@ class GameOrchestrator:
         self._action_classifier: ActionClassifier | None = None
         self._shot_classifier: ShotClassifier | None = None
         self._dribble_classifier: DribbleClassifier | None = None
+        # v0.4.0: motion_analysis 데이터 추출기 (학습 데이터 자동 누적)
+        self._recorder_event_extractor = None
+        self._coach_subtype_extractor = None
+        self._possession_frame_extractor = None
+        self._action_extractor = None
+        self._extraction_finalizer = None
         # Motion Analysis Tier3~5
         self._shot_phase_analyzer: ShotPhaseAnalyzer | None = None
         self._dribble_phase_analyzer: DribblePhaseAnalyzer | None = None
@@ -390,10 +407,17 @@ class GameOrchestrator:
         go._calibrations = cls._load_all_calibrations()
 
         # CV-BBox 통합 모델 존재 여부에 따라 초기화 모드 결정
-        # .engine(TRT) 우선 → 없으면 .cv 패키지 폴백
-        _bbox_engines = sorted(Path("weights").glob("CV-BBox_v*.engine"), reverse=True)
-        _bbox_cv = sorted(Path("weights").glob("CV-BBox_v*.cv"), reverse=True)
-        _bbox_files = _bbox_engines or _bbox_cv
+        # 우선순위: .engine(TRT) > .cv 패키지 > .onnx > .pt
+        # v0.5.1: 절대 경로 — EXE (PyInstaller) 와 dev source 양쪽 자동 분기.
+        # 이전 Path("weights") 는 CWD 기반이라 EXE 가 다른 디렉토리에서 실행되면 빈 결과 →
+        # _unified=False → ball_detector 단독 모드 → COURTVIEW_ball.pt 못 찾고 500.
+        _weights_dir = cls._resolve_weights_dir()
+        cls._ensure_engine_built(_weights_dir)
+        _bbox_engines = sorted(_weights_dir.glob("CV-BBox_v*.engine"), reverse=True)
+        _bbox_cv = sorted(_weights_dir.glob("CV-BBox_v*.cv"), reverse=True)
+        _bbox_onnx = sorted(_weights_dir.glob("CV-BBox_v*.onnx"), reverse=True)
+        _bbox_pt = sorted(_weights_dir.glob("CV-BBox_v*.pt"), reverse=True)
+        _bbox_files = _bbox_engines or _bbox_cv or _bbox_onnx or _bbox_pt
         _unified = len(_bbox_files) > 0
         if _unified:
             _logger.info(
@@ -477,7 +501,14 @@ class GameOrchestrator:
         # 튜닝 파라미터는 현재 캘리브 정밀도 기준. 캘리브 향상 시 eps/match 낮추면 됨.
         multiview_tracker = None
         try:
-            calib_dir = "C:/COURTVIEW_DESK/configs/calibration"
+            # v0.4.1: 캘리브레이션 영속 위치 (%APPDATA%\COURTVIEW\calibration) 사용
+            import os as _os_calib
+            from pathlib import Path as _P_calib
+            _appdata = _os_calib.environ.get("APPDATA")
+            if _appdata:
+                calib_dir = str(_P_calib(_appdata) / "COURTVIEW" / "calibration")
+            else:
+                calib_dir = str(_P_calib.home() / ".courtview" / "calibration")
             multiview_tracker = MultiViewPlayerTracker(
                 calib_dir=calib_dir,
                 cluster_eps_m=2.5,
@@ -535,9 +566,34 @@ class GameOrchestrator:
         go.inject_pipelines(frame_pl, event_pl, possession_pl, period_pl, postgame_pl)
 
         # --- Event Detection FRAME 3종 ---
-        go._score_detector = ScoreDetector(ScoreDetectorConfig.from_yaml({}))
-        go._possession_tracker = PossessionTracker(PossessionTrackerConfig.from_yaml({}))
-        go._dead_ball_detector = DeadBallDetector(DeadBallDetectorConfig.from_yaml({}))
+        # v0.4.5: configs/game_analysis/event_detection.yaml 로드 → 섹션별 주입.
+        # 이전에는 from_yaml({}) 빈 dict → default 로 동작 (min_conf=0.40, through 불필요)
+        # → 슛 없어도 ball 만 림 근처 가면 SHOT_MADE 오탐.
+        ed_cfg: dict = {}
+        try:
+            import yaml as _yaml
+            _ed_path = (
+                Path(__file__).resolve().parent.parent.parent
+                / "configs" / "game_analysis" / "event_detection.yaml"
+            )
+            if _ed_path.exists():
+                with open(_ed_path, "r", encoding="utf-8") as _f:
+                    ed_cfg = _yaml.safe_load(_f) or {}
+                _logger.info("event_detection.yaml 로드: %s", _ed_path)
+            else:
+                _logger.warning("event_detection.yaml 미존재: %s — default 사용", _ed_path)
+        except Exception:
+            _logger.exception("event_detection.yaml 로드 실패 — default 사용")
+
+        go._score_detector = ScoreDetector(
+            ScoreDetectorConfig.from_yaml(ed_cfg.get("score_detection", {}))
+        )
+        go._possession_tracker = PossessionTracker(
+            PossessionTrackerConfig.from_yaml(ed_cfg.get("possession_tracking", {}))
+        )
+        go._dead_ball_detector = DeadBallDetector(
+            DeadBallDetectorConfig.from_yaml(ed_cfg.get("dead_ball_detection", {}))
+        )
         _logger.info("FRAME 3종 감지기 초기화 완료")
 
         # --- Game Management ---
@@ -907,19 +963,66 @@ class GameOrchestrator:
         """
         sm = self._state_manager
 
+        # ===== ORCH 1️⃣ 시작 진입 =====
+        _logger.info(
+            "[ORCH] 1️⃣ start_game 진입 → source_urls=%s mode=%s",
+            list((source_urls or {}).keys()) if source_urls else "(없음)",
+            self._config.mode.name,
+        )
+
         try:
             # IDLE → LOADING
             sm.transition_engine(EngineState.LOADING)
-            _logger.info("경기 시작: LOADING 진입")
+            _logger.info("[ORCH] 2️⃣ 상태 LOADING 진입 — _initialize_all 호출")
 
             # 초기화
+            t_init = time.perf_counter()
             self._initialize_all(source_urls)
+            init_ms = (time.perf_counter() - t_init) * 1000.0
+            _logger.info(
+                "[ORCH] 2️⃣ _initialize_all 완료 (%.0f ms) → "
+                "ingestion=%s cadence=%s frame_pipeline=%s",
+                init_ms,
+                "ok" if getattr(self, "_frame_ingestion", None) is not None else "none",
+                "ok" if getattr(self, "_cadence_scheduler", None) is not None else "none",
+                "ok" if getattr(self, "_frame_pipeline", None) is not None else "none",
+            )
 
             # 콜백 등록
             self._register_cadence_callbacks()
+            _logger.info("[ORCH] 3️⃣ cadence 콜백 등록 완료")
+
+            # v0.4.0: motion_analysis 추출기 인스턴스화 + finalizer 등록
+            # 가중치 / 추론 결과가 흘러올 때 push_* 호출하면 자동 누적되고,
+            # 경기 종료 시 finalize → S3 업로드. push_* 가 0 호출이어도 무해 (빈 jsonl).
+            self._init_motion_extractors()
 
             # LOADING → RUNNING
             sm.transition_engine(EngineState.RUNNING)
+
+            # 2026-05-19: ProgressReporter 시작 (replay ETA UI 용).
+            # BATCH/REPLAY 모드는 각 영상의 frame_count 추출해서 total 로 사용.
+            # LIVE 는 total=0 (무한), fps 만 계산되며 진행률 0% 로 표시.
+            if self._progress_reporter is not None:
+                _total_frames = 0
+                _mode_value = self._config.mode.value
+                if _mode_value in ("batch", "replay") and self._frame_ingestion is not None:
+                    # 8 카메라 중 가장 짧은 영상 길이 (정렬 한계 — 그 frame 까지만 분석 가능)
+                    _cam_totals: list[int] = []
+                    for _cam_id, _decoder in self._frame_ingestion._decoders.items():
+                        try:
+                            _t = int(getattr(_decoder, "total_frames", 0) or 0)
+                            if _t > 0:
+                                _cam_totals.append(_t)
+                        except Exception:
+                            pass
+                    if _cam_totals:
+                        _total_frames = min(_cam_totals)
+                self._progress_reporter.start(total_frames=_total_frames)
+                _logger.info(
+                    "ProgressReporter 시작: mode=%s total_frames=%d (ETA UI 활성)",
+                    _mode_value, _total_frames,
+                )
 
             # game_state → LIVE (BATCH/REPLAY 모드는 즉시 분석 시작)
             with sm._lock:
@@ -935,6 +1038,19 @@ class GameOrchestrator:
 
             _logger.info("경기 시작: RUNNING + LIVE 진입 (시계 동작)")
 
+            # v0.5.7.7: engine_started heartbeat — UI 의 cvWS.on('engine_started') 가 받으면
+            # WS wire end-to-end 가 정상이라는 즉시 신호. game_analysis 의 이벤트 패널이
+            # 비어있을 때 "엔진 죽음 vs WS 끊김 vs 이벤트 미발생" 을 한 눈에 구분 가능.
+            if self._result_dispatcher is not None:
+                try:
+                    self._result_dispatcher.dispatch_realtime({
+                        "type": "engine_started",
+                        "version": "0.5.7.7",
+                        "ts": time.time(),
+                    })
+                except Exception:
+                    _logger.debug("engine_started dispatch 실패 (무시)")
+
             # 메인 루프 시작 (별도 스레드)
             self._stop_event.clear()
             self._main_thread = Thread(
@@ -943,6 +1059,10 @@ class GameOrchestrator:
                 daemon=True,
             )
             self._main_thread.start()
+            _logger.info(
+                "[ORCH] 4️⃣ 메인 루프 스레드 시작 (%s) — 프레임 분석 시작",
+                self._main_thread.name,
+            )
 
             return True
 
@@ -950,6 +1070,75 @@ class GameOrchestrator:
             _logger.exception("경기 시작 실패")
             sm.set_error(str(exc))
             return False
+
+    def _init_motion_extractors(self) -> None:
+        """v0.4.0: motion_analysis 4 추출기 instantiate + finalizer.register.
+
+        깨지지 않게 try/except 로 감싸 — 추출기 모듈 import 실패 / finalizer 미주입 시도 무해.
+        실제 push_* 호출은 추론 결과 흘려 들어올 때 별도 wiring (가중치 받은 후).
+        """
+        if self._extraction_finalizer is None:
+            _logger.debug("ExtractionFinalizer 미주입 — motion_analysis 추출기 등록 skip")
+            return
+
+        from pathlib import Path
+        import os
+        # 출력 디렉토리: %APPDATA%/COURTVIEW/extractions/<game_id>/
+        appdata = os.environ.get("APPDATA")
+        base = Path(appdata) / "COURTVIEW" if appdata else Path.home() / ".courtview"
+        game_id = getattr(self, "_game_id", "") or "unknown_game"
+        ext_dir = base / "extractions" / game_id
+        ext_dir.mkdir(parents=True, exist_ok=True)
+
+        # 1) Recorder
+        try:
+            from motion_analysis.data_extraction import RecorderEventExtractor
+            self._recorder_event_extractor = RecorderEventExtractor()
+            self._recorder_event_extractor.start_session(game_id=game_id)
+            self._extraction_finalizer.register(
+                "recorder_event", self._recorder_event_extractor,
+                source_module="motion_analysis", game_id=game_id,
+            )
+        except Exception:
+            _logger.exception("RecorderEventExtractor 초기화 실패 (무시)")
+
+        # 2) Coach (Shot/Dribble/Pass 통합)
+        try:
+            from motion_analysis.data_extraction import CoachSubtypeExtractor
+            self._coach_subtype_extractor = CoachSubtypeExtractor()
+            self._extraction_finalizer.register(
+                "coach_subtype", self._coach_subtype_extractor,
+                source_module="motion_analysis", game_id=game_id,
+            )
+        except Exception:
+            _logger.exception("CoachSubtypeExtractor 초기화 실패 (무시)")
+
+        # 3) Possession (frame-level)
+        try:
+            from motion_analysis.data_extraction import PossessionFrameExtractor
+            self._possession_frame_extractor = PossessionFrameExtractor()
+            self._extraction_finalizer.register(
+                "possession_frame", self._possession_frame_extractor,
+                source_module="motion_analysis", game_id=game_id,
+            )
+        except Exception:
+            _logger.exception("PossessionFrameExtractor 초기화 실패 (무시)")
+
+        # 4) Action / Phase (1 추출기 → 2 dataset)
+        try:
+            from motion_analysis.data_extraction import ActionExtractor
+            self._action_extractor = ActionExtractor(output_dir=ext_dir)
+            self._action_extractor.start_session(game_id=game_id)
+            self._extraction_finalizer.register(
+                "action", self._action_extractor,
+                source_module="motion_analysis", game_id=game_id,
+            )
+        except Exception:
+            _logger.exception("ActionExtractor 초기화 실패 (무시)")
+
+        _logger.info(
+            "motion_analysis 추출기 활성화: %d 등록", self._extraction_finalizer.count(),
+        )
 
     def stop_game(self) -> None:
         """경기 중지. RUNNING/PAUSED → STOPPED."""
@@ -1126,6 +1315,27 @@ class GameOrchestrator:
                 )
                 self._current_frame_result = result
 
+                # v0.5.8.3: 50프레임마다 detection 개수 직접 로그 — BBox/ball/hoop
+                # 어느 단계에서 0건 나오는지 즉시 진단. event_pipeline 의 detected_events=0
+                # 원인이 BBox 추론 단계인지 vs event detector 단계인지 한 줄로 분리.
+                if fi % 50 == 0:
+                    det = getattr(result, "detection", None)
+                    if det is not None:
+                        pr = getattr(det, "player_result", None)
+                        br = getattr(det, "ball_result", None)
+                        hr = getattr(det, "hoop_result", None)
+                        n_player = len(getattr(pr, "objects", []) or []) if pr else 0
+                        n_ball = len(getattr(br, "detections", []) or []) if br else 0
+                        n_hoop = len(getattr(hr, "hoops", []) or []) if hr else 0
+                        _logger.warning(
+                            "[DET F#%d] player=%d ball=%d hoop=%d (frames=%d)",
+                            fi, n_player, n_ball, n_hoop, len(frames_dict),
+                        )
+                    else:
+                        _logger.warning(
+                            "[DET F#%d] detection=None (frame_pipeline 결과 없음)", fi,
+                        )
+
                 # 2. 분석 버퍼 축적 (MotionSnapshot 포함)
                 buf.ingest_frame(result)
 
@@ -1177,6 +1387,13 @@ class GameOrchestrator:
                         evt = self._score_detector.process_frame(score_input)
                         if evt is not None:
                             sm.set_trigger(pending_shooting=True)
+                            # 2026-05-21: events.json 누락 fix — FRAME cadence 직접 감지 이벤트도
+                            # _event_buffer 에 적재 (EVENT pipeline 은 이 3종을 다시 호출하지 않음).
+                            if self._analysis_buffer is not None:
+                                try:
+                                    self._analysis_buffer.ingest_events([evt])
+                                except Exception:
+                                    _logger.exception("score 이벤트 buffer 적재 실패")
                             _logger.warning(
                                 "🏀 득점 감지: frame=%d conf=%.2f",
                                 fi, getattr(evt, "confidence", 0.0),
@@ -1197,8 +1414,21 @@ class GameOrchestrator:
                                     "confidence": getattr(evt, "confidence", 0.0),
                                     "points": getattr(evt, "points", 2),
                                 })
+                                # SCORE-FLOW 5️⃣ — broadcast 송출 완료
+                                _logger.info(
+                                    "[SCORE-FLOW F#%d] 5️⃣ Broadcast 송출 완료 → "
+                                    "WS event_type=score, conf=%.2f, points=%d",
+                                    fi, getattr(evt, "confidence", 0.0),
+                                    getattr(evt, "points", 2),
+                                )
+                            else:
+                                _logger.warning(
+                                    "[SCORE-FLOW F#%d] 5️⃣ ⚠ Broadcast 스킵 — "
+                                    "result_dispatcher 미설정",
+                                    fi,
+                                )
                     except Exception:
-                        _logger.debug("ScoreDetector 오류")
+                        _logger.exception("ScoreDetector 오류")
 
                 if self._possession_tracker is not None and fi > 100:
                     try:
@@ -1213,6 +1443,12 @@ class GameOrchestrator:
                         evt = self._possession_tracker.process_frame(poss_input)
                         if evt is not None:
                             sm.set_trigger(pending_possession_end=True)
+                            # 2026-05-21: events.json 누락 fix — buffer 적재
+                            if self._analysis_buffer is not None:
+                                try:
+                                    self._analysis_buffer.ingest_events([evt])
+                                except Exception:
+                                    _logger.exception("possession 이벤트 buffer 적재 실패")
                             _logger.warning(
                                 "🔄 점유 전환: frame=%d conf=%.2f", fi,
                                 getattr(evt, "confidence", 0.0),
@@ -1224,7 +1460,7 @@ class GameOrchestrator:
                             if self._attack_direction == "right":
                                 self._attack_direction = "left"
                             else:
-                                self._attack_direction = "right"  
+                                self._attack_direction = "right"
                             # ResultDispatcher로 전송
                             if self._result_dispatcher is not None:
                                 self._result_dispatcher.dispatch_realtime({
@@ -1234,6 +1470,18 @@ class GameOrchestrator:
                                     "confidence": getattr(evt, "confidence", 0.0),
                                     "team_id": poss_input.ball_holder_team_id,
                                 })
+                                # DISPATCH-EVT 로그
+                                _logger.info(
+                                    "[DISPATCH-EVT F#%d] possession_change → "
+                                    "result_dispatcher (conf=%.2f team=%s)",
+                                    fi, getattr(evt, "confidence", 0.0),
+                                    poss_input.ball_holder_team_id,
+                                )
+                            else:
+                                _logger.warning(
+                                    "[DISPATCH-EVT F#%d] possession_change ⚠ "
+                                    "result_dispatcher 미설정 — 송출 못 함", fi,
+                                )
                     except Exception:
                         _logger.exception("PossessionTracker 오류")
 
@@ -1244,6 +1492,12 @@ class GameOrchestrator:
                         )
                         if evt is not None:
                             sm.set_trigger(pending_foul_contact=True)
+                            # 2026-05-21: events.json 누락 fix — buffer 적재
+                            if self._analysis_buffer is not None:
+                                try:
+                                    self._analysis_buffer.ingest_events([evt])
+                                except Exception:
+                                    _logger.exception("dead_ball 이벤트 buffer 적재 실패")
                             _logger.warning("⏸ 데드볼 감지: frame=%d", fi)
                             if self._result_dispatcher is not None:
                                 self._result_dispatcher.dispatch_realtime({
@@ -1251,6 +1505,10 @@ class GameOrchestrator:
                                     "event_type": "dead_ball",
                                     "frame_index": fi,
                                 })
+                                _logger.info(
+                                    "[DISPATCH-EVT F#%d] dead_ball → "
+                                    "result_dispatcher", fi,
+                                )
                     except Exception:
                         _logger.debug("DeadBallDetector 오류")
 
@@ -1291,6 +1549,19 @@ class GameOrchestrator:
 
             def _event_cb(_cadence: object, trigger_keys: frozenset) -> None:
                 """이벤트 감지 → Stage2 ViTPose → buffer → game_management → 전송."""
+                # Plan E STEP 4 (2026-05-13): EVENT cadence 발화 흐름
+                # 2026-05-13 update: periodic trigger 는 50f 마다 발화 → 매번 로그면
+                # 콘솔 도배. throttle 늘림 (every=50).
+                try:
+                    from infrastructure.diagnostics.flow_logger import log_flow
+                    log_flow(
+                        "EVENT_CB",
+                        "EVENT cadence 발화 → event_pipeline.process_events 호출 (triggers=%s)",
+                        list(trigger_keys),
+                        first_n=5, every=50,
+                    )
+                except Exception:
+                    pass
                 # 변환기로 frame_result → event_data 변환
                 event_data = self._event_converter.convert(
                     self._current_frame_result,
@@ -1351,6 +1622,18 @@ class GameOrchestrator:
 
             def _possession_cb(_cadence: object, _keys: object) -> None:
                 poss_id = self._state_manager.game_context.possession_count
+                # Plan E STEP 4 (2026-05-13): POSSESSION cadence 발화 (실제 점유 종료
+                # 빈도 낮음 — 매번 로그 유지)
+                try:
+                    from infrastructure.diagnostics.flow_logger import log_flow
+                    log_flow(
+                        "POSS_CB",
+                        "POSSESSION cadence 발화 #%d → build_possession_data → analysis_worker.submit_possession → flush_possession",
+                        poss_id,
+                        first_n=10, every=1,
+                    )
+                except Exception:
+                    pass
                 poss_data = self._analysis_buffer.build_possession_data(poss_id)
                 aw.submit_possession(poss_id, data=poss_data)
                 self._analysis_buffer.flush_possession()
@@ -1363,6 +1646,17 @@ class GameOrchestrator:
 
             def _period_cb(_cadence: object, _keys: object) -> None:
                 quarter = self._state_manager.game_context.quarter
+                # Plan E STEP 4 (2026-05-13): PERIOD cadence 발화
+                try:
+                    from infrastructure.diagnostics.flow_logger import log_flow
+                    log_flow(
+                        "PERIOD_CB",
+                        "PERIOD cadence 발화 Q%d → build_period_data → analysis_worker.submit_period → flush_period",
+                        quarter,
+                        first_n=10, every=1,  # 쿼터 종료 — 매번
+                    )
+                except Exception:
+                    pass
                 period_data = self._analysis_buffer.build_period_data(quarter)
                 aw.submit_period(quarter, data=period_data)
                 self._analysis_buffer.flush_period()
@@ -1445,9 +1739,16 @@ class GameOrchestrator:
           3. cadence_scheduler.tick()
           4. game_state 갱신
         """
-        _logger.info("메인 루프 시작")
+        _logger.info(
+            "[ORCH] 🔁 메인 루프 시작 → frame_ingestion=%s batch_accumulator=%s",
+            "ok" if self._frame_ingestion is not None else "none",
+            "ok" if self._batch_accumulator is not None else "none",
+        )
         consecutive_errors = 0
         frame_index = 0
+        # ORCH 루프 진단 카운터
+        loop_no_align = 0  # capture_and_align 이 None 반환한 횟수
+        last_diag_log = time.perf_counter()
 
         while not self._stop_event.is_set():
             t0 = time.perf_counter()
@@ -1456,6 +1757,8 @@ class GameOrchestrator:
                 # 1. 프레임 수집 + 동기화
                 if self._frame_ingestion is not None:
                     aligned = self._frame_ingestion.capture_and_align()
+                    if aligned is None:
+                        loop_no_align += 1
                     if aligned is not None:
                         # 최신 정렬 프레임 저장 → FRAME cadence 콜백에서 사용
                         self._current_aligned = aligned
@@ -1492,6 +1795,18 @@ class GameOrchestrator:
                     self._gpu_manager.check_thermal()
 
                 consecutive_errors = 0
+
+                # ORCH 루프 heartbeat — 5초마다 한 번 진행 상황
+                _now = time.perf_counter()
+                if _now - last_diag_log >= 5.0:
+                    last_diag_log = _now
+                    _logger.info(
+                        "[ORCH] 🔁 루프 진행 → frame_index=%d, no_align_count=%d, "
+                        "current_aligned=%s",
+                        frame_index, loop_no_align,
+                        "ok" if self._current_aligned is not None else "none",
+                    )
+                    loop_no_align = 0  # 5초 윈도 리셋
 
             except Exception:
                 consecutive_errors += 1
@@ -1588,6 +1903,82 @@ class GameOrchestrator:
             _logger.debug("모듈 생성 스킵: %s.%s", module_path, class_name)
             return None
 
+    @classmethod
+    def _ensure_engine_built(cls, weights_dir: Path) -> None:
+        """v0.4.0: CV-BBox `.pt` 가중치를 발견했지만 동일 버전 `.engine` 이 없으면
+        TensorRT 엔진을 첫 실행 시 자동 export.
+
+        - 노트북 GPU 별로 1회만 실행 (~3-5분)
+        - 실패 시 silent: 상위 코드가 `.pt`/`.onnx` 폴백으로 진행
+        - 동기 실행 (이 시점은 LOADING 단계, 백그라운드보다 명확한 splash 표시 가능)
+        """
+        try:
+            if not weights_dir.exists():
+                return
+            pt_files = sorted(weights_dir.glob("CV-BBox_v*.pt"), reverse=True)
+            # v0.5.8.0: dynamic batch 마커 파일로 fixed-batch engine 자동 invalidate.
+            # 마커가 없거나 옛 버전이면 .engine 삭제 후 재빌드 (~75초). 사용자가 수동으로
+            # .engine 지울 필요 없이 EXE 한 번 재시작이면 자동 적용.
+            DYNAMIC_MARKER = "v0.5.8.0-dynamic-batch.ok"
+            for pt_path in pt_files:
+                engine_path = pt_path.with_suffix(".engine")
+                marker_path = engine_path.with_suffix(".engine.marker")
+                if engine_path.exists():
+                    if marker_path.exists() and marker_path.read_text(encoding="utf-8").strip() == DYNAMIC_MARKER:
+                        continue
+                    # 옛 fixed-batch engine — 삭제 후 재빌드
+                    _logger.warning(
+                        "옛 fixed-batch engine 감지 → 삭제 후 dynamic 으로 재빌드: %s",
+                        engine_path.name,
+                    )
+                    try:
+                        engine_path.unlink(missing_ok=True)
+                        marker_path.unlink(missing_ok=True)
+                    except Exception:
+                        pass
+                _logger.info(
+                    "TensorRT 엔진 미존재 — 최초 빌드 시작: %s → %s (~3-5분 소요)",
+                    pt_path.name, engine_path.name,
+                )
+                try:
+                    from ultralytics import YOLO
+
+                    yolo = YOLO(str(pt_path))
+                    # v0.5.8.0: dynamic=True 로 변경. 이전 dynamic=False+batch=8 fixed
+                    # engine 은 단일 frame predict(frame) 호출 시 input shape (1,3,640,640)
+                    # 가 고정 batch=8 와 안 맞아 silent assertion fail → 매 프레임 0건 반환.
+                    # 대회 현장에서 영상 정상인데 detection=0 발생 (player_detector._yolo_inference
+                    # 가 카메라당 단일 frame 추론하므로 batch=1 도 받아야 함).
+                    # dynamic=True + batch=8 으로 1~8 모두 처리, 8대 동시 추론도 가능.
+                    exported = yolo.export(
+                        format="engine",
+                        half=True,
+                        device=0,
+                        imgsz=640,
+                        batch=8,
+                        dynamic=True,
+                        verbose=False,
+                    )
+                    _logger.info("TensorRT 엔진 빌드 완료 (dynamic batch 1~8): %s", exported)
+                    # 마커 — 다음 부팅에서 재빌드 X
+                    try:
+                        marker_path.write_text(DYNAMIC_MARKER, encoding="utf-8")
+                    except Exception:
+                        pass
+                except Exception as exc:  # noqa: BLE001
+                    _logger.warning(
+                        "TensorRT 엔진 빌드 실패 (%s) — .pt/.onnx 폴백 사용: %s",
+                        pt_path.name, exc,
+                    )
+                    # 부분 생성된 파일 정리 (다음 실행 재시도 위해)
+                    try:
+                        if engine_path.exists():
+                            engine_path.unlink(missing_ok=True)
+                    except Exception:
+                        pass
+        except Exception:
+            _logger.exception("_ensure_engine_built 전체 실패 — 무시하고 계속")
+
     @staticmethod
     def _load_all_calibrations() -> dict[str, Any]:
         """
@@ -1597,10 +1988,16 @@ class GameOrchestrator:
             {camera_id: 3x3 호모그래피 ndarray}
         """
         import json as _json
+        import os as _os_load
         from pathlib import Path as _Path
         import numpy as _np
 
-        cal_dir = _Path("configs/calibration")
+        # v0.4.1: 영속 위치
+        _ad = _os_load.environ.get("APPDATA")
+        cal_dir = (
+            _Path(_ad) / "COURTVIEW" / "calibration"
+            if _ad else _Path.home() / ".courtview" / "calibration"
+        )
         calibrations: dict[str, Any] = {}
         if not cal_dir.exists():
             _logger.warning("캘리브레이션 디렉토리 없음: %s", cal_dir)
@@ -2106,52 +2503,139 @@ class GameOrchestrator:
         ball_below_rim = False
         ball_vy = 0.0
 
+        # ball/hoop fused 의 confidence (peak) — ScoreFrameInput 에 전달 필수.
+        # 안 채우면 ScoreDetector._evaluate_evidence 의 peak_confidence < min_confidence
+        # 가드에서 영원히 False → 득점 확정 안 됨.
+        ball_conf = 0.0
+        hoop_conf = 0.0
+
         if det is not None and det.ball_result and det.hoop_result:
             ball_fused = det.ball_result.fused_objects
             hoop_fused = det.hoop_result.fused_objects
             if ball_fused and hoop_fused:
-                # 볼 위치: position 우선 → bbox 폴백
-                bx, by = None, None
-                b = ball_fused[0]
-                if getattr(b, "position", None) is not None:
-                    bx, by = b.position.x, b.position.y
-                elif getattr(b, "bbox", None) is not None:
-                    bx = b.bbox.x + b.bbox.width / 2
-                    by = b.bbox.y + b.bbox.height / 2
-
-                # 후프 위치: position 우선 → bbox 폴백
-                hx, hy = None, None
-                h = hoop_fused[0]
-                if getattr(h, "position", None) is not None:
-                    hx, hy = h.position.x, h.position.y
-                elif getattr(h, "bbox", None) is not None:
-                    hx = h.bbox.x + h.bbox.width / 2
-                    hy = h.bbox.y + h.bbox.height / 2
+                # 볼 위치: position → bbox → court_position → 좌표 속성 순으로 시도
+                bx, by = self._extract_xy(ball_fused[0])
+                # 후프 위치
+                hx, hy = self._extract_xy(hoop_fused[0])
+                # confidence 추출 (ball/hoop 의 peak)
+                ball_conf = max(
+                    (float(getattr(o, "confidence", 0.0) or 0.0) for o in ball_fused),
+                    default=0.0,
+                )
+                hoop_conf = max(
+                    (float(getattr(o, "confidence", 0.0) or 0.0) for o in hoop_fused),
+                    default=0.0,
+                )
+                # 진단: F#50 시점에 추출 실패하면 객체 속성 dump (1회)
+                if (bx is None or hx is None) and frame_index % 50 == 0:
+                    if not getattr(self, "_xy_extract_dumped", False):
+                        b_attrs = sorted(
+                            [a for a in dir(ball_fused[0]) if not a.startswith("_")]
+                        )[:30]
+                        h_attrs = sorted(
+                            [a for a in dir(hoop_fused[0]) if not a.startswith("_")]
+                        )[:30]
+                        _logger.warning(
+                            "위치 추출 실패 — ball obj attrs=%s\nhoop obj attrs=%s\n"
+                            "ball type=%s, hoop type=%s",
+                            b_attrs, h_attrs,
+                            type(ball_fused[0]).__name__,
+                            type(hoop_fused[0]).__name__,
+                        )
+                        self._xy_extract_dumped = True
 
                 if bx is not None and hx is not None:
                     dx = bx - hx
                     dy = by - hy
                     px_dist = (dx * dx + dy * dy) ** 0.5
 
-                    # 픽셀 거리 → 미터 (림 크기 기준: 림 직경 45cm ≈ 영상에서 ~15px)
-                    px_to_m = 0.45 / 15.0  # 0.03m/px
+                    # v0.4.5: 픽셀→미터 변환을 hoop bbox 기반으로 동적 계산.
+                    # 이전: 0.45/15 하드코딩 → 카메라마다 림 px 크기 다른데 고정값.
+                    # 지금: hoop_fused[0] 의 bbox.width 를 림 픽셀 직경으로 사용.
+                    # 림 실제 직경 = FIBA 표준 0.457m. width 가 anomalous 면 폴백.
+                    RIM_DIAMETER_M = 0.457
+                    rim_px_w = self._extract_bbox_width(hoop_fused[0])
+                    if rim_px_w is not None and 8.0 <= rim_px_w <= 250.0:
+                        px_to_m = RIM_DIAMETER_M / float(rim_px_w)
+                    else:
+                        px_to_m = 0.45 / 15.0  # 폴백 (이전 하드코딩 값)
                     ball_rim_dist = px_dist * px_to_m
-                    ball_through = ball_rim_dist < 2.0  # 픽셀 변환 부정확 → 넓은 threshold
+                    # ball_through: 림 직경 2.5배 (≈1.15m) 이내 → 통과 후보.
+                    # 카메라 perspective + ball center 부정확 감안.
+                    # 너무 좁히면 (RIM*1) 실제 통과한 슛도 not-through 로 측정됨.
+                    ball_through = ball_rim_dist < (RIM_DIAMETER_M * 2.5)
                     ball_above_rim = by < hy
                     ball_below_rim = by > hy
 
-                    # 볼 수직 속도 추정
+                    # 볼 수직 속도 추정 (m/s 단위, 30fps 가정 *30)
                     prev_by = getattr(self, "_prev_ball_y", by)
-                    ball_vy = (by - prev_by) * px_to_m * 10
+                    ball_vy = (by - prev_by) * px_to_m * 30.0
                     self._prev_ball_y = by
 
-        if frame_index % 50 == 0:
-            _logger.warning(
-                "[SCORE F#%d] ball_rim=%.2f through=%s above=%s below=%s vy=%.2f",
-                frame_index, ball_rim_dist, ball_through, ball_above_rim, ball_below_rim, ball_vy,
+        # v0.4.5 진단: 정기 50f + ball_rim 5m 이내 (슛 가능 영역) 모두 로그
+        _close_to_rim = ball_rim_dist < 5.0
+        if frame_index % 50 == 0 or _close_to_rim:
+            _ball_n = (
+                len(det.ball_result.fused_objects)
+                if (det is not None and det.ball_result is not None) else -1
+            )
+            _hoop_n = (
+                len(det.hoop_result.fused_objects)
+                if (det is not None and det.hoop_result is not None) else -1
+            )
+            _level = logging.INFO if _close_to_rim else logging.WARNING
+            _logger.log(
+                _level,
+                "[SCORE F#%d] ball_rim=%.2f through=%s above=%s below=%s vy=%.2f "
+                "(ball_fused=%d, hoop_fused=%d)%s",
+                frame_index, ball_rim_dist, ball_through, ball_above_rim,
+                ball_below_rim, ball_vy, _ball_n, _hoop_n,
+                " ★ 림접근" if _close_to_rim else "",
             )
 
-        return ScoreFrameInput(
+        # v0.5.3: shooter 추정 — ball 위치에 가장 가까운 player 의 track_id/team_id.
+        # 이전엔 매핑 자체가 없어서 SHOT_MADE 의 player=None 으로만 잡혔음.
+        # v0.5.4: object_id 는 단순 sequence 라 ball_object 의 0 으로 잡힘 → track_id 우선.
+        shooter_tid: int | str | None = None
+        shooter_team: str | None = None
+        if (det is not None and det.ball_result and det.player_result
+                and det.ball_result.fused_objects and det.player_result.fused_objects):
+            ball_xy = self._extract_xy(det.ball_result.fused_objects[0])
+            if ball_xy[0] is not None and ball_xy[1] is not None:
+                bx0, by0 = ball_xy
+                best_dist = float("inf")
+                for pobj in det.player_result.fused_objects:
+                    pxy = self._extract_xy(pobj)
+                    if pxy[0] is None or pxy[1] is None:
+                        continue
+                    dx_p = pxy[0] - bx0
+                    dy_p = pxy[1] - by0
+                    d = (dx_p * dx_p + dy_p * dy_p) ** 0.5
+                    if d < best_dist:
+                        best_dist = d
+                        # v0.5.4: track_id / team 은 attributes dict 또는 직접 속성에 들어있음
+                        # (player_detector.py:459 가 attributes dict 에만 설정)
+                        attrs_dict = getattr(pobj, "attributes", None) or {}
+
+                        # track_id — 직접 속성 → attributes
+                        for tid_attr in ("track_id", "player_id", "tracking_id"):
+                            tid = getattr(pobj, tid_attr, None)
+                            if tid is None:
+                                tid = attrs_dict.get(tid_attr)
+                            if tid is not None and tid != 0:
+                                shooter_tid = tid
+                                break
+                        # team — 직접 속성 → attributes
+                        for tm_attr in ("team", "team_id", "team_name"):
+                            tm = getattr(pobj, tm_attr, None)
+                            if tm is None:
+                                tm = attrs_dict.get(tm_attr)
+                            if tm is not None and tm != "":
+                                shooter_team = str(tm)
+                                break
+                        # 옵션: jersey_number 도 attributes 에 있음 (별도 매핑 필요 시 활용)
+
+        score_input = ScoreFrameInput(
             frame_index=frame_index,
             timestamp_sec=timestamp,
             ball_rim_distance_m=ball_rim_dist,
@@ -2159,7 +2643,111 @@ class GameOrchestrator:
             ball_above_rim=ball_above_rim,
             ball_below_rim=ball_below_rim,
             ball_vertical_velocity_ms=ball_vy,
+            confidence=min(ball_conf, hoop_conf),
+            shooter_tracking_id=shooter_tid,
+            shooter_team_id=shooter_team,
         )
+        # SCORE-FLOW 1️⃣ — 데이터 전송 (림 5m 이내 일 때만, 스팸 방지)
+        if _close_to_rim:
+            _logger.info(
+                "[SCORE-FLOW F#%d] 1️⃣ 데이터 전송 → ScoreDetector.process_frame "
+                "(rim=%.2fm through=%s a=%s b=%s vy=%.2f conf=%.2f shooter=%s team=%s)",
+                frame_index, ball_rim_dist, ball_through, ball_above_rim,
+                ball_below_rim, ball_vy, score_input.confidence,
+                shooter_tid, shooter_team,
+            )
+        return score_input
+
+    @staticmethod
+    def _resolve_weights_dir() -> Path:
+        """weights/ 절대 경로 — EXE (PyInstaller) 와 dev 양쪽 자동 분기.
+
+        우선순위:
+          1. PyInstaller frozen: sys._MEIPASS/weights (EXE 의 _internal/weights)
+          2. dev: 프로젝트 루트/weights (CWD 무관)
+          3. fallback: Path("weights") (CWD 기준)
+        """
+        import sys
+        # 1. PyInstaller frozen
+        if getattr(sys, "frozen", False):
+            mei = getattr(sys, "_MEIPASS", None)
+            if mei:
+                p = Path(mei) / "weights"
+                if p.exists():
+                    return p
+        # 2. dev — 이 파일 위치 기준 ../../../weights
+        dev_path = Path(__file__).resolve().parent.parent.parent / "weights"
+        if dev_path.exists():
+            return dev_path
+        # 3. fallback CWD
+        return Path("weights")
+
+    @staticmethod
+    def _extract_bbox_width(obj: object) -> float | None:
+        """fused object 의 bbox 가로 픽셀 폭 추출. ball_detector=bounding_box / hoop_detector=bbox."""
+        for bb_attr in ("bbox", "bounding_box"):
+            bb = getattr(obj, bb_attr, None)
+            if bb is None:
+                continue
+            w = getattr(bb, "width", None)
+            if w is not None:
+                try:
+                    return float(w)
+                except (TypeError, ValueError):
+                    pass
+            # x1/x2 형식
+            x1 = getattr(bb, "x1", None)
+            x2 = getattr(bb, "x2", None)
+            if x1 is not None and x2 is not None:
+                try:
+                    return abs(float(x2) - float(x1))
+                except (TypeError, ValueError):
+                    pass
+        return None
+
+    @staticmethod
+    def _extract_xy(obj: object) -> tuple[float | None, float | None]:
+        """fused object 의 image-plane (x,y) 추출. position / bbox / court_position / 직접 속성 순."""
+        # 1) position 객체 (x, y)
+        pos = getattr(obj, "position", None)
+        if pos is not None:
+            x = getattr(pos, "x", None)
+            y = getattr(pos, "y", None)
+            if x is not None and y is not None:
+                return float(x), float(y)
+        # 2) bbox / bounding_box 객체 (x, y, width, height) — center
+        # ball_detector 는 bounding_box, hoop_detector 는 bbox 로 다르게 채움.
+        for bb_attr in ("bbox", "bounding_box"):
+            bb = getattr(obj, bb_attr, None)
+            if bb is not None:
+                bx = getattr(bb, "x", None)
+                by = getattr(bb, "y", None)
+                bw = getattr(bb, "width", None)
+                bh = getattr(bb, "height", None)
+                if None not in (bx, by, bw, bh):
+                    return float(bx) + float(bw) / 2, float(by) + float(bh) / 2
+                # x1/y1/x2/y2 형식도 시도
+                x1 = getattr(bb, "x1", None)
+                y1 = getattr(bb, "y1", None)
+                x2 = getattr(bb, "x2", None)
+                y2 = getattr(bb, "y2", None)
+                if None not in (x1, y1, x2, y2):
+                    return (float(x1) + float(x2)) / 2, (float(y1) + float(y2)) / 2
+        # 3) court_position (코트 좌표 — 다른 단위지만 SCORE 계산도 가능)
+        cp = getattr(obj, "court_position", None)
+        if cp is not None:
+            cx = getattr(cp, "x", None)
+            cy = getattr(cp, "y", None)
+            if cx is not None and cy is not None:
+                return float(cx), float(cy)
+        # 4) 직접 속성 — center_x/center_y, x/y
+        for nx, ny in [("center_x", "center_y"), ("x", "y"),
+                       ("img_x", "img_y"), ("image_x", "image_y")]:
+            xv = getattr(obj, nx, None)
+            yv = getattr(obj, ny, None)
+            if xv is not None and yv is not None:
+                return float(xv), float(yv)
+        return None, None
 
     def _build_possession_input(
         self,

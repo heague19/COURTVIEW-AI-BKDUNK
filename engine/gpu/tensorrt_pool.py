@@ -292,6 +292,16 @@ class TensorRTPool:
                     "사전 빌드 TRT 엔진 감지 (풀 빌드 생략): %s → %s",
                     model_id.value, model_path,
                 )
+            elif model_path and not model_path.endswith(".onnx"):
+                # 2026-05-13: .pt / .pth / 기타 네이티브 형식 — TRT 빌드 불가.
+                #   백엔드 (YOLOv8PoseBackend 등) 가 PyTorch 로 직접 로드.
+                #   기존 흐름: TRT 빌드 시도 → ONNX 파싱 실패 → 시뮬레이션 폴백
+                #   (매번 2~3초 낭비 + 에러 로그). 미리 차단해 깔끔히 native 분기.
+                entry.engine_handle = f"native_{model_id.value}"
+                logger.info(
+                    "native 모델 감지 (TRT 빌드 생략, 백엔드가 직접 로드): %s → %s",
+                    model_id.value, model_path,
+                )
             elif _TRT_ENGINE_AVAILABLE and model_path and os.path.isfile(model_path):
                 try:
                     trt_config = TensorRTConfig(

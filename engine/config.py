@@ -187,7 +187,13 @@ class CameraConfig:
     analysis_width: int = 1920
     analysis_height: int = 1080
     target_fps: int = 30
-    sync_tolerance_ms: float = 1.0
+    # 2026-05-13: 1.0 → 33.33 → 50.0.
+    #   1.0  : GENLOCK HW 동기화 가정 — software RTSP 환경에선 영원히 align 실패
+    #   33.33: 1 frame @ 30fps — 표준값이지만 RTSP jitter (네트워크+카메라) 가 30ms 보다 커서 fail
+    #   50.0 : RTSP IPCam 환경 실용값. min_cameras=8 (모든 카메라 필요) 유지하고
+    #          tolerance 만 약간 풀어줘 jitter 흡수. 3D triangulation 정확도 유지.
+    #          공 10m/s 가정 시 50ms 격차 = 50cm 위치 오차 (코트 28m 의 1.8%).
+    sync_tolerance_ms: float = 50.0
     sync_method: str = "timestamp"
     input_source: str = "rtsp"
     recording_enabled: bool = True
@@ -243,7 +249,7 @@ class PipelineConfig:
     """
 
     model_yolov8_det: str = "weights/yolov8s.onnx"
-    model_yolov8_pose: str = "weights/yolo11l-pose.onnx"
+    model_yolov8_pose: str = "weights/yolo11l-pose.pt"  # v0.5.1: ultralytics 가 PyTorch 만 .to(device) 가능
     model_vitpose: str = "weights/vitpose-b-wholebody.onnx"
     stage2_triggers: tuple[str, ...] = (
         "shooting_detected",

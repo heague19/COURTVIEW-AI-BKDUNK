@@ -82,10 +82,15 @@ def merge_all() -> None:
                 conflicts += 1
                 continue
 
-            shutil.move(str(src_img), str(dst_img))
-            shutil.move(str(src_lbl), str(dst_lbl))
-            moved_img += 1
-            moved_lbl += 1
+            try:
+                shutil.move(str(src_img), str(dst_img))
+                shutil.move(str(src_lbl), str(dst_lbl))
+                moved_img += 1
+                moved_lbl += 1
+            except OSError as e:
+                # NTFS 손상 파일 skip
+                skipped += 1
+                continue
 
         log(f"  → 이동: {moved_img}장 (누적)")
 

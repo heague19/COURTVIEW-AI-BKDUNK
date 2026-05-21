@@ -30,7 +30,7 @@ COURTVIEW - AI 농구 분석 플랫폼
 참조:
     - detection/player_detection/models.py: PlayerDetection, BoundingBox, PlayerRole
     - shared/dto/dataset_dto.py: DatasetType.POSE_KEYPOINT, ExtractionResult
-    - shared/constants/pose_constants.py: NUM_KEYPOINTS_COCO, KEYPOINT_* 인덱스
+    - shared/constants/pose_constants.py: NUM_KEYPOINTS_UNIFIED_25, KEYPOINT_* 인덱스
     - configs/pose/data_extraction.yaml: keypoint_extraction 섹션
 """
 
@@ -72,7 +72,7 @@ from shared.constants.pose_constants import (
     KEYPOINT_LEFT_SHOULDER,
     KEYPOINT_RIGHT_HIP,
     KEYPOINT_RIGHT_SHOULDER,
-    NUM_KEYPOINTS_COCO,
+    NUM_KEYPOINTS_UNIFIED_25,
 )
 from shared.dto.dataset_dto import (
     DatasetMetadata,
@@ -106,8 +106,8 @@ DEFAULT_MIN_DETECTIONS: int = 1
 DEFAULT_MIN_DETECTION_CONFIDENCE: float = 0.70
 DEFAULT_MIN_BBOX_PIXELS: int = 400
 DEFAULT_KEYPOINT_CONFIDENCE_THRESHOLD: float = JOINT_CONFIDENCE_THRESHOLD  # 0.5
-DEFAULT_MIN_VISIBLE_KEYPOINTS: int = 8
-DEFAULT_MIN_SKELETON_COMPLETENESS: float = 0.47  # 8/17 ≈ 0.47
+DEFAULT_MIN_VISIBLE_KEYPOINTS: int = 12       # 25kp 기준 (12/25 = 0.48)
+DEFAULT_MIN_SKELETON_COMPLETENESS: float = 0.48  # 12/25 = 0.48 (UNIFIED_25)
 DEFAULT_CRITICAL_KEYPOINT_INDICES: list[int] = [
     KEYPOINT_LEFT_SHOULDER,   # 5
     KEYPOINT_RIGHT_SHOULDER,  # 6
@@ -144,17 +144,26 @@ _REJECT_LOW_COMPLETENESS = "low_completeness"
 _REJECT_FEW_QUALIFYING = "few_qualifying_persons"
 _REJECT_DUPLICATE = "duplicate_frame"
 
-# COCO 키포인트 이름 (JSON 어노테이션용)
-_COCO_KEYPOINT_NAMES: list[str] = [
-    "nose", "left_eye", "right_eye", "left_ear", "right_ear",
-    "left_shoulder", "right_shoulder", "left_elbow", "right_elbow",
-    "left_wrist", "right_wrist", "left_hip", "right_hip",
-    "left_knee", "right_knee", "left_ankle", "right_ankle",
+# UNIFIED 25 키포인트 이름 (CV-Pose Stage1 학습 SSOT — shared/constants/pose_constants.py)
+# 2026-04-26: COCO 17 → UNIFIED 25 확장 (foot/head_top/fingertip 8개 추가).
+_UNIFIED_25_KEYPOINT_NAMES: list[str] = [
+    "nose", "neck",
+    "r_shoulder", "r_elbow", "r_wrist",
+    "l_shoulder", "l_elbow", "l_wrist",
+    "r_hip", "r_knee", "r_ankle",
+    "l_hip", "l_knee", "l_ankle",
+    "r_eye", "l_eye", "r_ear", "l_ear",
+    "l_big_toe", "l_heel",
+    "r_big_toe", "r_heel",
+    "head_top",
+    "r_fingertip", "l_fingertip",
 ]
+# 호환성 alias — 기존 caller 가 _COCO_KEYPOINT_NAMES 참조 시
+_COCO_KEYPOINT_NAMES = _UNIFIED_25_KEYPOINT_NAMES
 
-# 품질 등급 임계값
-_QUALITY_EXCELLENT_THRESHOLD: int = 15  # >= 15/17
-_QUALITY_GOOD_THRESHOLD: int = 12       # >= 12/17
+# 품질 등급 임계값 (25kp 기준)
+_QUALITY_EXCELLENT_THRESHOLD: int = 22  # >= 22/25
+_QUALITY_GOOD_THRESHOLD: int = 18       # >= 18/25
 
 
 # =============================================================================
@@ -469,7 +478,7 @@ class KeypointExtractionMetadata:
     total_samples: int = 0
     total_persons: int = 0
     avg_completeness: float = 0.0
-    keypoint_format: str = "coco_17"
+    keypoint_format: str = "unified_25"
     config_snapshot: dict[str, object] = field(default_factory=dict)
     extraction_stats: dict[str, object] = field(default_factory=dict)
     output_directory: str = ""
@@ -484,7 +493,7 @@ class KeypointExtractionMetadata:
             "total_persons": self.total_persons,
             "avg_completeness": round(self.avg_completeness, 4),
             "keypoint_format": self.keypoint_format,
-            "num_keypoints": NUM_KEYPOINTS_COCO,
+            "num_keypoints": NUM_KEYPOINTS_UNIFIED_25,
             "training_target": "YOLOv8-Pose",
             "config": self.config_snapshot,
             "stats": self.extraction_stats,
@@ -807,7 +816,7 @@ class KeypointExtractor:
             completeness_values: list[float] = []
             for kps in qualifying_keypoints:
                 visible = int(np.sum(kps[:, 2] >= self._config.keypoint_confidence_threshold))
-                completeness_values.append(visible / NUM_KEYPOINTS_COCO)
+                completeness_values.append(visible / NUM_KEYPOINTS_UNIFIED_25)
 
             avg_comp = (
                 sum(completeness_values) / len(completeness_values)
@@ -1068,7 +1077,7 @@ class KeypointExtractor:
                 return False, _REJECT_MISSING_CRITICAL
 
         # 2f: 스켈레톤 완전성
-        completeness = visible_count / NUM_KEYPOINTS_COCO
+        completeness = visible_count / NUM_KEYPOINTS_UNIFIED_25
         if completeness < config.min_skeleton_completeness:
             return False, _REJECT_LOW_COMPLETENESS
 
@@ -1183,7 +1192,7 @@ class KeypointExtractor:
 
         kp_thresh = self._config.keypoint_confidence_threshold
 
-        for i in range(NUM_KEYPOINTS_COCO):
+        for i in range(NUM_KEYPOINTS_UNIFIED_25):
             if i < len(keypoints):
                 conf = keypoints[i, 2]
                 if conf < kp_thresh:
@@ -1255,7 +1264,7 @@ class KeypointExtractor:
             # 키포인트 데이터
             kp_data: list[dict[str, object]] = []
             visible_count = 0
-            for ki in range(NUM_KEYPOINTS_COCO):
+            for ki in range(NUM_KEYPOINTS_UNIFIED_25):
                 if ki < len(kps):
                     conf = float(kps[ki, 2])
                     vis = 2 if conf >= kp_thresh else 0
@@ -1279,7 +1288,7 @@ class KeypointExtractor:
                         "visibility": 0,
                     })
 
-            completeness = visible_count / NUM_KEYPOINTS_COCO
+            completeness = visible_count / NUM_KEYPOINTS_UNIFIED_25
             total_completeness += completeness
 
             # 필수 키포인트 가시 여부
@@ -1305,7 +1314,7 @@ class KeypointExtractor:
                 "keypoints_coco17": kp_data,
                 "quality": {
                     "visible_count": visible_count,
-                    "total_count": NUM_KEYPOINTS_COCO,
+                    "total_count": NUM_KEYPOINTS_UNIFIED_25,
                     "completeness": round(completeness, 4),
                     "grade": grade,
                     "critical_keypoints_visible": critical_visible,

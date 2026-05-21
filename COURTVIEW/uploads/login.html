@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>COURTVIEW — 로그인</title>
+    <link rel="stylesheet" href="/static/css/theme.css">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="login-page">
+        <div class="login-card">
+            <div class="login-logo">
+                <h1><span style="color:var(--text-white)">COURT</span><span style="color:var(--accent-orange)">VIEW</span><sup style="font-size:10px;color:var(--text-dark)">&reg;</sup></h1>
+                <p>AI 영상 분석 시스템</p>
+            </div>
+
+            <div class="login-error" id="login-error"></div>
+
+            <form id="login-form">
+                <div class="form-group">
+                    <label class="form-label">이메일</label>
+                    <input type="email" class="form-input" id="email" placeholder="이메일 주소를 입력하세요" required>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">비밀번호</label>
+                    <input type="password" class="form-input" id="password" placeholder="비밀번호를 입력하세요" required>
+                </div>
+
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+                    <label style="font-size:12px; color:var(--text-gray); cursor:pointer; display:flex; align-items:center; gap:6px;">
+                        <input type="checkbox" id="remember"> 로그인 유지
+                    </label>
+                    <a href="#" style="font-size:12px;">비밀번호 찾기</a>
+                </div>
+
+                <button type="submit" class="btn btn-primary btn-block btn-lg">로그인</button>
+            </form>
+
+            <div class="login-footer">
+                &copy; 2024 SPOIN Inc. All rights reserved.
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('login-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const errorEl = document.getElementById('login-error');
+            errorEl.style.display = 'none';
+
+            try {
+                // SPOIN-AUTH-SERVICE: POST /api/v1/auth/login  {username, password}
+                const resp = await fetch('/spoin/api/v1/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: email, password: password }),
+                });
+
+                if (!resp.ok) {
+                    let msg = '로그인에 실패했습니다.';
+                    try {
+                        const err = await resp.json();
+                        msg = err?.detail?.message || err?.message || err?.detail || msg;
+                    } catch {}
+                    errorEl.style.display = 'block';
+                    errorEl.textContent = msg;
+                    return;
+                }
+
+                const body = await resp.json();
+                // ApiResponse 래퍼: { success, data: TokenResponse }
+                const d = body?.data || body;
+                if (d?.access_token) {
+                    localStorage.setItem('access_token', d.access_token);
+                    if (d.refresh_token) localStorage.setItem('refresh_token', d.refresh_token);
+                    if (d.expires_in) {
+                        // 만료 시각 (ms epoch) — 리프레시 타이밍 계산에 사용
+                        const expAt = Date.now() + (Number(d.expires_in) * 1000);
+                        localStorage.setItem('access_token_exp', String(expAt));
+                    }
+                    // 사용자 정보
+                    localStorage.setItem('user_email', d.email || email);
+                    if (d.auth_user_id) localStorage.setItem('auth_user_id', d.auth_user_id);
+                    if (d.display_name) localStorage.setItem('display_name', d.display_name);
+                    if (d.nickname) localStorage.setItem('nickname', d.nickname);
+                    if (d.name) localStorage.setItem('user_name', d.name);
+                    if (Array.isArray(d.roles)) localStorage.setItem('roles', JSON.stringify(d.roles));
+
+                    // 로그인 응답에 없는 추가 프로필 (아바타, 팀, 클럽 등) 은 /users/me 로 보강
+                    // 실패해도 로그인 자체는 성공 처리 — 가벼운 enrichment
+                    try {
+                        const meResp = await fetch('/spoin/api/v1/users/me', {
+                            headers: { 'Authorization': 'Bearer ' + d.access_token },
+                        });
+                        if (meResp.ok) {
+                            const meBody = await meResp.json();
+                            const me = meBody?.data || meBody;
+                            if (me) {
+                                if (me.avatar_url) localStorage.setItem('avatar_url', me.avatar_url);
+                                if (me.phone) localStorage.setItem('phone', me.phone);
+                                // 전체 프로필 캐시 (클라 쪽 다른 페이지 참고용)
+                                localStorage.setItem('user_profile', JSON.stringify(me));
+                            }
+                        }
+                    } catch (e) {
+                        console.warn('[login] /users/me 보강 실패 (무시):', e);
+                    }
+
+                    // next 파라미터 우선 (페이지 가드에서 보낸 원래 경로), 없으면 /home
+                    const params = new URLSearchParams(window.location.search);
+                    const next = params.get('next');
+                    const dest = next && next.startsWith('/') ? decodeURIComponent(next) : '/home';
+                    window.location.href = dest;
+                } else {
+                    errorEl.style.display = 'block';
+                    errorEl.textContent = '토큰 응답 형식 오류';
+                }
+            } catch (err) {
+                console.error('[login] 실패:', err);
+                errorEl.style.display = 'block';
+                errorEl.textContent = '서버 연결에 실패했습니다.';
+            }
+        });
+    </script>
+</body>
+</html>

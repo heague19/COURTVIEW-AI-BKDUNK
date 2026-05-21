@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>COURTVIEW — 로그인</title>
+    <link rel="stylesheet" href="/static/css/theme.css">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body { background: var(--bg-0); margin: 0; }
+        .cv-login {
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+            position: relative;
+            color: var(--fg-0);
+        }
+        .cv-login-left {
+            flex: 1;
+            padding: 60px 56px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            border-right: 1px solid var(--line-2);
+            position: relative;
+            overflow: hidden;
+        }
+        .cv-login-left::before {
+            content: ''; position: absolute; inset: 0; pointer-events: none;
+            background: repeating-linear-gradient(115deg, transparent 0 50px, rgba(255,90,31,0.03) 50px 51px);
+        }
+        .cv-login-brand {
+            position: relative;
+            display: flex; align-items: center; gap: 10px;
+        }
+        .cv-login-brand .mark {
+            width: 14px; height: 14px;
+            border: 1.5px solid var(--hot);
+            border-radius: 50%;
+            display: inline-block;
+        }
+        .cv-login-brand .name {
+            font-family: var(--f-display);
+            font-size: 14px; font-weight: 700; letter-spacing: 1px;
+        }
+        .cv-login-brand .name b { color: var(--hot); font-weight: 700; }
+        .cv-login-headline {
+            position: relative;
+        }
+        .cv-login-headline .ver {
+            font-family: var(--f-mono); font-size: 11px; color: var(--hot);
+            letter-spacing: 2px; margin-bottom: 12px;
+        }
+        .cv-login-headline h1 {
+            font-family: var(--f-display);
+            font-size: 76px; font-weight: 700;
+            letter-spacing: -2px; line-height: 0.92;
+            margin: 0;
+        }
+        .cv-login-headline h1 .hot { color: var(--hot); }
+        .cv-login-headline p {
+            font-family: var(--f-mono); font-size: 12px; color: var(--fg-2);
+            margin-top: 22px; max-width: 440px; line-height: 1.7;
+        }
+        .cv-login-foot {
+            position: relative; display: flex; gap: 24px;
+            font-family: var(--f-mono); font-size: 10px; color: var(--fg-3);
+            letter-spacing: 1.2px;
+        }
+
+        .cv-login-right {
+            width: 460px;
+            display: flex; flex-direction: column; justify-content: center;
+            padding: 0 48px;
+            background: var(--bg-1);
+        }
+        .cv-login-right .kicker {
+            font-family: var(--f-mono); font-size: 11px;
+            color: var(--fg-2); letter-spacing: 2px;
+        }
+        .cv-login-right h2 {
+            font-family: var(--f-display);
+            font-size: 36px; font-weight: 700;
+            letter-spacing: -1px; margin: 8px 0 0;
+            line-height: 1;
+        }
+        .cv-login-field { margin-top: 20px; }
+        .cv-login-field label {
+            font-family: var(--f-mono); font-size: 10px;
+            color: var(--fg-2); letter-spacing: 1.5px;
+        }
+        .cv-login-input {
+            width: 100%; margin-top: 6px; padding: 12px 14px;
+            background: var(--bg-2); border: 1px solid var(--line-2);
+            font-family: var(--f-mono); font-size: 13px; color: var(--fg-0);
+            outline: none; border-radius: 0;
+            box-sizing: border-box;
+        }
+        .cv-login-input:focus { border-color: var(--hot); }
+        .cv-login-row {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-top: 14px;
+            font-family: var(--f-mono); font-size: 11px; color: var(--fg-2);
+        }
+        .cv-login-row a { color: var(--hot); text-decoration: none; }
+        .cv-login-row label {
+            display: flex; gap: 6px; align-items: center; cursor: pointer;
+        }
+        .cv-login-error {
+            display: none;
+            margin-top: 14px;
+            padding: 10px 14px;
+            background: rgba(255,59,92,0.08);
+            border: 1px solid var(--bad);
+            color: var(--bad);
+            font-family: var(--f-mono); font-size: 11px;
+            letter-spacing: 0.5px;
+        }
+        .cv-login-foot-right {
+            margin-top: 34px; padding-top: 20px;
+            border-top: 1px solid var(--line-2);
+            font-family: var(--f-mono); font-size: 10px;
+            color: var(--fg-3); letter-spacing: 0.8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="cv-login">
+        <!-- LEFT — branding -->
+        <div class="cv-login-left">
+            <div class="cv-login-brand">
+                <span class="mark"></span>
+                <span class="name">COURT<b>VIEW</b><sup style="font-size:8px; color:var(--fg-3); margin-left:4px;">®</sup></span>
+            </div>
+            <div class="cv-login-headline">
+                <div class="ver">v0.5.5 · BUILD 2026.05</div>
+                <h1>BASKETBALL<br><span class="hot">OPERATIONS</span><br>DECODED.</h1>
+                <p>REAL-TIME MULTI-CAMERA TRACKING · PLAYER ANALYTICS<br>BROADCAST-GRADE SCOREBOARD · LICENSED FOR FIBA / KBL / NBL</p>
+            </div>
+            <div class="cv-login-foot">
+                <span>SPOIN INC.</span><span>·</span>
+                <span>SEOUL · KR</span><span>·</span>
+                <span>EST 2024</span>
+            </div>
+        </div>
+
+        <!-- RIGHT — form -->
+        <div class="cv-login-right">
+            <div class="kicker">SECURE LOGIN · 002</div>
+            <h2>OPERATOR<br>ACCESS</h2>
+
+            <div class="cv-login-error" id="login-error"></div>
+
+            <form id="login-form" autocomplete="on">
+                <div class="cv-login-field">
+                    <label>EMAIL</label>
+                    <input type="email" class="cv-login-input" id="email" placeholder="operator@spoin.kr" required>
+                </div>
+                <div class="cv-login-field">
+                    <label>PASSWORD</label>
+                    <input type="password" class="cv-login-input" id="password" placeholder="••••••••••" required>
+                </div>
+                <div class="cv-login-row">
+                    <label><input type="checkbox" id="remember"> KEEP SIGNED IN</label>
+                    <a href="#">FORGOT?</a>
+                </div>
+
+                <button type="submit" class="cv-btn primary" style="width:100%; margin-top:22px; height:44px; font-size:12px; letter-spacing:1.5px;">
+                    AUTHENTICATE →
+                </button>
+                <button type="button" class="cv-btn ghost" style="width:100%; margin-top:8px; height:38px; font-size:11px; letter-spacing:1.2px;">
+                    USE LICENSE KEY
+                </button>
+            </form>
+
+            <div class="cv-login-foot-right">
+                © 2026 SPOIN INC. · ALL RIGHTS RESERVED
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('login-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const errorEl = document.getElementById('login-error');
+            errorEl.style.display = 'none';
+
+            try {
+                const resp = await fetch('/spoin/api/v1/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: email, password: password }),
+                });
+
+                if (!resp.ok) {
+                    let msg = '로그인에 실패했습니다.';
+                    try {
+                        const err = await resp.json();
+                        msg = err?.detail?.message || err?.message || err?.detail || msg;
+                    } catch {}
+                    errorEl.style.display = 'block';
+                    errorEl.textContent = msg;
+                    return;
+                }
+
+                const body = await resp.json();
+                const d = body?.data || body;
+                if (d?.access_token) {
+                    localStorage.setItem('access_token', d.access_token);
+                    if (d.refresh_token) localStorage.setItem('refresh_token', d.refresh_token);
+                    if (d.expires_in) {
+                        const expAt = Date.now() + (Number(d.expires_in) * 1000);
+                        localStorage.setItem('access_token_exp', String(expAt));
+                    }
+                    localStorage.setItem('user_email', d.email || email);
+                    if (d.auth_user_id) localStorage.setItem('auth_user_id', d.auth_user_id);
+                    if (d.display_name) localStorage.setItem('display_name', d.display_name);
+                    if (d.nickname) localStorage.setItem('nickname', d.nickname);
+                    if (d.name) localStorage.setItem('user_name', d.name);
+                    if (Array.isArray(d.roles)) localStorage.setItem('roles', JSON.stringify(d.roles));
+
+                    try {
+                        const meResp = await fetch('/spoin/api/v1/users/me', {
+                            headers: { 'Authorization': 'Bearer ' + d.access_token },
+                        });
+                        if (meResp.ok) {
+                            const meBody = await meResp.json();
+                            const me = meBody?.data || meBody;
+                            if (me) {
+                                if (me.avatar_url) localStorage.setItem('avatar_url', me.avatar_url);
+                                if (me.phone) localStorage.setItem('phone', me.phone);
+                                localStorage.setItem('user_profile', JSON.stringify(me));
+                            }
+                        }
+                    } catch (e) {
+                        console.warn('[login] /users/me 보강 실패 (무시):', e);
+                    }
+
+                    const params = new URLSearchParams(window.location.search);
+                    const next = params.get('next');
+                    const dest = next && next.startsWith('/') ? decodeURIComponent(next) : '/home';
+                    window.location.href = dest;
+                } else {
+                    errorEl.style.display = 'block';
+                    errorEl.textContent = '토큰 응답 형식 오류';
+                }
+            } catch (err) {
+                console.error('[login] 실패:', err);
+                errorEl.style.display = 'block';
+                errorEl.textContent = '서버 연결에 실패했습니다.';
+            }
+        });
+    </script>
+</body>
+</html>

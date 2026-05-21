@@ -361,11 +361,14 @@ class RecordingService:
     스레드 안전. 단일 세션만 동시 활성 (재개 시 새 세션).
     """
 
-    __slots__ = ("_config", "_session", "_last_session", "_lock", "_ffmpeg")
+    __slots__ = ("_config", "_session", "_last_session", "_lock", "_ffmpeg", "_session_end_callback")
 
     def __init__(self, config: RecordingConfig | None = None) -> None:
         self._config = config or RecordingConfig()
         self._session: SessionInfo | None = None
+        # v0.4.0: 세션 종료 시 호출되는 콜백 (UploadService 등록용).
+        # signature: callback(session: SessionInfo) -> None
+        self._session_end_callback = None
         # 방금 종료된 세션 — finalize 가 stop 직후에도 session_dir 참조할 수 있도록 보관
         # 새 start_session 시 덮어씀
         self._last_session: SessionInfo | None = None
@@ -506,7 +509,84 @@ class RecordingService:
             # finalize 가 stop 직후에도 세션 디렉토리 참조하도록 최근 세션 보관
             self._last_session = session
             self._session = None
-            return result
+
+        # v0.4.0: 세션 종료 콜백 (lock 밖에서 호출 — UploadService.submit_video 가
+        # 큐에 적재하면 빨리 끝나지만, 혹시라도 차단되더라도 RecordingService 의
+        # 다른 작업을 막지 않도록 lock 해제 후 invoke).
+        if result is not None and self._session_end_callback is not None:
+            try:
+                self._session_end_callback(result)
+            except Exception:
+                _logger.exception("세션 종료 콜백 실패 (무시)")
+        return result
+
+    def set_session_end_callback(self, callback) -> None:  # noqa: ANN001
+        """세션 종료 시 호출될 콜백 등록 (UploadService 등 외부 서비스 연동).
+
+        signature: callback(session: SessionInfo) -> None
+        세션은 ended_at 채워진 상태로 전달됨. 머지된 mp4 파일은
+        `Path(session.session_dir) / f"{cam_id}_full.mp4"` 에서 찾을 수 있음.
+        """
+        self._session_end_callback = callback
+
+    # =========================================================================
+    # v0.4.0: 런타임 쿼터 전환 — 진행 중 ffmpeg 를 graceful 중단하고
+    # 새 쿼터 번호로 재시작. 세그먼트 파일명에 즉시 반영.
+    # =========================================================================
+    def change_quarter(self, new_quarter: int) -> bool:
+        """진행 중 세션의 쿼터를 변경 (각 카메라 ffmpeg 재시작).
+
+        Args:
+            new_quarter: 새 쿼터 번호 (1..N)
+
+        Returns:
+            성공 여부. 세션이 없거나 종료된 상태면 False.
+        """
+        if new_quarter < 1:
+            return False
+        with self._lock:
+            session = self._session
+            if session is None or session.ended_at != 0.0:
+                _logger.warning("change_quarter: 진행 중 세션 없음")
+                return False
+
+            session_dir = Path(session.session_dir)
+            ext = "ts" if self._config.container == "mpegts" else "mp4"
+
+            cameras_snapshot = list(session.cameras.items())
+            new_states: dict[str, CameraRecordingState] = {}
+
+            for cam_id, state in cameras_snapshot:
+                if state.quarter == new_quarter:
+                    # 이미 같은 쿼터로 진행 중 — 그대로 둠
+                    new_states[cam_id] = state
+                    continue
+
+                # 기존 ffmpeg graceful stop
+                if state.proc is not None:
+                    rc = graceful_stop_process(state.proc)
+                    _logger.info(
+                        "카메라 %s 쿼터 전환 — 기존 stop (Q%d → Q%d, exit=%s)",
+                        cam_id, state.quarter, new_quarter, rc,
+                    )
+
+                # 새 쿼터로 재시작
+                new_state = self._start_camera_recording(
+                    session_dir=session_dir,
+                    camera_id=cam_id,
+                    url=state.url,
+                    quarter=new_quarter,
+                    ext=ext,
+                )
+                if new_state is not None:
+                    new_states[cam_id] = new_state
+                else:
+                    _logger.warning("카메라 %s 새 쿼터 시작 실패", cam_id)
+
+            session.cameras = new_states
+            self._write_pid_file(session)
+            _logger.info("쿼터 전환 완료: Q%d (%d 카메라)", new_quarter, len(new_states))
+            return True
 
     # =========================================================================
     # 내부 — 단일 카메라 녹화 시작
@@ -531,12 +611,29 @@ class RecordingService:
             str(self._ffmpeg),
             "-loglevel", "warning",
         ]
-        # RTSP 옵션은 RTSP URL에만
+        # v0.5.8.6: RTSP freeze 방지 (5/5 결승 영상 35분 손실 사고 fix).
+        # 8대 동시 RTSP 끊김 시점에 ffmpeg subprocess 가 read timeout 으로 freeze.
+        # -rw_timeout 으로 10초 무패킷 시 ffmpeg 가 깔끔히 exit → watchdog 가 재시작.
+        #
+        # 2026-05-13: -reconnect / -reconnect_streamed / -reconnect_delay_max 제거.
+        #   이 3개 옵션은 ffmpeg 의 HTTP demuxer 전용이라 RTSP 입력에선 "Option not
+        #   found" 로 즉시 종료시켜 녹화가 0 바이트로 떨어졌음. RTSP 재연결은
+        #   외부 watchdog (segment 분할 패턴) 또는 go2rtc relay 가 처리.
+        #
+        # 2026-05-13 (rwtimeout_fix): -rw_timeout 도 제거. ffmpeg 7.x RTSP demuxer 가
+        #   이 input 옵션을 거절 ("Option rw_timeout not found") → 모든 녹화 0바이트
+        #   (recordings/2026-05-13_032353 의 cam_*_Q1_part1.log 참고).
+        #   video_decoder.py 의 분석용 ffmpeg pipe 는 이 옵션 안 써도 멀쩡함 → 녹화도
+        #   동일하게 옵션 없이 시작. freeze 방지는 외부 watchdog 가 stdout 활동 감시.
         if is_rtsp:
-            args.extend(["-rtsp_transport", self._config.rtsp_transport])
+            args.extend([
+                "-rtsp_transport", self._config.rtsp_transport,
+            ])
             if self._config.use_wallclock_ts:
                 args.extend(["-use_wallclock_as_timestamps", "1"])
 
+        # 재연결은 ffmpeg subprocess 외부에서 처리 (RecordingService watchdog
+        # + go2rtc relay). segment 분할 + frame health monitor 는 v0.5.8.7 에서 단계적 적용.
         args.extend([
             "-i", url,
             "-c", "copy",              # 재인코딩 없음 (CPU/GPU 거의 0)
@@ -594,27 +691,93 @@ class RecordingService:
     # 내부 — 세그먼트 머지 (R6)
     # =========================================================================
     def _merge_session_segments(self, session: SessionInfo) -> None:
-        """카메라별 세그먼트를 _full.mp4 로 병합."""
+        """v0.4.0: 카메라 × 쿼터별 머지 → `<cam>_Q<n>.mp4` + 옵션 통합본 `<cam>_full.mp4`.
+
+        흐름:
+          - 세그먼트 파일명: `cam0_Q1.ts`, `cam0_Q1_part2.ts`, `cam0_Q2.ts`, ...
+          - 같은 (cam, Q) 그룹의 part 들을 concat → `<cam>_Q<n>.mp4`
+          - 모든 쿼터 결과를 다시 concat → `<cam>_full.mp4` (전체 통합본)
+        """
         session_dir = Path(session.session_dir)
-        # 카메라별로 그룹화
-        cam_segments: dict[str, list[Path]] = {}
+        # (cam_id, quarter) → list[Path] 그룹화
+        groups: dict[tuple[str, int], list[Path]] = {}
         for f in session_dir.glob("*"):
-            m = re.match(r"^(cam\d+|[\w-]+)_Q\d+(?:_part\d+)?\.(ts|mp4)$", f.name)
+            m = re.match(r"^(cam\d+|[\w-]+)_Q(\d+)(?:_part\d+)?\.(ts|mp4)$", f.name)
             if m and "_full" not in f.name:
                 cam_id = m.group(1)
-                cam_segments.setdefault(cam_id, []).append(f)
+                q = int(m.group(2))
+                # 머지 결과 (`<cam>_Q1.mp4`) 자체는 part 패턴 없으므로 미머지 입력이 됨 — 분기 필요
+                # 단순화: stem 에 part 가 없고 확장자 mp4 면 이미 머지됨 → skip
+                if (
+                    f.suffix == ".mp4"
+                    and "_part" not in f.stem
+                    and re.fullmatch(rf"{cam_id}_Q{q}", f.stem)
+                ):
+                    # 이전 실행의 머지 산출물일 수 있음. skip.
+                    continue
+                groups.setdefault((cam_id, q), []).append(f)
 
-        for cam_id, files in cam_segments.items():
-            if len(files) == 0:
+        # 카메라별 쿼터 머지본 누적 (full.mp4 용)
+        cam_quarter_outputs: dict[str, list[Path]] = {}
+
+        for (cam_id, q), files in groups.items():
+            if not files:
                 continue
-            files.sort(key=lambda p: p.name)  # 알파벳 정렬 = 쿼터/part 순
-            full_path = session_dir / f"{cam_id}_full.mp4"
-            concat_file = session_dir / f"{cam_id}_concat.txt"
+            files.sort(key=lambda p: p.name)  # part 순
+            quarter_path = session_dir / f"{cam_id}_Q{q}.mp4"
+            concat_file = session_dir / f"{cam_id}_Q{q}_concat.txt"
 
             try:
-                # concat.txt 작성
                 concat_file.write_text(
                     "\n".join(f"file '{p.as_posix()}'" for p in files),
+                    encoding="utf-8",
+                )
+                args = [
+                    str(self._ffmpeg),
+                    "-y", "-f", "concat", "-safe", "0",
+                    "-i", str(concat_file),
+                    "-c", "copy",
+                    str(quarter_path),
+                ]
+                result = subprocess.run(
+                    args,
+                    capture_output=True,
+                    timeout=60.0,
+                    creationflags=_popen_creation_flags(),
+                )
+                if result.returncode == 0:
+                    _logger.info(
+                        "쿼터 머지 완료: %s Q%d (%d 세그먼트 → %s)",
+                        cam_id, q, len(files), quarter_path.name,
+                    )
+                    cam_quarter_outputs.setdefault(cam_id, []).append(quarter_path)
+                else:
+                    _logger.warning(
+                        "쿼터 머지 실패: %s Q%d (exit=%d): %s",
+                        cam_id, q, result.returncode,
+                        (result.stderr or b"").decode("utf-8", errors="replace")[:200],
+                    )
+            except subprocess.TimeoutExpired:
+                _logger.warning("쿼터 머지 타임아웃: %s Q%d", cam_id, q)
+            except Exception:
+                _logger.exception("쿼터 머지 오류: %s Q%d", cam_id, q)
+            finally:
+                try:
+                    concat_file.unlink(missing_ok=True)
+                except Exception:
+                    pass
+
+        # 카메라별 통합본 (옵션) — 쿼터 머지본 concat
+        for cam_id, q_files in cam_quarter_outputs.items():
+            if len(q_files) == 0:
+                continue
+            q_files.sort(key=lambda p: p.name)
+            full_path = session_dir / f"{cam_id}_full.mp4"
+            concat_file = session_dir / f"{cam_id}_full_concat.txt"
+
+            try:
+                concat_file.write_text(
+                    "\n".join(f"file '{p.as_posix()}'" for p in q_files),
                     encoding="utf-8",
                 )
 
@@ -633,19 +796,19 @@ class RecordingService:
                 )
                 if result.returncode == 0:
                     _logger.info(
-                        "머지 완료: %s (%d 세그먼트 → %s)",
-                        cam_id, len(files), full_path.name,
+                        "통합본 머지 완료: %s (%d 쿼터 → %s)",
+                        cam_id, len(q_files), full_path.name,
                     )
                 else:
                     _logger.warning(
-                        "머지 실패: %s (exit=%d): %s",
+                        "통합본 머지 실패: %s (exit=%d): %s",
                         cam_id, result.returncode,
                         (result.stderr or b"").decode("utf-8", errors="replace")[:200],
                     )
             except subprocess.TimeoutExpired:
-                _logger.warning("머지 타임아웃: %s", cam_id)
+                _logger.warning("통합본 머지 타임아웃: %s", cam_id)
             except Exception:
-                _logger.exception("머지 오류: %s", cam_id)
+                _logger.exception("통합본 머지 오류: %s", cam_id)
             finally:
                 # concat 파일 삭제
                 try:
@@ -661,8 +824,15 @@ class RecordingService:
 
         활성 세션이 없고 최근 종료된 세션이 있으면 그 정보를 반환 (active=False).
         finalize 가 stop 직후에도 session_dir 참조 가능하도록.
+
+        v0.5.7.6: lock acquire 를 non-blocking + 1s timeout 으로 시도. stop_session 이
+        mp4 finalize 로 lock 을 60s+ 잡고 있을 때 polling status 가 무한 대기 → 504 →
+        EXE graceful shutdown 까지 막히는 문제 fix. lock 못 잡으면 stale=True 표시 후
+        즉시 반환 — UI 는 마지막 known state 유지, 종료 흐름은 차단 안 됨.
         """
-        with self._lock:
+        if not self._lock.acquire(timeout=1.0):
+            return {"active": False, "stale": True, "reason": "lock_busy"}
+        try:
             if self._session is None:
                 if self._last_session is not None:
                     s = self._last_session
@@ -697,6 +867,8 @@ class RecordingService:
                 "cameras": cameras,
                 "ffmpeg": self._ffmpeg,
             }
+        finally:
+            self._lock.release()
 
 
 # =============================================================================

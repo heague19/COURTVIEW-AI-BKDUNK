@@ -106,6 +106,19 @@ class ExportService:
             _logger.exception("하이라이트 수집 실패")
             snapshot["highlights"] = []
 
+        # 2026-05-21: 엔진 이벤트 (score/shot/foul/turnover 등 detector 결과)
+        # analysis_buffer._event_buffer (deque maxlen=2000) → JSON-safe dict 리스트.
+        # finalize_service._write_events 가 events.json 에 dump.
+        try:
+            buf = getattr(orch, "_analysis_buffer", None)
+            if buf is not None and hasattr(buf, "get_engine_events"):
+                snapshot["events"] = buf.get_engine_events()
+            else:
+                snapshot["events"] = []
+        except Exception:
+            _logger.exception("엔진 이벤트 수집 실패")
+            snapshot["events"] = []
+
         try:
             items, total = FeedbackFacade.get_feedback_items(orch, limit=200)
             snapshot["feedback"] = {

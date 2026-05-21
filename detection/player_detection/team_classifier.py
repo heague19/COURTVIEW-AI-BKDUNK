@@ -240,17 +240,33 @@ class TeamClassifier:
         Triplet Loss 학습된 128-dim 임베딩 모델.
         경기 시작 시 K-Means 캘리브레이션으로 팀 자동 분리.
         """
-        # 우선순위: weights/CV_team.pt → 학습 디렉토리 폴백 → 기존 분류 모델
-        embed_path = Path(_EMBED_MODEL_PATH)
-        embed_fallback_path = Path(_EMBED_MODEL_PATH_FALLBACK)
-        legacy_path = Path(_DEFAULT_TEAM_MODEL_PATH)
+        # v0.5.3: weights/ glob 으로 최신 CV-Team_v*.pt 자동 인식 (SSOT 일관)
+        # 우선순위: CV-Team_v{N}.pt (최신) → CV-team.pt (옛 이름) → 학습 디렉토리 폴백
+        weights_dir = Path("weights")
+        # PyInstaller frozen 환경 보정 — sys._MEIPASS / weights
+        try:
+            import sys as _sys
+            if getattr(_sys, "frozen", False):
+                _mei = getattr(_sys, "_MEIPASS", None)
+                if _mei:
+                    candidate = Path(_mei) / "weights"
+                    if candidate.exists():
+                        weights_dir = candidate
+        except Exception:
+            pass
 
-        if embed_path.exists():
-            model_path = embed_path
-        elif embed_fallback_path.exists():
-            model_path = embed_fallback_path
+        team_v_files = sorted(
+            weights_dir.glob("CV-Team_v*.pt"), reverse=True,
+        )
+        if team_v_files:
+            model_path = team_v_files[0]
+            logger.info("CV-Team 최신 버전 감지: %s", model_path.name)
+        elif (weights_dir / "CV-team.pt").exists():
+            model_path = weights_dir / "CV-team.pt"
+        elif Path(_EMBED_MODEL_PATH_FALLBACK).exists():
+            model_path = Path(_EMBED_MODEL_PATH_FALLBACK)
         else:
-            model_path = legacy_path
+            model_path = Path(_DEFAULT_TEAM_MODEL_PATH)
 
         if not model_path.exists():
             logger.info("팀 분류 모델 없음, K-Means 단독 모드")
@@ -277,22 +293,72 @@ class TeamClassifier:
             self._is_embed_model = embed_dim > 0
 
             if self._is_embed_model:
-                # TeamEmbedNet: ResNet18 → 128-dim L2 normalized
-                class _TeamEmbedNet(nn.Module):
-                    def __init__(self, dim: int = 128) -> None:
-                        super().__init__()
-                        backbone = tv_models.resnet18(weights=None)
-                        self.features = nn.Sequential(*list(backbone.children())[:-1])
-                        self.embed = nn.Sequential(
-                            nn.Flatten(), nn.Linear(512, dim), nn.BatchNorm1d(dim),
-                        )
-                    def forward(self, x: torch.Tensor) -> torch.Tensor:
-                        return nn.functional.normalize(
-                            self.embed(self.features(x)), p=2, dim=1,
-                        )
+                # v0.5.7.8: state_dict 키로 ResNet18 (v2) vs ResNet50 (v3) 자동 판별.
+                # v3 는 bottleneck 블록(`layer*.0.conv3`) + named-children backbone(`features.conv1`)
+                # + classifier head 까지 보유한 hybrid. 옛 _TeamEmbedNet (Sequential 기반) 으론
+                # 키 매칭 자체가 실패해 매 프레임 team 분류 silent fail → event_pipeline 의
+                # detected_events 가 0 으로 떨어져 UI 이벤트 패널 빈 상태 유발.
+                _has_bottleneck = any('.layer1.0.conv3' in k for k in state_dict.keys())
+                _has_named_features = any(k.startswith('features.conv1') for k in state_dict.keys())
+                _has_classifier = any(k.startswith('classifier.') for k in state_dict.keys())
+                _is_v3_resnet50 = _has_bottleneck and _has_named_features
+                logger.info(
+                    "팀 모델 분기 판별: bottleneck=%s, named_features=%s, classifier=%s → v3=%s",
+                    _has_bottleneck, _has_named_features, _has_classifier, _is_v3_resnet50,
+                )
 
-                model = _TeamEmbedNet(embed_dim)
-                model.load_state_dict(state_dict)
+                if _is_v3_resnet50:
+                    # v3: ResNet50 backbone (fc=Identity 로 named-children 보존) + embed + 분류 head
+                    class _TeamEmbedNetV3(nn.Module):
+                        def __init__(self, dim: int = 256, n_classes: int = 3, with_classifier: bool = True) -> None:
+                            super().__init__()
+                            backbone = tv_models.resnet50(weights=None)
+                            backbone.fc = nn.Identity()
+                            self.features = backbone  # children 이름 그대로 (features.conv1, features.layer4 ...)
+                            self.embed = nn.Sequential(
+                                nn.Linear(2048, dim),
+                                nn.BatchNorm1d(dim),
+                            )
+                            if with_classifier:
+                                self.classifier = nn.Linear(dim, n_classes)
+                            else:
+                                self.classifier = None
+
+                        def forward(self, x: torch.Tensor) -> torch.Tensor:
+                            f = self.features(x)
+                            if f.dim() > 2:
+                                f = torch.flatten(f, 1)
+                            e = self.embed(f)
+                            return nn.functional.normalize(e, p=2, dim=1)
+
+                    # classifier shape 으로 n_classes 추론 (없으면 3 가정)
+                    cls_w = state_dict.get('classifier.weight')
+                    n_classes = int(cls_w.shape[0]) if (cls_w is not None and hasattr(cls_w, 'shape')) else 3
+                    model = _TeamEmbedNetV3(dim=embed_dim or 256, n_classes=n_classes, with_classifier=_has_classifier)
+                    # strict=False — classifier head 만 있는데 안 쓰는 등 사소한 차이 허용
+                    incompat = model.load_state_dict(state_dict, strict=False)
+                    if incompat.missing_keys or incompat.unexpected_keys:
+                        logger.info(
+                            "팀 v3 모델 load: missing=%d, unexpected=%d (대부분 OK — embed/forward 만 사용)",
+                            len(incompat.missing_keys), len(incompat.unexpected_keys),
+                        )
+                else:
+                    # v2: ResNet18 → 128-dim L2 normalized (기존 분기)
+                    class _TeamEmbedNet(nn.Module):
+                        def __init__(self, dim: int = 128) -> None:
+                            super().__init__()
+                            backbone = tv_models.resnet18(weights=None)
+                            self.features = nn.Sequential(*list(backbone.children())[:-1])
+                            self.embed = nn.Sequential(
+                                nn.Flatten(), nn.Linear(512, dim), nn.BatchNorm1d(dim),
+                            )
+                        def forward(self, x: torch.Tensor) -> torch.Tensor:
+                            return nn.functional.normalize(
+                                self.embed(self.features(x)), p=2, dim=1,
+                            )
+
+                    model = _TeamEmbedNet(embed_dim)
+                    model.load_state_dict(state_dict)
                 self._embed_centroids = None  # K-Means 센트로이드 (캘리브레이션 후 설정)
                 self._embed_label_map = {}    # 클러스터 → Team 매핑
                 self._embed_samples = []      # 캘리브레이션용 임베딩 수집

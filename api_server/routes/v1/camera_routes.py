@@ -43,6 +43,7 @@ from api_server.schemas.response_schemas import (
     CameraCalibrationResponse,
     CameraStatusAllResponse,
     CameraStatusResponse,
+    Go2rtcHealthResponse,
     ManualCalibrationResponse,
 )
 from api_server.services.camera_service import CameraService
@@ -174,6 +175,19 @@ async def get_health_all(
     )
 
 
+@router.get("/go2rtc/health", response_model=Go2rtcHealthResponse)
+async def get_go2rtc_health(
+    service: CameraService = Depends(get_camera_service),
+) -> Go2rtcHealthResponse:
+    """
+    Plan A (2026-05-13): go2rtc 서비스 + 카메라 transport_mode 통합 조회.
+
+    UI 가 단일 호출로 fallback 발생 여부를 판별.
+    summary.direct > 0 이면 1개 이상 카메라가 go2rtc 우회 (직결 RTSP) → 버벅임 위험.
+    """
+    return Go2rtcHealthResponse(**service.get_go2rtc_health())
+
+
 @router.post("/probe", response_model=APIResponse)
 async def probe_url(
     request: CameraConnectRequest,
@@ -292,6 +306,30 @@ async def calibrate_camera_manual(
     코트 교차점을 클릭하면 호모그래피를 계산하여 저장합니다.
     """
     return service.calibrate_manual(request)
+
+
+@router.get("/{camera_id}/calibration")
+async def get_calibration(
+    camera_id: str,
+    service: CameraService = Depends(get_camera_service),
+):
+    """v0.4.1: 저장된 캘리브레이션 조회 — UI 의 캘리됨 표시 갱신용.
+
+    파일 없으면 404, 있으면 quality_score / 저장 경로 반환.
+    """
+    from fastapi import HTTPException
+
+    data = service.load_calibration(camera_id)
+    if data is None:
+        raise HTTPException(status_code=404, detail="캘리브레이션 미저장")
+    return {
+        "camera_id": camera_id,
+        "court_standard": data.get("court_standard"),
+        "quality_score": data.get("quality_score"),
+        "mean_reproj_error_px": data.get("mean_reproj_error_px"),
+        "inlier_count": data.get("inlier_count"),
+        "total_points": data.get("total_points"),
+    }
 
 
 # =============================================================================

@@ -34,6 +34,7 @@ from __future__ import annotations
 # =============================================================================
 import json
 import logging
+import os
 import sys
 import threading
 import time
@@ -56,6 +57,7 @@ from infrastructure.multi_camera.camera_calibrator import (
     MultiCameraCalibrator,
     CalibrationSnapshot,
 )
+from api_server.services.go2rtc_service import Go2rtcService
 
 if TYPE_CHECKING:
     from detection.player_detection.player_detector import PlayerDetector
@@ -80,10 +82,25 @@ from api_server.schemas.response_schemas import (
 
 _logger = logging.getLogger(__name__)
 
-# 설정 파일 기본 경로
-_DEFAULT_CONFIG_DIR = Path("configs/base")
+
+def _resolve_appdata_dir() -> Path:
+    """v0.4.1: %APPDATA%\\COURTVIEW (Windows) — 영속 데이터 루트.
+
+    PyInstaller frozen 모드에선 cwd 가 임의이라 상대경로 저장이 잘못된 위치(또는
+    권한 없는 폴더)에 떨어짐. 카메라 설정 / 캘리브레이션 좌표를 영속 위치에 저장.
+    """
+    import os as _os
+    appdata = _os.environ.get("APPDATA")
+    if appdata:
+        return Path(appdata) / "COURTVIEW"
+    return Path.home() / ".courtview"
+
+
+# 설정 파일 기본 경로 (v0.4.1: 영속 저장 — frozen cwd 의존 제거)
+_APPDATA_ROOT = _resolve_appdata_dir()
+_DEFAULT_CONFIG_DIR = _APPDATA_ROOT / "config"
 _DEFAULT_CONFIG_FILE = "camera_sources.json"
-_CALIBRATION_DIR = Path("configs/calibration")
+_CALIBRATION_DIR = _APPDATA_ROOT / "calibration"
 
 
 # =============================================================================
@@ -101,6 +118,13 @@ class _CameraHandle:
         "last_reconnect_time",
         "reconnect_attempts",
         "health_status",
+        # v0.5.7.6: go2rtc 활성 시 effective URL (relay) — 녹화/외부 소비자가 사용.
+        # 이전엔 cam.url (직결 RTSP) 만 노출되어 녹화 ffmpeg 가 카메라에 직접 3번째
+        # RTSP 세션 요청 → 저가 IPCam 의 2-session 한계로 거절 → black mp4 발생.
+        "effective_url",
+        # Plan A (2026-05-13): connect_camera 결과 — "relay" / "direct" / "unknown".
+        # UI 배너 + 헬스 API 가 카메라별로 모드를 표시할 수 있도록 기록.
+        "transport_mode",
     )
 
     def __init__(self, camera_id: str, url: str = "", label: str = "") -> None:
@@ -118,6 +142,10 @@ class _CameraHandle:
         self.last_reconnect_time: float = 0.0
         self.reconnect_attempts: int = 0
         self.health_status: str = "unknown"  # unknown / healthy / stalled / reconnecting / failed
+        # v0.5.7.6: go2rtc 등록 성공 시 connect_camera 가 set. fallback 시엔 url 그대로.
+        self.effective_url: str = url
+        # Plan A (2026-05-13): connect_camera 가 갱신.
+        self.transport_mode: str = "unknown"
 
 
 # =============================================================================
@@ -148,6 +176,10 @@ class CameraService:
         "_watchdog_stop_event",
         "_watchdog_interval_sec",
         "_stall_threshold_sec",
+        # Plan C (2026-05-13): 재연결 직후 쿨다운 동안 stall 재감지 무시.
+        "_reconnect_cooldown_sec",
+        # v0.3.0: go2rtc 연동 (optional) — UI WebRTC 스트림 파이프
+        "_go2rtc",
         "_max_reconnect_attempts",
     )
 
@@ -173,8 +205,29 @@ class CameraService:
         self._watchdog_thread: threading.Thread | None = None
         self._watchdog_stop_event = threading.Event()
         self._watchdog_interval_sec: float = 2.0      # 2초마다 헬스 체크
-        self._stall_threshold_sec: float = 3.0        # 3초 이상 프레임 없으면 stalled
+        # Plan C (2026-05-13): 5초 미만 글리치는 무시 (3 → 5). 환경변수로 override.
+        self._stall_threshold_sec: float = float(
+            os.environ.get("COURTVIEW_STALL_THRESHOLD_SEC", "5.0"),
+        )
+        # Plan C: 재연결 후 이 시간 동안은 stall 감지 보류 — 새 ffmpeg 가 첫 프레임
+        # 받을 시간을 보장 (재연결 루프 폭주 방지).
+        self._reconnect_cooldown_sec: float = float(
+            os.environ.get("COURTVIEW_RECONNECT_COOLDOWN_SEC", "30.0"),
+        )
         self._max_reconnect_attempts: int = 5         # 연속 재연결 실패 5회 → failed
+        # v0.3.0: go2rtc 연동 — UI WebRTC 스트림 파이프 (optional)
+        self._go2rtc: Go2rtcService | None = None
+
+    def set_go2rtc_service(self, go2rtc: Go2rtcService) -> None:
+        """
+        go2rtc 서비스 주입 (v0.3.0).
+
+        main.py lifespan startup 에서 호출. 이후 `connect_camera` 가 성공하면
+        자동으로 go2rtc 에 스트림을 등록해 UI WebRTC 수신이 가능해진다.
+        미주입 시 (= go2rtc 비활성) 카메라 기능은 정상 동작하되 브라우저 쪽
+        WebRTC 는 404 로 실패 — v0.2.x MJPEG 경로로 fallback 가능.
+        """
+        self._go2rtc = go2rtc
 
     # =========================================================================
     # 연결
@@ -193,10 +246,43 @@ class CameraService:
         url = request.url
         label = request.label or cam_id
 
-        handle = _CameraHandle(camera_id=cam_id, url=url, label=label)
+        # v0.3.2: go2rtc 가 활성화되어 있으면 카메라당 단일 RTSP 세션만 유지하기 위해
+        # 백엔드 디코더는 go2rtc relay (rtsp://127.0.0.1:8554/<cam_id>) 에서 읽음.
+        # 저가 IPCam 의 2-session 한계 회피 — 카메라 → go2rtc → (백엔드 + 브라우저) 분기.
+        # go2rtc 비활성 환경에서는 기존처럼 카메라에 직접 연결.
+        # v0.5.7: add_stream 은 예외 대신 False 반환이므로 반환값을 직접 검사해야 함.
+        # 무시하면 등록 실패 시에도 relay URL 로 연결 시도 → 404 DESCRIBE 무한 재시도.
+        decoder_url = url
+        transport_mode = "unknown"
+        if self._go2rtc is not None:
+            registered = False
+            try:
+                registered = self._go2rtc.add_stream(cam_id, url)
+            except Exception:
+                _logger.exception("go2rtc add_stream 예외 — 카메라 직접 연결로 fallback")
+            if registered:
+                decoder_url = f"rtsp://127.0.0.1:8554/{cam_id}"
+                transport_mode = "relay"
+                _logger.info("카메라 %s: go2rtc relay 사용 → %s", cam_id, decoder_url)
+            else:
+                transport_mode = "direct"
+                _logger.warning(
+                    "⚠ 카메라 %s: go2rtc 등록 실패 — 카메라에 직접 연결 (%s). "
+                    "단일 카메라에 다중 RTSP 세션 → 버벅임/끊김 위험. "
+                    "브라우저 WebRTC 미리보기는 비활성, AI 분석은 정상 동작.",
+                    cam_id, url,
+                )
+        else:
+            # go2rtc 미주입 환경 — 항상 직결.
+            transport_mode = "direct"
 
-        # RTSP 연결 시도
-        opened = handle.decoder.open(url)
+        handle = _CameraHandle(camera_id=cam_id, url=url, label=label)
+        # v0.5.7.6: 녹화/외부 디코더는 effective_url 사용 — 단일 RTSP 세션 공유.
+        handle.effective_url = decoder_url
+        handle.transport_mode = transport_mode
+
+        # RTSP 연결 시도 (relay 또는 직접)
+        opened = handle.decoder.open(decoder_url)
         if opened:
             handle.connected = True
             # 메타데이터 추출
@@ -217,6 +303,7 @@ class CameraService:
                 old.decoder.close()
             self._cameras[cam_id] = handle
 
+        # v0.3.2: go2rtc 등록은 위에서 decoder open 전에 이미 수행됨.
         return self._handle_to_status(handle)
 
     def connect_all(self, request: CameraConnectAllRequest) -> CameraStatusAllResponse:
@@ -291,10 +378,19 @@ class CameraService:
     def disconnect_all(self) -> None:
         """전체 카메라 연결 해제."""
         with self._lock:
+            ids = list(self._cameras.keys())
             for handle in self._cameras.values():
                 handle.decoder.close()
                 handle.connected = False
             _logger.info("전체 카메라 연결 해제: %d대", len(self._cameras))
+
+        # v0.3.0: go2rtc 쪽 스트림도 제거
+        if self._go2rtc is not None:
+            for cam_id in ids:
+                try:
+                    self._go2rtc.remove_stream(cam_id)
+                except Exception:
+                    pass
 
     def reconnect_camera(self, camera_id: str) -> CameraStatusResponse | None:
         """
@@ -357,8 +453,10 @@ class CameraService:
         )
         self._watchdog_thread.start()
         _logger.info(
-            "카메라 워치도그 시작 (interval=%.1fs, stall_threshold=%.1fs)",
+            "카메라 워치도그 시작 (interval=%.1fs, stall_threshold=%.1fs, "
+            "reconnect_cooldown=%.1fs)",
             self._watchdog_interval_sec, self._stall_threshold_sec,
+            self._reconnect_cooldown_sec,
         )
 
     def stop_watchdog(self) -> None:
@@ -392,6 +490,20 @@ class CameraService:
                         continue  # 포기 상태는 건너뜀
 
                     if handle.decoder.is_stalled(self._stall_threshold_sec):
+                        # Plan C (2026-05-13): 재연결 직후 쿨다운 동안은 stall
+                        # 감지 무시 — 새 ffmpeg 가 첫 프레임 받을 시간 보장.
+                        # 글리치로 재연결 루프 폭주하는 패턴 차단.
+                        cooldown_remaining = (
+                            handle.last_reconnect_time
+                            + self._reconnect_cooldown_sec
+                            - time.time()
+                        )
+                        if cooldown_remaining > 0:
+                            _logger.debug(
+                                "카메라 %s stalled 이지만 쿨다운 %.1fs 남음 — 재연결 보류",
+                                handle.camera_id, cooldown_remaining,
+                            )
+                            continue
                         seconds_silent = handle.decoder.seconds_since_last_frame()
                         _logger.warning(
                             "카메라 %s stalled 감지 (%.1fs 무프레임) — 재연결 시도",
@@ -409,6 +521,19 @@ class CameraService:
 
             # 다음 체크까지 대기 (stop_event 기다리면 조기 종료 가능)
             self._watchdog_stop_event.wait(self._watchdog_interval_sec)
+
+    def get_recording_url(self, camera_id: str) -> str | None:
+        """녹화/외부 디코더가 써야 할 effective URL.
+
+        go2rtc 활성 시 relay (`rtsp://127.0.0.1:8554/cam_x`) — 카메라당 단일 RTSP 세션을
+        분석 + 브라우저 + 녹화 가 공유. go2rtc 비활성/등록 실패 시 카메라 직결 URL 로
+        fallback (이때는 ffmpeg 가 카메라와 별도 세션 — IPCam 2-session 한계 주의).
+        """
+        with self._lock:
+            handle = self._cameras.get(camera_id)
+        if handle is None or not handle.connected:
+            return None
+        return handle.effective_url or handle.url
 
     def get_health_all(self) -> dict[str, dict[str, object]]:
         """전체 카메라 헬스 상태 조회."""
@@ -772,8 +897,22 @@ class CameraService:
         pixel_points: list[list[float]],
         court_points: list[list[float]],
     ) -> bool:
-        """캘리브레이션 결과를 JSON 파일로 저장."""
-        _CALIBRATION_DIR.mkdir(parents=True, exist_ok=True)
+        """캘리브레이션 결과를 JSON 파일로 저장 (v0.4.1: 진단 강화)."""
+        _logger.info(
+            "_save_calibration 진입 — cam=%s, _CALIBRATION_DIR=%s (절대=%s)",
+            cam_id, _CALIBRATION_DIR, _CALIBRATION_DIR.resolve(),
+        )
+        try:
+            _CALIBRATION_DIR.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            _logger.exception("_CALIBRATION_DIR mkdir 실패: %s", _CALIBRATION_DIR)
+            return False
+        if not _CALIBRATION_DIR.exists():
+            _logger.error(
+                "_CALIBRATION_DIR mkdir 후에도 미존재: %s", _CALIBRATION_DIR,
+            )
+            return False
+
         cal_path = _CALIBRATION_DIR / f"cam_{cam_id}.json"
 
         data = {
@@ -792,11 +931,22 @@ class CameraService:
         try:
             with open(cal_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
-            _logger.info("캘리브레이션 저장: %s", cal_path)
-            return True
         except Exception:
-            _logger.exception("캘리브레이션 저장 실패: %s", cal_path)
+            _logger.exception("캘리브레이션 파일 쓰기 실패: %s", cal_path)
             return False
+
+        # 검증: 파일이 실제로 생성되고 사이즈 > 0
+        if not cal_path.exists():
+            _logger.error("캘리 저장 후 파일 미존재: %s", cal_path)
+            return False
+        size = cal_path.stat().st_size
+        if size <= 0:
+            _logger.error("캘리 저장 파일 사이즈 0: %s", cal_path)
+            return False
+        _logger.info(
+            "캘리브레이션 저장 완료: %s (%d bytes)", cal_path, size,
+        )
+        return True
 
     @staticmethod
     def load_calibration(camera_id: str) -> dict | None:
@@ -1158,7 +1308,68 @@ class CameraService:
         for subnet in subnets:
             ips.extend(f"{subnet}.{i}" for i in range(start, end + 1))
 
-        if prewarm:
+        # Plan F+G+H (2026-05-13): Stage 0 — ONVIF + mDNS + UPnP 병렬 probe.
+        # 산업 표준 hybrid 3종 동시 실행 → max(2s, 2s, 2s) = 2s.
+        # 응답한 IP 는 이후 ARP prewarm + TCP probe 풀에서 제외.
+        # 비활성: COURTVIEW_ONVIF_DISCOVERY/MDNS_DISCOVERY/UPNP_DISCOVERY=off
+        onvif_results: list[dict[str, object]] = []
+        mdns_results: list[dict[str, object]] = []
+        upnp_results: list[dict[str, object]] = []
+        discovered_ips: set[str] = set()
+        try:
+            from infrastructure.discovery.mdns_discovery import (
+                MDNS_ENABLED, mdns_discover,
+            )
+            from infrastructure.discovery.onvif_discovery import (
+                ONVIF_ENABLED, onvif_discover,
+            )
+            from infrastructure.discovery.upnp_discovery import (
+                UPNP_ENABLED, upnp_discover,
+            )
+            t_disc = time.monotonic()
+            with ThreadPoolExecutor(max_workers=3, thread_name_prefix="disc-std") as disc_pool:
+                fut_onvif = (
+                    disc_pool.submit(onvif_discover, timeout_sec=2.0, filter_subnets=subnets)
+                    if ONVIF_ENABLED else None
+                )
+                fut_mdns = (
+                    disc_pool.submit(mdns_discover, timeout_sec=2.0)
+                    if MDNS_ENABLED else None
+                )
+                fut_upnp = (
+                    disc_pool.submit(upnp_discover, timeout_sec=2.0, filter_subnets=subnets)
+                    if UPNP_ENABLED else None
+                )
+                if fut_onvif is not None:
+                    try:
+                        onvif_results = fut_onvif.result(timeout=5.0)
+                    except Exception:
+                        _logger.exception("ONVIF probe 예외 (계속)")
+                if fut_mdns is not None:
+                    try:
+                        mdns_results = fut_mdns.result(timeout=5.0)
+                    except Exception:
+                        _logger.exception("mDNS probe 예외 (계속)")
+                if fut_upnp is not None:
+                    try:
+                        upnp_results = fut_upnp.result(timeout=5.0)
+                    except Exception:
+                        _logger.exception("UPnP probe 예외 (계속)")
+            # 표준 발견 IP 합집합 — brute-force 풀에서 제외
+            for r in onvif_results + mdns_results + upnp_results:
+                ip_ = str(r.get("ip", ""))
+                if ip_:
+                    discovered_ips.add(ip_)
+            ips = [ip for ip in ips if ip not in discovered_ips]
+            _logger.info(
+                "표준 protocol 탐색 완료: ONVIF=%d, mDNS=%d, UPnP=%d, dedup=%d (%.2fs)",
+                len(onvif_results), len(mdns_results), len(upnp_results),
+                len(discovered_ips), time.monotonic() - t_disc,
+            )
+        except Exception:
+            _logger.exception("표준 protocol probe 예외 (brute-force 만으로 진행)")
+
+        if prewarm and ips:
             t0 = time.monotonic()
             self._prewarm_arp(ips)
             _logger.info("ARP prewarm 완료: %d IP × ping (%.1f s)", len(ips), time.monotonic() - t0)
@@ -1194,16 +1405,61 @@ class CameraService:
                 pass
             return None
 
-        max_workers = min(len(ips), 512)
+        max_workers = min(len(ips), 512) if ips else 1
         found: list[dict[str, str]] = []
 
+        # Plan F+G (2026-05-13): ONVIF + mDNS 로 발견된 카메라 먼저 결과에 추가.
+        # rtsp_url 은 일단 generic /stream1 — 이후 path enrich 단계가 교체.
+        added_ips: set[str] = set()
+        for r in onvif_results:
+            ip_ = str(r.get("ip", ""))
+            if not ip_ or ip_ in added_ips:
+                continue
+            added_ips.add(ip_)
+            found.append({
+                "ip": ip_,
+                "port": str(port),
+                "rtsp_url": f"rtsp://{ip_}:{port}/stream1",
+                "discovered_by": "onvif",
+                "onvif_xaddrs": str(r.get("onvif_xaddrs", "")),
+            })
+        for r in mdns_results:
+            ip_ = str(r.get("ip", ""))
+            if not ip_ or ip_ in added_ips:
+                continue
+            added_ips.add(ip_)
+            mdns_port = r.get("port") or port
+            found.append({
+                "ip": ip_,
+                "port": str(mdns_port),
+                "rtsp_url": f"rtsp://{ip_}:{mdns_port}/stream1",
+                "discovered_by": "mdns",
+                "hostname": str(r.get("hostname", "")),
+                "service": str(r.get("service", "")),
+            })
+        for r in upnp_results:
+            ip_ = str(r.get("ip", ""))
+            if not ip_ or ip_ in added_ips:
+                continue
+            added_ips.add(ip_)
+            found.append({
+                "ip": ip_,
+                "port": str(port),
+                "rtsp_url": f"rtsp://{ip_}:{port}/stream1",
+                "discovered_by": "upnp",
+                "location_url": str(r.get("location_url", "")),
+                "server": str(r.get("server", "")),
+            })
+
         t0 = time.monotonic()
-        with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="cam-disc") as pool:
-            futures = [pool.submit(_probe, ip) for ip in ips]
-            for future in as_completed(futures):
-                result = future.result()
-                if result is not None:
-                    found.append(result)
+        if ips:
+            with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="cam-disc") as pool:
+                futures = [pool.submit(_probe, ip) for ip in ips]
+                for future in as_completed(futures):
+                    result = future.result()
+                    if result is not None:
+                        result["discovered_by"] = "brute-force"
+                        found.append(result)
 
         found.sort(key=lambda x: tuple(int(p) for p in x["ip"].split(".")))
         _logger.info(
@@ -1263,7 +1519,55 @@ class CameraService:
             fps=handle.fps,
             calibrated=handle.calibrated,
             calibration_quality=handle.calibration_quality,
+            transport_mode=handle.transport_mode,
         )
+
+    # =========================================================================
+    # Plan A (2026-05-13): go2rtc 헬스 통합 조회
+    # =========================================================================
+    def get_go2rtc_health(self) -> dict:
+        """
+        go2rtc 서비스 상태 + 카메라별 transport_mode 집계.
+
+        UI 가 단일 호출로 'fallback 발생 중인지' 즉시 판별.
+        """
+        if self._go2rtc is not None:
+            try:
+                go2rtc_health = self._go2rtc.get_health()
+            except Exception as e:
+                go2rtc_health = {"error": str(e)}
+        else:
+            go2rtc_health = {
+                "running": False,
+                "api_ready": False,
+                "error": "go2rtc 서비스가 주입되지 않음 (모든 카메라 직결)",
+            }
+
+        with self._lock:
+            cameras = [
+                {
+                    "camera_id": h.camera_id,
+                    "label": h.label,
+                    "connected": h.connected,
+                    "transport_mode": h.transport_mode,
+                }
+                for h in self._cameras.values()
+            ]
+
+        total = len(cameras)
+        relay = sum(1 for c in cameras if c["transport_mode"] == "relay")
+        direct = sum(1 for c in cameras if c["transport_mode"] == "direct")
+        unknown = sum(1 for c in cameras if c["transport_mode"] == "unknown")
+        return {
+            "go2rtc": go2rtc_health,
+            "cameras": cameras,
+            "summary": {
+                "total": total,
+                "relay": relay,
+                "direct": direct,
+                "unknown": unknown,
+            },
+        }
 
     def __repr__(self) -> str:
         with self._lock:

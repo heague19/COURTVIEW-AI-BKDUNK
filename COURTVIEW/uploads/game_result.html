@@ -1,0 +1,1175 @@
+{% extends "components/layout.html" %}
+{% set active = "result" %}
+{% block title %}COURTVIEW — 경기 결과{% endblock %}
+
+{% block content %}
+<div id="app">
+    <!-- ============================================================
+         목록 뷰
+         ============================================================ -->
+    <div id="view-list">
+        <div class="page-header" style="display:flex; justify-content:space-between; align-items:flex-start;">
+            <div>
+                <div class="page-title">📊 경기 결과</div>
+                <div class="page-subtitle">분석이 완료된 경기 결과를 확인합니다</div>
+            </div>
+            <button class="btn btn-secondary btn-sm" onclick="loadResults()">🔄 새로고침</button>
+        </div>
+
+        <!-- 필터 -->
+        <div style="display:flex; gap:8px; margin-bottom:16px;">
+            <button class="btn btn-secondary btn-sm filter-btn active" onclick="setFilter('all')">전체</button>
+            <button class="btn btn-secondary btn-sm filter-btn" onclick="setFilter('live')">실시간</button>
+            <button class="btn btn-secondary btn-sm filter-btn" onclick="setFilter('batch')">배치</button>
+        </div>
+
+        <!-- 결과 테이블 -->
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width:140px;">날짜</th>
+                        <th>경기</th>
+                        <th style="width:120px; text-align:center;">점수</th>
+                        <th style="width:80px; text-align:center;">모드</th>
+                        <th style="width:80px; text-align:center;">상태</th>
+                        <th style="width:80px;"></th>
+                    </tr>
+                </thead>
+                <tbody id="result-table-body">
+                    <tr>
+                        <td colspan="6" style="text-align:center; color:var(--text-muted); padding:40px;">
+                            경기 결과가 없습니다
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- ============================================================
+         상세 뷰
+         ============================================================ -->
+    <div id="view-detail" style="display:none;">
+        <!-- 상단 네비 -->
+        <div style="margin-bottom:20px;">
+            <button class="btn btn-secondary btn-sm" onclick="backToList()">← 목록으로</button>
+        </div>
+
+        <!-- 스코어보드 -->
+        <div class="scoreboard" style="margin-bottom:20px;">
+            <div style="font-size:12px; color:var(--text-gray); margin-bottom:4px;" id="d-date"></div>
+            <div class="scoreboard-teams">
+                <div>
+                    <div class="team-name" id="d-home-name">HOME</div>
+                    <div class="team-score" id="d-home-score">0</div>
+                </div>
+                <div class="score-separator">:</div>
+                <div>
+                    <div class="team-name" id="d-away-name">AWAY</div>
+                    <div class="team-score" id="d-away-score">0</div>
+                </div>
+            </div>
+            <div style="font-size:14px; margin-top:8px;" id="d-winner"></div>
+        </div>
+
+        <!-- 쿼터별 점수 -->
+        <div class="card" style="margin-bottom:16px;">
+            <div class="card-title" style="margin-bottom:12px;">쿼터별 점수</div>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>팀</th>
+                            <th style="text-align:center;">1Q</th>
+                            <th style="text-align:center;">2Q</th>
+                            <th style="text-align:center;">3Q</th>
+                            <th style="text-align:center;">4Q</th>
+                            <th style="text-align:center; color:var(--accent-orange);">합계</th>
+                        </tr>
+                    </thead>
+                    <tbody id="d-quarter-body"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- 팀 통계 비교 -->
+        <div class="card" style="margin-bottom:16px;">
+            <div class="card-title" style="margin-bottom:12px;">팀 통계 비교</div>
+            <div id="d-team-stats"></div>
+        </div>
+
+        <!-- 베스트 / 워스트 + 부문별 1위 -->
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px;">
+            <div class="card" style="border-left:4px solid var(--accent-green);">
+                <div class="card-title" style="margin-bottom:12px;">🏆 베스트 선수</div>
+                <div style="text-align:center; padding:8px;">
+                    <div style="font-size:28px;">🥇</div>
+                    <div style="font-size:18px; font-weight:800;" id="d-best-name">-</div>
+                    <div style="font-size:11px; color:var(--text-gray); margin-top:2px;" id="d-best-team">-</div>
+                    <div style="display:flex; justify-content:center; gap:12px; margin-top:8px; font-size:11px;" id="d-best-stats"></div>
+                </div>
+            </div>
+            <div class="card" style="border-left:4px solid var(--accent-red);">
+                <div class="card-title" style="margin-bottom:12px;">📉 워스트 선수</div>
+                <div style="text-align:center; padding:8px;">
+                    <div style="font-size:28px;">⚠️</div>
+                    <div style="font-size:18px; font-weight:800;" id="d-worst-name">-</div>
+                    <div style="font-size:11px; color:var(--text-gray); margin-top:2px;" id="d-worst-team">-</div>
+                    <div style="display:flex; justify-content:center; gap:12px; margin-top:8px; font-size:11px;" id="d-worst-stats"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 부문별 1위 -->
+        <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:12px; margin-bottom:16px;" id="d-leaders"></div>
+
+        <!-- 선수 기록지 (1차 + 2차 스탯) -->
+        <div class="card" style="margin-bottom:16px;">
+            <div class="card-title" style="margin-bottom:12px; display:flex; align-items:center; gap:8px;">
+                📋 선수 기록지
+                <span onclick="document.getElementById('stat-legend').style.display=document.getElementById('stat-legend').style.display==='none'?'block':'none'"
+                      style="width:18px;height:18px;border-radius:50%;background:var(--bg-nav-item);display:inline-flex;align-items:center;justify-content:center;font-size:10px;cursor:pointer;color:var(--accent-orange);" title="스탯 용어 설명">?</span>
+            </div>
+            <!-- 스탯 용어 설명 -->
+            <div id="stat-legend" style="display:none; background:var(--bg-dark); border-radius:var(--radius-sm); padding:12px; margin-bottom:12px; font-size:10px; color:var(--text-gray); line-height:1.8;">
+                <div style="font-size:11px; font-weight:700; color:var(--accent-orange); margin-bottom:6px;">1차 스탯 (기록원 직접 기록)</div>
+                <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:2px 12px;">
+                    <span><strong style="color:var(--text-white);">MIN</strong> — 출전 시간 (분)</span>
+                    <span><strong style="color:var(--text-white);">PTS</strong> — 득점</span>
+                    <span><strong style="color:var(--text-white);">FG</strong> — 야투 (성공-시도)</span>
+                    <span><strong style="color:var(--text-white);">FG%</strong> — 야투 성공률</span>
+                    <span><strong style="color:var(--text-white);">3P</strong> — 3점슛 (성공-시도)</span>
+                    <span><strong style="color:var(--text-white);">3P%</strong> — 3점 성공률</span>
+                    <span><strong style="color:var(--text-white);">FT</strong> — 자유투 (성공-시도)</span>
+                    <span><strong style="color:var(--text-white);">FT%</strong> — 자유투 성공률</span>
+                    <span><strong style="color:var(--text-white);">OREB</strong> — 공격 리바운드</span>
+                    <span><strong style="color:var(--text-white);">DREB</strong> — 수비 리바운드</span>
+                    <span><strong style="color:var(--text-white);">REB</strong> — 총 리바운드</span>
+                    <span><strong style="color:var(--text-white);">AST</strong> — 어시스트</span>
+                    <span><strong style="color:var(--text-white);">STL</strong> — 스틸</span>
+                    <span><strong style="color:var(--text-white);">BLK</strong> — 블록</span>
+                    <span><strong style="color:var(--text-white);">TO</strong> — 턴오버</span>
+                    <span><strong style="color:var(--text-white);">PF</strong> — 개인 파울</span>
+                </div>
+                <div style="font-size:11px; font-weight:700; color:var(--accent-yellow); margin:10px 0 6px;">2차 스탯 (1차 기반 계산)</div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:2px 12px;">
+                    <span><strong style="color:var(--text-white);">+/-</strong> — 출전 중 팀 득실점 차이</span>
+                    <span><strong style="color:var(--text-white);">EFF</strong> — 효율 (PTS+REB+AST+STL+BLK-TO-미스샷)</span>
+                    <span><strong style="color:var(--text-white);">TS%</strong> — 트루 슈팅% = PTS÷(2×(FGA+0.44×FTA))</span>
+                    <span><strong style="color:var(--text-white);">eFG%</strong> — 유효 야투% = (FGM+0.5×3PM)÷FGA</span>
+                    <span><strong style="color:var(--text-white);">AST/TO</strong> — 어시스트 대 턴오버 비율</span>
+                </div>
+            </div>
+            <div style="font-size:12px; font-weight:700; color:var(--accent-orange); margin-bottom:6px;" id="d-home-stats-title">홈팀</div>
+            <div class="table-container" style="overflow-x:auto; margin-bottom:14px;">
+                <table style="font-size:10px; white-space:nowrap; width:100%;">
+                    <thead><tr>
+                        <th>#</th><th>이름</th><th>MIN</th><th>PTS</th><th>FG</th><th>FG%</th><th>3P</th><th>3P%</th><th>FT</th><th>FT%</th>
+                        <th>OREB</th><th>DREB</th><th>REB</th><th>AST</th><th>STL</th><th>BLK</th><th>TO</th><th>PF</th>
+                        <th>+/-</th><th style="color:var(--accent-yellow);">EFF</th><th style="color:var(--accent-green);">TS%</th><th style="color:var(--accent-blue);">eFG%</th><th>A/T</th>
+                    </tr></thead>
+                    <tbody id="d-home-players"></tbody>
+                </table>
+            </div>
+            <div style="font-size:12px; font-weight:700; color:var(--accent-blue); margin-bottom:6px;" id="d-away-stats-title">원정팀</div>
+            <div class="table-container" style="overflow-x:auto;">
+                <table style="font-size:10px; white-space:nowrap; width:100%;">
+                    <thead><tr>
+                        <th>#</th><th>이름</th><th>MIN</th><th>PTS</th><th>FG</th><th>FG%</th><th>3P</th><th>3P%</th><th>FT</th><th>FT%</th>
+                        <th>OREB</th><th>DREB</th><th>REB</th><th>AST</th><th>STL</th><th>BLK</th><th>TO</th><th>PF</th>
+                        <th>+/-</th><th style="color:var(--accent-yellow);">EFF</th><th style="color:var(--accent-green);">TS%</th><th style="color:var(--accent-blue);">eFG%</th><th>A/T</th>
+                    </tr></thead>
+                    <tbody id="d-away-players"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- 슛 히트맵 (풀코트) -->
+        <div class="card" style="margin-bottom:16px;">
+            <div class="card-header">
+                <div class="card-title">🎯 슛 히트맵</div>
+                <div style="display:flex; gap:14px; font-size:10px; align-items:center;" id="d-shotmap-legend"></div>
+            </div>
+            <canvas id="d-shotmap" style="width:100%; height:auto; display:block; border-radius:var(--radius-sm);"></canvas>
+        </div>
+
+        <!-- 득점 흐름 + 하이라이트 -->
+        <div class="card" style="margin-bottom:16px;">
+            <div class="card-header">
+                <div class="card-title">📈 득점 흐름</div>
+                <div style="display:flex; gap:4px;" id="quarter-tabs">
+                    <button class="q-tab active" onclick="switchQuarter('all')">전체</button>
+                    <button class="q-tab" onclick="switchQuarter(1)">1Q</button>
+                    <button class="q-tab" onclick="switchQuarter(2)">2Q</button>
+                    <button class="q-tab" onclick="switchQuarter(3)">3Q</button>
+                    <button class="q-tab" onclick="switchQuarter(4)">4Q</button>
+                </div>
+            </div>
+            <canvas id="d-score-graph" style="width:100%; height:auto; display:block; border-radius:var(--radius-sm); cursor:pointer;"></canvas>
+            <div id="d-highlights" style="margin-top:12px;">
+                <div style="text-align:center; color:var(--text-muted); font-size:12px; padding:12px;">하이라이트 없음</div>
+            </div>
+            <!-- 하이라이트 영상 플레이어 -->
+            <div id="d-highlight-player" style="display:none; margin-top:12px; padding-top:12px; border-top:1px solid var(--border);">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                    <div id="d-player-title" style="font-size:12px;"></div>
+                    <button onclick="closeHighlightPlayer()" style="background:none; border:1px solid var(--border); border-radius:4px; color:var(--text-gray); cursor:pointer; font-size:12px; padding:2px 8px;">✕ 닫기</button>
+                </div>
+                <div style="position:relative; aspect-ratio:16/9; background:#000; border-radius:var(--radius-sm); overflow:hidden;">
+                    <video id="d-player-video" style="width:100%; height:100%; display:none;" controls playsinline></video>
+                    <div id="d-player-placeholder" style="display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; width:100%; height:100%; color:var(--text-muted); font-size:12px; position:absolute; top:0; left:0;">
+                        <span style="font-size:32px;">🎬</span>
+                        <span>영상이 준비되면 이곳에서 재생됩니다</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 버튼 -->
+        <div style="display:flex; gap:12px;">
+            <button class="btn btn-primary" onclick="downloadResult()">📥 JSON 다운로드</button>
+            <button class="btn btn-secondary" onclick="backToList()">← 목록</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block styles %}
+<style>
+.q-tab {
+    padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: 600;
+    border: 1px solid var(--border); background: transparent; color: var(--text-gray); cursor: pointer;
+    transition: all 0.15s;
+}
+.q-tab:hover { border-color: var(--text-muted); color: var(--text-white); }
+.q-tab.active { background: var(--accent-orange); border-color: var(--accent-orange); color: #000; }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let allResults = [];
+let currentFilter = 'all';
+let selectedResult = null;
+let currentQuarter = 'all';
+let highlightMarkers = [];
+let currentHighlights = [];
+
+// =============================================================================
+// 경기 결과 목록
+//
+// 데이터 소스 (항상 병합):
+//   1. 로컬 DESK finalize 폴더 — 이 기기에서 방금 끝낸 경기 (source="local")
+//      GET /api/v1/finalize/list
+//   2. bkdunk — 다른 기기에서 기록된 경기 (source="cloud", 선택적)
+//      GET /cloud/api/matches?my=true&status=completed
+//
+// 동일 match_id 가 양쪽에 있으면 로컬이 우선 (최신 데이터).
+// =============================================================================
+
+async function init() {
+    await loadResults();
+}
+
+function setFilter(f) {
+    currentFilter = f;
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    event.target.classList.add('active');
+    renderList();
+}
+
+async function loadResults() {
+    const local = await _loadLocalResults();
+    const cloud = await _loadCloudResults();
+
+    // 병합 — match_id (로컬) / game_id (클라우드) 로 dedup. 로컬 우선.
+    const byId = new Map();
+    for (const r of local) {
+        byId.set(r.game_id || r.session_id, r);
+    }
+    for (const r of cloud) {
+        const key = r.game_id || r.match_id;
+        if (!byId.has(key)) byId.set(key, r);
+    }
+
+    // 최신순 정렬 (created_at 기준)
+    allResults = [...byId.values()].sort((a, b) =>
+        (b.created_at || '').localeCompare(a.created_at || '')
+    );
+    renderList();
+}
+
+// DESK 로컬 finalize 폴더 목록
+async function _loadLocalResults() {
+    try {
+        const api = window.Auth?.fetch || fetch;
+        const resp = await api('/api/v1/finalize/list');
+        if (!resp.ok) return [];
+        const body = await resp.json();
+        const list = body?.matches || [];
+        return list.map(m => ({
+            game_id: m.match_id || m.session_id,
+            session_id: m.session_id,
+            mode: 'live',   // DESK 라이브 녹화는 기본 live. batch 는 향후 구분
+            created_at: m.ended_at || m.started_at || m.generated_at || '',
+            source: 'local',
+            upload_status: m.upload_status || 'pending',
+            score: {
+                home_team_name: m.home_team_name || 'HOME',
+                away_team_name: m.away_team_name || 'AWAY',
+                home_score: m.home_score ?? 0,
+                away_score: m.away_score ?? 0,
+                winner: (m.home_score ?? 0) > (m.away_score ?? 0) ? 'home' : 'away',
+                quarter_scores: m.quarter_scores || [],
+            },
+            venue: m.venue || '',
+            duration_sec: m.duration_sec,
+            processing: {
+                clips: m.clip_count || 0,
+                recordings: m.recording_count || 0,
+            },
+        }));
+    } catch (e) {
+        console.warn('[result] 로컬 finalize 로드 실패:', e);
+        return [];
+    }
+}
+
+// bkdunk 클라우드 경기 목록 (선택적 — 서버 꺼져있어도 빈 배열)
+async function _loadCloudResults() {
+    try {
+        const api = window.Auth?.fetch || fetch;
+        const resp = await api('/cloud/api/matches?my=true&status=completed');
+        if (!resp.ok) return [];
+        const body = await resp.json();
+        const list = body?.data ?? body?.matches ?? body;
+        return _normalizeResults(list).map(r => ({ ...r, source: 'cloud' }));
+    } catch (e) {
+        console.warn('[result] bkdunk 로드 실패 (무시):', e);
+        return [];
+    }
+}
+
+// bkdunk 의 매치 → 내부 포맷으로 정규화
+// 서버 응답 스펙 확정 시 여기만 조정
+function _normalizeResults(list) {
+    if (!Array.isArray(list)) return [];
+    return list.map(m => ({
+        game_id:    m.game_id || m.id || m._id || '',
+        mode:       m.mode || (m.live ? 'live' : 'batch'),
+        created_at: m.created_at || m.createdAt || m.ended_at || '',
+        score: {
+            home_team_name: m.home_team_name || m.home?.name || m.home || '',
+            away_team_name: m.away_team_name || m.away?.name || m.away || '',
+            home_score:     m.home_score ?? m.homeScore ?? m.score?.home ?? 0,
+            away_score:     m.away_score ?? m.awayScore ?? m.score?.away ?? 0,
+            winner:         m.winner || ((m.home_score ?? 0) > (m.away_score ?? 0) ? 'home' : 'away'),
+            quarter_scores: m.quarter_scores || m.score?.by_quarter || [],
+        },
+        home_team_stats: m.home_team_stats || {},
+        away_team_stats: m.away_team_stats || {},
+        home_players:    m.home_players || m.home?.players || [],
+        away_players:    m.away_players || m.away?.players || [],
+        highlights:      m.highlights || [],
+        processing:      m.processing || {},
+    }));
+}
+
+// 목록 렌더링
+function renderList() {
+    const filtered = currentFilter === 'all' ? allResults :
+        allResults.filter(r => r.mode === currentFilter);
+
+    const tbody = document.getElementById('result-table-body');
+    if (!filtered.length) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:40px;">경기 결과가 없습니다</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = filtered.map((r, idx) => {
+        const date = r.created_at
+            ? new Date(r.created_at).toLocaleString('ko-KR', {year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})
+            : '-';
+        const s = r.score;
+        const modeColor = r.mode === 'live' ? 'var(--accent-green)' : 'var(--text-gray)';
+        const modeLabel = r.mode === 'live' ? '🔴 LIVE' : '📁 배치';
+
+        // 로컬(아직 업로드 안 됨) / 클라우드 동기화 상태 배지
+        const isLocal = r.source === 'local';
+        const uploadPending = isLocal && r.upload_status !== 'uploaded';
+        const statusBadge = uploadPending
+            ? '<span class="badge" style="background:var(--accent-yellow);color:#000;">📂 로컬</span>'
+            : '<span class="badge badge-complete">☁ 동기화</span>';
+
+        return `<tr style="cursor:pointer;" onclick="showDetail(${idx})">
+            <td style="color:var(--text-gray); font-size:12px;">${date}</td>
+            <td style="font-weight:600;">${s.home_team_name} vs ${s.away_team_name}</td>
+            <td style="text-align:center;"><span style="color:var(--accent-orange); font-weight:700; font-size:16px;">${s.home_score} : ${s.away_score}</span></td>
+            <td style="text-align:center; font-size:11px; color:${modeColor};">${modeLabel}</td>
+            <td style="text-align:center;">${statusBadge}</td>
+            <td style="text-align:center;"><button class="btn btn-secondary btn-sm">상세</button></td>
+        </tr>`;
+    }).join('');
+}
+
+// DESK 로컬 finalize 상세 fetch → showDetail 기대 포맷으로 변환
+async function _fetchLocalDetail(sessionId) {
+    try {
+        const api = window.Auth?.fetch || fetch;
+        const resp = await api(`/api/v1/finalize/detail/${encodeURIComponent(sessionId)}`);
+        if (!resp.ok) return null;
+        return await resp.json();
+    } catch (e) {
+        console.warn('[result] 로컬 상세 로드 실패:', e);
+        return null;
+    }
+}
+
+function _convLocalPlayer(p) {
+    const s = p.stats || {};
+    const oreb = s.oreb || 0;
+    const dreb = s.dreb || 0;
+    return {
+        jersey: p.number ?? '',
+        name: p.name || '',
+        min: s.min || 0,
+        points: s.pts || 0,
+        fgm: s.fgm || 0, fga: s.fga || 0,
+        tpm: s.tpm || 0, tpa: s.tpa || 0,
+        ftm: s.ftm || 0, fta: s.fta || 0,
+        oreb, dreb,
+        rebounds: oreb + dreb,
+        assists: s.ast || 0,
+        steals: s.stl || 0,
+        blocks: s.blk || 0,
+        turnovers: s.to || 0,
+        fouls: s.pf || 0,
+        plus_minus: s.plus_minus || 0,
+    };
+}
+
+function _aggregateTeamStats(players) {
+    const a = { fgm:0, fga:0, tpm:0, tpa:0, ftm:0, fta:0, rebounds:0, assists:0, steals:0, blocks:0, turnovers:0 };
+    for (const p of players) {
+        a.fgm += p.fgm; a.fga += p.fga;
+        a.tpm += p.tpm; a.tpa += p.tpa;
+        a.ftm += p.ftm; a.fta += p.fta;
+        a.rebounds += p.rebounds;
+        a.assists += p.assists;
+        a.steals += p.steals;
+        a.blocks += p.blocks;
+        a.turnovers += p.turnovers;
+    }
+    return {
+        field_goals: `${a.fgm}-${a.fga}`,
+        three_pointers: `${a.tpm}-${a.tpa}`,
+        free_throws: `${a.ftm}-${a.fta}`,
+        rebounds: a.rebounds,
+        assists: a.assists,
+        steals: a.steals,
+        blocks: a.blocks,
+        turnovers: a.turnovers,
+    };
+}
+
+// 로컬 finalize detail 응답 → 목록 row(r) 에 병합
+function _mergeLocalDetail(r, d) {
+    const match = d.match || {};
+    const players = d.players || {};
+    const highlights = d.highlights || {};
+    const events = d.events || {};
+
+    // 쿼터별 스코어 (match.json 의 score.by_quarter 는 {quarter, home, away} 형식)
+    const scoreBy = (match.score?.by_quarter || []).map(q => ({
+        q: q.quarter, home: q.home, away: q.away,
+    }));
+
+    // 선수 변환
+    const homePlayers = (players.home || []).map(_convLocalPlayer);
+    const awayPlayers = (players.away || []).map(_convLocalPlayer);
+
+    // 하이라이트 변환 — DESK /clips 프록시 경유로 재생 가능하게 video_url 구성
+    const sessionId = r.session_id || '';
+    const hlClips = (highlights.clips || []).map(c => {
+        // 서버가 video_url 이미 제공하면 그대로, 없으면 DESK 경로 조합
+        const serverUrl = c.video_url || c.clip_url || '';
+        const fallback = sessionId && c.event_id
+            ? `/clips/${sessionId}/${c.event_id}.mp4`
+            : '';
+        return {
+            type: c.event_type || c.highlight_type || '',
+            time: c.quarter
+                ? `${c.quarter}Q ${c.game_clock || ''}`.trim()
+                : (c.game_clock || ''),
+            player: c.primary_player_id ? `#${c.primary_player_id}` : '',
+            excitement: c.excitement_score || 0,
+            desc: c.description || '',
+            video_url: serverUrl || fallback,
+        };
+    });
+
+    const homeScore = match.score?.home_total ?? r.score.home_score;
+    const awayScore = match.score?.away_total ?? r.score.away_score;
+
+    return {
+        ...r,
+        score: {
+            ...r.score,
+            home_team_name: match.teams?.home?.name || r.score.home_team_name,
+            away_team_name: match.teams?.away?.name || r.score.away_team_name,
+            home_score: homeScore,
+            away_score: awayScore,
+            winner: homeScore > awayScore ? 'home' : (awayScore > homeScore ? 'away' : 'tie'),
+            quarter_scores: scoreBy,
+        },
+        home_team_stats: _aggregateTeamStats(homePlayers),
+        away_team_stats: _aggregateTeamStats(awayPlayers),
+        home_players: homePlayers,
+        away_players: awayPlayers,
+        highlights: hlClips,
+        processing: {
+            ...(r.processing || {}),
+            events: (events.operator_events || []).length,
+            clips: hlClips.length,
+        },
+        venue: match.venue || r.venue,
+        league: match.league || 'fiba',
+        duration_sec: match.duration_sec,
+    };
+}
+
+// 상세 표시 (async — 로컬 소스면 detail fetch 후 매핑)
+async function showDetail(idx) {
+    const filtered = currentFilter === 'all' ? allResults :
+        allResults.filter(r => r.mode === currentFilter);
+    let r = filtered[idx];
+
+    // 로컬 finalize 는 상세 데이터를 추가 fetch
+    if (r?.source === 'local' && r.session_id) {
+        // 로딩 상태 표시 (상세 뷰 진입 + placeholder)
+        document.getElementById('view-list').style.display = 'none';
+        document.getElementById('view-detail').style.display = 'block';
+        document.getElementById('d-home-name').textContent = '로딩 중...';
+        document.getElementById('d-away-name').textContent = '';
+
+        const detail = await _fetchLocalDetail(r.session_id);
+        if (detail) {
+            r = _mergeLocalDetail(r, detail);
+        } else {
+            alert('⚠ 경기 상세 로드 실패 — 엔진 연결을 확인하세요.');
+            backToList();
+            return;
+        }
+    }
+
+    selectedResult = r;
+    const s = r.score;
+
+    document.getElementById('view-list').style.display = 'none';
+    document.getElementById('view-detail').style.display = 'block';
+
+    // 스코어보드
+    document.getElementById('d-date').textContent = new Date(r.created_at).toLocaleString('ko-KR');
+    document.getElementById('d-home-name').textContent = s.home_team_name;
+    document.getElementById('d-away-name').textContent = s.away_team_name;
+    document.getElementById('d-home-score').textContent = s.home_score;
+    document.getElementById('d-away-score').textContent = s.away_score;
+    document.getElementById('d-winner').innerHTML = s.winner === 'home'
+        ? `<span style="color:var(--accent-green);">🏆 ${s.home_team_name} WIN</span>`
+        : `<span style="color:var(--accent-green);">🏆 ${s.away_team_name} WIN</span>`;
+
+    // 쿼터
+    const qs = s.quarter_scores || [];
+    document.getElementById('d-quarter-body').innerHTML = `
+        <tr><td style="font-weight:600;">${s.home_team_name}</td>
+            ${qs.map(q=>`<td style="text-align:center;">${q.home}</td>`).join('')}
+            <td style="text-align:center;font-weight:700;color:var(--accent-orange);">${s.home_score}</td></tr>
+        <tr><td style="font-weight:600;">${s.away_team_name}</td>
+            ${qs.map(q=>`<td style="text-align:center;">${q.away}</td>`).join('')}
+            <td style="text-align:center;font-weight:700;color:var(--accent-orange);">${s.away_score}</td></tr>`;
+
+    // 팀 통계
+    const h = r.home_team_stats, a = r.away_team_stats;
+    const stats = [
+        ['야투',h.field_goals,a.field_goals], ['3점',h.three_pointers,a.three_pointers],
+        ['자유투',h.free_throws,a.free_throws], ['리바운드',h.rebounds,a.rebounds],
+        ['어시스트',h.assists,a.assists], ['스틸',h.steals,a.steals],
+        ['블록',h.blocks,a.blocks], ['턴오버',h.turnovers,a.turnovers],
+    ];
+    document.getElementById('d-team-stats').innerHTML = `<div class="table-container"><table>
+        <thead><tr><th>${s.home_team_name}</th><th style="text-align:center;">항목</th><th style="text-align:right;">${s.away_team_name}</th></tr></thead>
+        <tbody>${stats.map(([label,hv,av]) => {
+            const hn = typeof hv === 'string' ? parseInt(hv) : hv;
+            const an = typeof av === 'string' ? parseInt(av) : av;
+            const hColor = hn > an ? 'var(--accent-orange)' : 'var(--text-white)';
+            const aColor = an > hn ? 'var(--accent-orange)' : 'var(--text-white)';
+            return `<tr><td style="font-weight:600;color:${hColor};">${hv}</td><td style="text-align:center;color:var(--text-gray);font-size:12px;">${label}</td><td style="text-align:right;font-weight:600;color:${aColor};">${av}</td></tr>`;
+        }).join('')}</tbody></table></div>`;
+
+    // 선수 스탯
+    document.getElementById('d-home-stats-title').textContent = s.home_team_name;
+    document.getElementById('d-away-stats-title').textContent = s.away_team_name;
+    const renderPlayers = (players) => {
+        const c = 'padding:3px 5px;text-align:center;';
+        return players.map(p => {
+            const fgm=p.fgm||0, fga=p.fga||0, tpm=p.tpm||0, tpa=p.tpa||0, ftm=p.ftm||0, fta=p.fta||0;
+            const fgPct = fga>0 ? (fgm/fga*100).toFixed(0) : '-';
+            const tpPct = tpa>0 ? (tpm/tpa*100).toFixed(0) : '-';
+            const ftPct = fta>0 ? (ftm/fta*100).toFixed(0) : '-';
+            const eff = p.points + p.rebounds + p.assists + p.steals + p.blocks - p.turnovers - (fga-fgm) - (fta-ftm);
+            return `<tr>
+                <td style="${c}color:var(--accent-orange);font-weight:700;">#${p.jersey}</td>
+                <td style="padding:3px 5px;max-width:60px;overflow:hidden;">${p.name||'-'}</td>
+                <td style="${c}">${p.min||0}</td>
+                <td style="${c}font-weight:700;">${p.points}</td>
+                <td style="${c}">${fgm}-${fga}</td>
+                <td style="${c}color:${fgPct>=50?'var(--accent-green)':'var(--text-gray)'};">${fgPct}</td>
+                <td style="${c}">${tpm}-${tpa}</td>
+                <td style="${c}color:${tpPct>=35?'var(--accent-green)':'var(--text-gray)'};">${tpPct}</td>
+                <td style="${c}">${ftm}-${fta}</td>
+                <td style="${c}color:${ftPct>=75?'var(--accent-green)':'var(--text-gray)'};">${ftPct}</td>
+                <td style="${c}">${p.oreb||0}</td><td style="${c}">${p.dreb||0}</td>
+                <td style="${c}font-weight:600;">${p.rebounds}</td>
+                <td style="${c}">${p.assists}</td><td style="${c}">${p.steals}</td>
+                <td style="${c}">${p.blocks}</td><td style="${c}">${p.turnovers}</td><td style="${c}">${p.fouls||0}</td>
+                <td style="${c}color:${p.plus_minus>=0?'var(--accent-green)':'var(--accent-red)'};">${p.plus_minus>0?'+':''}${p.plus_minus}</td>
+                <td style="${c}font-weight:700;color:${eff>=0?'var(--accent-yellow)':'var(--accent-red)'};">${eff}</td>
+                <td style="${c}color:var(--accent-green);">${fga>0?(p.points/(2*(fga+0.44*fta))*100).toFixed(1):'-'}</td>
+                <td style="${c}color:var(--accent-blue);">${fga>0?((fgm+0.5*tpm)/fga*100).toFixed(1):'-'}</td>
+                <td style="${c}">${p.turnovers>0?(p.assists/p.turnovers).toFixed(1):p.assists>0?'∞':'-'}</td>
+            </tr>`;
+        }).join('');
+    };
+    document.getElementById('d-home-players').innerHTML = renderPlayers(r.home_players || []);
+    document.getElementById('d-away-players').innerHTML = renderPlayers(r.away_players || []);
+
+    // 쿼터 탭 초기화 + 하이라이트
+    currentQuarter = 'all';
+    document.querySelectorAll('.q-tab').forEach(b => b.classList.remove('active'));
+    document.querySelector('.q-tab')?.classList.add('active');
+    renderHighlights(r, 'all');
+
+    // 베스트/워스트 선수
+    const allPlayers = [...(r.home_players||[]).map(p=>({...p,team:s.home_team_name})), ...(r.away_players||[]).map(p=>({...p,team:s.away_team_name}))];
+    const calcEff = p => p.points + p.rebounds + p.assists + p.steals + p.blocks - p.turnovers - ((p.fga||0)-(p.fgm||0)) - ((p.fta||0)-(p.ftm||0));
+    allPlayers.forEach(p => p._eff = calcEff(p));
+    const best = allPlayers.sort((a,b) => b._eff - a._eff)[0];
+    const worst = allPlayers.sort((a,b) => a._eff - b._eff)[0];
+
+    if (best) {
+        document.getElementById('d-best-name').textContent = `#${best.jersey} ${best.name||''}`;
+        document.getElementById('d-best-team').textContent = best.team;
+        document.getElementById('d-best-stats').innerHTML = `<span><strong>${best.points}</strong> PTS</span><span><strong>${best.rebounds}</strong> REB</span><span><strong>${best.assists}</strong> AST</span><span style="color:var(--accent-yellow);"><strong>${best._eff}</strong> EFF</span>`;
+    }
+    if (worst) {
+        document.getElementById('d-worst-name').textContent = `#${worst.jersey} ${worst.name||''}`;
+        document.getElementById('d-worst-team').textContent = worst.team;
+        document.getElementById('d-worst-stats').innerHTML = `<span><strong>${worst.points}</strong> PTS</span><span><strong>${worst.turnovers}</strong> TO</span><span style="color:var(--accent-red);"><strong>${worst._eff}</strong> EFF</span>`;
+    }
+
+    // 부문별 1위
+    const leaders = [
+        { label: '득점', icon: '🏀', key: 'points', unit: 'PTS', color: 'var(--accent-orange)' },
+        { label: '어시스트', icon: '🤝', key: 'assists', unit: 'AST', color: 'var(--accent-blue)' },
+        { label: '리바운드', icon: '💪', key: 'rebounds', unit: 'REB', color: 'var(--accent-green)' },
+        { label: '3점 성공률', icon: '🎯', key: '_tpPct', unit: '%', color: 'var(--accent-yellow)' },
+    ];
+    allPlayers.forEach(p => {
+        p._tpPct = (p.tpa||0) > 0 ? (p.tpm||0) / p.tpa * 100 : 0;
+    });
+    document.getElementById('d-leaders').innerHTML = leaders.map(l => {
+        const sorted = [...allPlayers].filter(p => l.key === '_tpPct' ? (p.tpa||0) >= 2 : true)
+            .sort((a,b) => (b[l.key]||0) - (a[l.key]||0));
+        const top = sorted[0];
+        if (!top) return '';
+        const val = l.key === '_tpPct' ? top[l.key].toFixed(1) : top[l.key];
+        return `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-md);padding:12px;text-align:center;">
+            <div style="font-size:10px;color:var(--text-muted);margin-bottom:4px;">${l.icon} ${l.label} 1위</div>
+            <div style="font-size:14px;font-weight:700;color:${l.color};">${val}${l.unit === '%' ? '%' : ''} <span style="font-size:11px;color:var(--text-gray);">${l.unit !== '%' ? l.unit : ''}</span></div>
+            <div style="font-size:12px;margin-top:4px;"><span style="color:var(--accent-orange);">#${top.jersey}</span> ${top.name||''}</div>
+            <div style="font-size:10px;color:var(--text-muted);">${top.team}</div>
+        </div>`;
+    }).join('');
+
+    // 슛 히트맵
+    drawShotMap(r);
+
+    // 득점 그래프
+    drawScoreGraph(r);
+}
+
+function backToList() {
+    document.getElementById('view-detail').style.display = 'none';
+    document.getElementById('view-list').style.display = 'block';
+    selectedResult = null;
+}
+
+function downloadResult() {
+    if (!selectedResult) return;
+    const blob = new Blob([JSON.stringify(selectedResult, null, 2)], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `courtview_${selectedResult.game_id}.json`;
+    a.click(); URL.revokeObjectURL(url);
+}
+
+// ═══════════════════════════════════════════
+// 슛 히트맵 — 풀코트 (28m × 15m 가로)
+// ═══════════════════════════════════════════
+function drawShotMap(r) {
+    const canvas = document.getElementById('d-shotmap');
+    if (!canvas) return;
+
+    const W = 840, padX = 14, padY = 12, padBot = 20;
+    const courtL = 28, courtS = 15;
+    const drawW = W - padX * 2;
+    const sc = drawW / courtL;
+    const drawH = courtS * sc;
+    const H = Math.round(drawH + padY + padBot);
+    canvas.width = W; canvas.height = H;
+    const ctx = canvas.getContext('2d');
+
+    const tx = m => padX + m * sc;
+    const ty = m => padY + m * sc;
+    const homeName = r.score?.home_team_name || 'HOME';
+    const awayName = r.score?.away_team_name || 'AWAY';
+
+    // 범례 업데이트
+    document.getElementById('d-shotmap-legend').innerHTML =
+        `<span style="color:#FF9933;">●</span> ${homeName} 성공 <span style="color:rgba(255,120,50,0.55);">✕</span> 실패` +
+        `<span style="margin-left:10px;color:#4488FF;">●</span> ${awayName} 성공 <span style="color:rgba(80,130,255,0.55);">✕</span> 실패`;
+
+    // ── 배경 ──
+    ctx.fillStyle = '#0e0e0e';
+    ctx.fillRect(0, 0, W, H);
+
+    // 마루 바닥
+    const wg = ctx.createLinearGradient(padX, 0, padX + drawW, 0);
+    for (let i = 0; i <= 16; i++) wg.addColorStop(i / 16, i % 2 === 0 ? '#3a2015' : '#4a2d1c');
+    ctx.fillStyle = wg;
+    ctx.fillRect(padX, padY, drawW, drawH);
+
+    // 나무 무늬
+    ctx.strokeStyle = 'rgba(90,55,28,0.18)';
+    ctx.lineWidth = 0.5;
+    const plankW = drawW / 18;
+    for (let i = 1; i < 18; i++) {
+        ctx.beginPath();
+        ctx.moveTo(padX + i * plankW, padY);
+        ctx.lineTo(padX + i * plankW, padY + drawH);
+        ctx.stroke();
+    }
+
+    // ── 코트 라인 ──
+    const LC = 'rgba(255,255,255,0.50)';
+    ctx.strokeStyle = LC; ctx.lineWidth = 1.5;
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+
+    // 경계선
+    ctx.strokeRect(padX, padY, drawW, drawH);
+
+    // 센터라인
+    ctx.beginPath(); ctx.moveTo(tx(14), ty(0)); ctx.lineTo(tx(14), ty(15)); ctx.stroke();
+
+    // 센터서클
+    ctx.beginPath(); ctx.arc(tx(14), ty(7.5), 1.8 * sc, 0, Math.PI * 2); ctx.stroke();
+
+    // ── 반코트 그리기 헬퍼 ──
+    const THREE = 6.75, CRN = 0.9, KEY_W = 4.9, KEY_D = 5.8;
+    function drawHalf(basketMx, baseX, dir) {
+        const bxC = tx(basketMx), byC = ty(7.5);
+
+        // 페인트존
+        const px = dir > 0 ? tx(baseX) : tx(baseX - KEY_D);
+        ctx.fillStyle = 'rgba(160,45,25,0.10)';
+        ctx.fillRect(px, ty(7.5 - KEY_W / 2), KEY_D * sc, KEY_W * sc);
+        ctx.strokeStyle = LC; ctx.lineWidth = 1.5;
+        ctx.strokeRect(px, ty(7.5 - KEY_W / 2), KEY_D * sc, KEY_W * sc);
+
+        // 자유투 서클
+        const ftMx = baseX + dir * KEY_D;
+        const ftCx = tx(ftMx), ftCy = ty(7.5), ftR = 1.8 * sc;
+        const solidS = dir > 0 ? Math.PI / 2 : -Math.PI / 2;
+        const solidE = dir > 0 ? 3 * Math.PI / 2 : Math.PI / 2;
+        ctx.strokeStyle = LC;
+        ctx.beginPath(); ctx.arc(ftCx, ftCy, ftR, solidS, solidE); ctx.stroke();
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath(); ctx.arc(ftCx, ftCy, ftR, solidE, solidS); ctx.stroke();
+        ctx.setLineDash([]);
+
+        // 3점 라인
+        const cDy = 7.5 - CRN;
+        const cDx = Math.sqrt(THREE * THREE - cDy * cDy);
+        const jX = basketMx + dir * cDx;
+        ctx.strokeStyle = LC; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(tx(baseX), ty(CRN)); ctx.lineTo(tx(jX), ty(CRN)); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(tx(baseX), ty(15 - CRN)); ctx.lineTo(tx(jX), ty(15 - CRN)); ctx.stroke();
+        const arcR = THREE * sc;
+        const topA = Math.atan2(ty(CRN) - byC, tx(jX) - bxC);
+        const botA = Math.atan2(ty(15 - CRN) - byC, tx(jX) - bxC);
+        ctx.beginPath();
+        ctx.arc(bxC, byC, arcR, dir > 0 ? topA : botA, dir > 0 ? botA : topA);
+        ctx.stroke();
+
+        // 제한 구역
+        const resR = 1.25 * sc;
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.arc(bxC, byC, resR, dir > 0 ? -Math.PI / 2 : Math.PI / 2, dir > 0 ? Math.PI / 2 : 3 * Math.PI / 2);
+        ctx.closePath(); ctx.stroke();
+
+        // 해시 마크
+        const topK = 7.5 - KEY_W / 2, botK = 7.5 + KEY_W / 2;
+        [1.75, 2.15, 2.55].forEach(d => {
+            const hx = baseX + dir * d;
+            ctx.beginPath(); ctx.moveTo(tx(hx), ty(topK)); ctx.lineTo(tx(hx), ty(topK - 0.2)); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(tx(hx), ty(botK)); ctx.lineTo(tx(hx), ty(botK + 0.2)); ctx.stroke();
+        });
+
+        // 백보드 + 림
+        ctx.strokeStyle = 'rgba(255,255,255,0.6)'; ctx.lineWidth = 2.5;
+        const bbX = baseX + dir * 1.2;
+        ctx.beginPath(); ctx.moveTo(tx(bbX), ty(7.5 - 0.9)); ctx.lineTo(tx(bbX), ty(7.5 + 0.9)); ctx.stroke();
+        ctx.strokeStyle = '#E85530'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(bxC, byC, 0.225 * sc, 0, Math.PI * 2); ctx.stroke();
+        ctx.fillStyle = '#E85530';
+        ctx.beginPath(); ctx.arc(bxC, byC, 1.5, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = LC; ctx.lineWidth = 1.5;
+    }
+
+    drawHalf(1.575, 0, 1);      // 좌측 — 홈팀 공격
+    drawHalf(26.425, 28, -1);    // 우측 — 어웨이팀 공격
+
+    // 팀명 라벨
+    ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(255,153,51,0.30)';
+    ctx.fillText('← ' + homeName, tx(7), padY + drawH + 14);
+    ctx.fillStyle = 'rgba(68,136,255,0.30)';
+    ctx.fillText(awayName + ' →', tx(21), padY + drawH + 14);
+
+    // ── 슛 데이터 생성 ──
+    function genShots(players, basketMx, baseX, dir) {
+        const shots = [];
+        players.forEach(p => {
+            const fga = p.fga || 0, fgm = p.fgm || 0;
+            const tpa = p.tpa || 0, tpm = p.tpm || 0;
+            const fta = p.fta || 0, ftm = p.ftm || 0;
+            const twoPa = fga - tpa, twoPm = fgm - tpm;
+            for (let i = 0; i < twoPa; i++) {
+                let dx, dy; const z = Math.random();
+                if (z < 0.35) { dx = Math.random() * 2.8; dy = (Math.random() - 0.5) * 3.5; }
+                else if (z < 0.65) { const a = (Math.random() - 0.5) * 2.4, d = 2.5 + Math.random() * 2.5; dx = Math.abs(Math.cos(a)) * d; dy = Math.sin(a) * d; }
+                else { const a = (Math.random() - 0.5) * 2.8, d = 3.8 + Math.random() * 2.7; dx = Math.abs(Math.cos(a)) * d; dy = Math.sin(a) * d; }
+                shots.push({ x: Math.max(0.4, Math.min(27.6, basketMx + dir * dx)), y: Math.max(0.5, Math.min(14.5, 7.5 + dy)), made: i < twoPm });
+            }
+            for (let i = 0; i < tpa; i++) {
+                let dx, dy;
+                if (Math.random() < 0.22) { dx = Math.random() * 1.5; const t = Math.random() > 0.5; dy = t ? -(7.5 - 0.3 - Math.random() * 0.6) : (7.5 - 0.3 - Math.random() * 0.6); }
+                else { const a = (Math.random() - 0.5) * 2.4, d = THREE + 0.2 + Math.random() * 1.2; dx = Math.abs(Math.cos(a)) * d; dy = Math.sin(a) * d; }
+                shots.push({ x: Math.max(0.3, Math.min(27.7, basketMx + dir * dx)), y: Math.max(0.3, Math.min(14.7, 7.5 + dy)), made: i < tpm });
+            }
+            const ftX = baseX + dir * 5.8;
+            for (let i = 0; i < fta; i++) shots.push({ x: ftX + (Math.random() - 0.5) * 0.2, y: 7.5 + (Math.random() - 0.5) * 0.2, made: i < ftm });
+        });
+        return shots;
+    }
+
+    const homeShots = genShots(r.home_players || [], 1.575, 0, 1);
+    const awayShots = genShots(r.away_players || [], 26.425, 28, -1);
+
+    // ── 슛 렌더링 ──
+    function renderShots(shots, madeColor, missColor, glowColor) {
+        shots.filter(s => !s.made).forEach(s => {
+            const px = tx(s.x), py = ty(s.y), sz = 3;
+            ctx.strokeStyle = missColor; ctx.lineWidth = 1.4;
+            ctx.beginPath();
+            ctx.moveTo(px - sz, py - sz); ctx.lineTo(px + sz, py + sz);
+            ctx.moveTo(px + sz, py - sz); ctx.lineTo(px - sz, py + sz);
+            ctx.stroke();
+        });
+        shots.filter(s => s.made).forEach(s => {
+            const px = tx(s.x), py = ty(s.y);
+            ctx.fillStyle = glowColor;
+            ctx.beginPath(); ctx.arc(px, py, 6, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = madeColor;
+            ctx.beginPath(); ctx.arc(px, py, 3, 0, Math.PI * 2); ctx.fill();
+        });
+    }
+
+    renderShots(homeShots, '#FF9933', 'rgba(255,120,50,0.50)', 'rgba(255,153,51,0.15)');
+    renderShots(awayShots, '#4488FF', 'rgba(80,130,255,0.50)', 'rgba(68,136,255,0.12)');
+}
+
+// ═══════════════════════════════════════════
+// 득점 흐름 그래프 + 하이라이트 마커
+// ═══════════════════════════════════════════
+function drawScoreGraph(r) {
+    const canvas = document.getElementById('d-score-graph');
+    if (!canvas) return;
+
+    const W = 840, H = 260;
+    canvas.width = W; canvas.height = H;
+    const ctx = canvas.getContext('2d');
+
+    const bg = ctx.createLinearGradient(0, 0, 0, H);
+    bg.addColorStop(0, '#141425'); bg.addColorStop(1, '#0d1a2d');
+    ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+
+    const qs = r.score?.quarter_scores || [];
+    if (!qs.length) {
+        ctx.fillStyle = '#555'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center';
+        ctx.fillText('쿼터 데이터 없음', W / 2, H / 2);
+        return;
+    }
+
+    let homeAcc = [0], awayAcc = [0];
+    qs.forEach(q => {
+        homeAcc.push(homeAcc[homeAcc.length - 1] + q.home);
+        awayAcc.push(awayAcc[awayAcc.length - 1] + q.away);
+    });
+
+    const n = homeAcc.length;
+    const maxS = Math.max(...homeAcc, ...awayAcc, 10);
+    const padL = 42, padR = 18, padT = 30, padB = 36;
+    const cW = W - padL - padR, cH = H - padT - padB;
+
+    const gx = i => padL + (i / (n - 1)) * cW;
+    const gy = s => padT + cH - (s / maxS) * cH;
+
+    // 선택된 쿼터 강조
+    if (currentQuarter !== 'all') {
+        const qi = parseInt(currentQuarter);
+        if (qi >= 1 && qi < n) {
+            const x1 = gx(qi - 1), x2 = gx(qi);
+            ctx.fillStyle = 'rgba(255,153,51,0.06)';
+            ctx.fillRect(x1, padT, x2 - x1, cH);
+        }
+    }
+
+    // Y축 그리드
+    const ySteps = 4;
+    for (let i = 0; i <= ySteps; i++) {
+        const y = padT + (cH * i) / ySteps;
+        const val = Math.round(maxS * (1 - i / ySteps));
+        ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); ctx.stroke();
+        ctx.fillStyle = 'rgba(255,255,255,0.25)';
+        ctx.font = '9px sans-serif'; ctx.textAlign = 'right';
+        ctx.fillText(val, padL - 6, y + 3);
+    }
+
+    // 쿼터 구분선
+    ctx.strokeStyle = 'rgba(255,255,255,0.07)'; ctx.setLineDash([3, 4]);
+    for (let i = 1; i < n; i++) {
+        const x = gx(i);
+        ctx.beginPath(); ctx.moveTo(x, padT); ctx.lineTo(x, padT + cH); ctx.stroke();
+    }
+    ctx.setLineDash([]);
+
+    // X축 라벨
+    const xLabels = ['시작', '1Q', '2Q', '3Q', '4Q', 'OT', 'OT2'];
+    ctx.font = '10px sans-serif'; ctx.textAlign = 'center';
+    for (let i = 0; i < n; i++) {
+        const isActive = currentQuarter === 'all' || parseInt(currentQuarter) === i;
+        ctx.fillStyle = isActive ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.2)';
+        ctx.fillText(xLabels[i] || '', gx(i), padT + cH + 14);
+    }
+
+    // 리드 구간 색칠
+    for (let i = 0; i < n - 1; i++) {
+        const x1 = gx(i), x2 = gx(i + 1);
+        ctx.beginPath();
+        ctx.moveTo(x1, gy(homeAcc[i])); ctx.lineTo(x2, gy(homeAcc[i + 1]));
+        ctx.lineTo(x2, gy(awayAcc[i + 1])); ctx.lineTo(x1, gy(awayAcc[i]));
+        ctx.closePath();
+        const hLead = (homeAcc[i] + homeAcc[i + 1]) > (awayAcc[i] + awayAcc[i + 1]);
+        ctx.fillStyle = hLead ? 'rgba(255,153,51,0.07)' : 'rgba(68,136,255,0.07)';
+        ctx.fill();
+    }
+
+    // 영역 채우기
+    const fillArea = (acc, rv, gv, bv) => {
+        const grad = ctx.createLinearGradient(0, padT, 0, padT + cH);
+        grad.addColorStop(0, `rgba(${rv},${gv},${bv},0.22)`);
+        grad.addColorStop(0.5, `rgba(${rv},${gv},${bv},0.06)`);
+        grad.addColorStop(1, `rgba(${rv},${gv},${bv},0)`);
+        ctx.beginPath(); ctx.moveTo(gx(0), padT + cH);
+        acc.forEach((s, i) => ctx.lineTo(gx(i), gy(s)));
+        ctx.lineTo(gx(n - 1), padT + cH); ctx.closePath();
+        ctx.fillStyle = grad; ctx.fill();
+    };
+    fillArea(homeAcc, 255, 153, 51);
+    fillArea(awayAcc, 68, 136, 255);
+
+    // 글로우 + 라인
+    const drawLine = (acc, color, glowColor) => {
+        ctx.strokeStyle = glowColor; ctx.lineWidth = 8; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        ctx.beginPath(); acc.forEach((s, i) => i === 0 ? ctx.moveTo(gx(i), gy(s)) : ctx.lineTo(gx(i), gy(s))); ctx.stroke();
+        ctx.strokeStyle = color; ctx.lineWidth = 2.5;
+        ctx.beginPath(); acc.forEach((s, i) => i === 0 ? ctx.moveTo(gx(i), gy(s)) : ctx.lineTo(gx(i), gy(s))); ctx.stroke();
+    };
+    drawLine(homeAcc, '#FF9933', 'rgba(255,153,51,0.12)');
+    drawLine(awayAcc, '#4488FF', 'rgba(68,136,255,0.10)');
+
+    // 도트 + 점수 라벨
+    const drawDots = (acc, color, above) => {
+        acc.forEach((s, i) => {
+            const x = gx(i), y = gy(s);
+            ctx.fillStyle = '#141425'; ctx.beginPath(); ctx.arc(x, y, 5.5, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = color; ctx.beginPath(); ctx.arc(x, y, 3.5, 0, Math.PI * 2); ctx.fill();
+            if (i > 0) { ctx.fillStyle = color; ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'center'; ctx.fillText(s, x, y + (above ? -10 : 14)); }
+        });
+    };
+    drawDots(homeAcc, '#FF9933', true);
+    drawDots(awayAcc, '#4488FF', false);
+
+    // 범례
+    const homeName = r.score?.home_team_name || 'HOME';
+    const awayName = r.score?.away_team_name || 'AWAY';
+    let lx = padL + 4;
+    [{ name: homeName, c: '#FF9933' }, { name: awayName, c: '#4488FF' }].forEach(t => {
+        ctx.fillStyle = t.c; ctx.beginPath(); ctx.arc(lx, padT - 14, 4, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.6)'; ctx.font = '10px sans-serif'; ctx.textAlign = 'left';
+        ctx.fillText(t.name, lx + 8, padT - 11); lx += ctx.measureText(t.name).width + 26;
+    });
+
+    // 점수차 (우상단)
+    const diff = homeAcc[n - 1] - awayAcc[n - 1];
+    if (diff !== 0) {
+        const leader = diff > 0 ? homeName : awayName;
+        ctx.fillStyle = diff > 0 ? '#FF9933' : '#4488FF';
+        ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'right';
+        ctx.fillText(`${leader} +${Math.abs(diff)}`, W - padR, padT - 11);
+    }
+
+    // ── 하이라이트 마커 ──
+    highlightMarkers = [];
+    const highlights = r.highlights || [];
+    const filtered = currentQuarter === 'all' ? highlights : highlights.filter(h => {
+        const m = h.time.match(/(\d)Q/); return m && parseInt(m[1]) === parseInt(currentQuarter);
+    });
+
+    filtered.forEach((h, idx) => {
+        const m = h.time.match(/(\d)Q\s*(\d+):(\d+)/);
+        if (!m) return;
+        const qi = parseInt(m[1]);
+        if (qi < 1 || qi >= n) return;
+        const remaining = parseInt(m[2]) * 60 + parseInt(m[3]);
+        const frac = (600 - remaining) / 600;
+        const xPos = gx(qi - 1) + (gx(qi) - gx(qi - 1)) * frac;
+
+        // 점선 가이드
+        ctx.strokeStyle = 'rgba(255,200,50,0.20)'; ctx.lineWidth = 1; ctx.setLineDash([2, 3]);
+        ctx.beginPath(); ctx.moveTo(xPos, padT); ctx.lineTo(xPos, padT + cH); ctx.stroke();
+        ctx.setLineDash([]);
+
+        // 다이아몬드 마커
+        const mY = padT + cH + 26;
+        ctx.fillStyle = 'rgba(255,200,50,0.85)';
+        ctx.beginPath();
+        ctx.moveTo(xPos, mY - 5); ctx.lineTo(xPos + 4, mY);
+        ctx.lineTo(xPos, mY + 5); ctx.lineTo(xPos - 4, mY);
+        ctx.closePath(); ctx.fill();
+
+        // 라벨
+        ctx.fillStyle = 'rgba(255,200,50,0.7)'; ctx.font = '8px sans-serif'; ctx.textAlign = 'center';
+        ctx.fillText('🎬', xPos, mY - 9);
+
+        // 클릭 영역 저장
+        highlightMarkers.push({ x: xPos, y: mY, idx });
+    });
+
+    // 캔버스 클릭 → 하이라이트 마커 감지
+    canvas.onclick = function(e) {
+        const rect = canvas.getBoundingClientRect();
+        const sx = canvas.width / rect.width, sy = canvas.height / rect.height;
+        const cx = (e.clientX - rect.left) * sx, cy = (e.clientY - rect.top) * sy;
+        for (const m of highlightMarkers) {
+            if (Math.abs(cx - m.x) < 16 && Math.abs(cy - m.y) < 16) {
+                selectHighlight(m.idx);
+                return;
+            }
+        }
+    };
+}
+
+// ═══════════════════════════════════════════
+// 쿼터 탭 전환
+// ═══════════════════════════════════════════
+function switchQuarter(q) {
+    currentQuarter = q;
+    document.querySelectorAll('.q-tab').forEach(b => b.classList.remove('active'));
+    event.target.classList.add('active');
+    if (selectedResult) {
+        drawScoreGraph(selectedResult);
+        renderHighlights(selectedResult, q);
+    }
+}
+
+function renderHighlights(r, q) {
+    const hl = r.highlights || [];
+    currentHighlights = q === 'all' ? [...hl] : hl.filter(h => {
+        const m = h.time.match(/(\d)Q/);
+        return m && parseInt(m[1]) === parseInt(q);
+    });
+    document.getElementById('d-highlights').innerHTML = currentHighlights.length ? currentHighlights.map((h, i) => `
+        <div class="event-item hl-item" style="cursor:pointer; transition:background 0.15s;" onclick="selectHighlight(${i})"
+             onmouseenter="this.style.background='rgba(255,200,50,0.08)'" onmouseleave="this.style.background=''">
+            <div class="event-icon score">🎬</div>
+            <div class="event-time">${h.time}</div>
+            <div class="event-text"><strong>${h.player}</strong> ${h.desc}</div>
+            <div style="font-size:10px;color:var(--accent-yellow);">⭐ ${(h.excitement*100).toFixed(0)}%</div>
+            <div style="font-size:10px;color:var(--text-muted);margin-left:auto;">▶ 재생</div>
+        </div>`).join('') : '<div style="text-align:center;color:var(--text-muted);font-size:12px;padding:12px;">하이라이트 없음</div>';
+    // 플레이어 숨기기 (쿼터 변경 시)
+    closeHighlightPlayer();
+}
+
+function selectHighlight(idx) {
+    const h = currentHighlights[idx];
+    if (!h) return;
+
+    const player = document.getElementById('d-highlight-player');
+    const video = document.getElementById('d-player-video');
+    const placeholder = document.getElementById('d-player-placeholder');
+    const title = document.getElementById('d-player-title');
+
+    player.style.display = 'block';
+    title.innerHTML = `🎬 <span style="color:var(--accent-orange);">${h.time}</span> — <strong>${h.player}</strong> ${h.desc} <span style="color:var(--accent-yellow);">⭐ ${(h.excitement*100).toFixed(0)}%</span>`;
+
+    if (h.video_url) {
+        video.src = h.video_url;
+        video.style.display = 'block';
+        placeholder.style.display = 'none';
+        video.currentTime = 0;
+        video.play().catch(() => {});
+    } else {
+        video.pause();
+        video.removeAttribute('src');
+        video.style.display = 'none';
+        placeholder.style.display = 'flex';
+    }
+
+    // 선택 표시
+    document.querySelectorAll('.hl-item').forEach((el, i) => {
+        el.style.background = i === idx ? 'rgba(255,200,50,0.10)' : '';
+        el.style.borderLeft = i === idx ? '3px solid var(--accent-yellow)' : '';
+    });
+
+    player.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function closeHighlightPlayer() {
+    const player = document.getElementById('d-highlight-player');
+    const video = document.getElementById('d-player-video');
+    if (player) player.style.display = 'none';
+    if (video) { video.pause(); video.removeAttribute('src'); }
+    document.querySelectorAll('.hl-item').forEach(el => {
+        el.style.background = ''; el.style.borderLeft = '';
+    });
+}
+
+init();
+</script>
+{% endblock %}

@@ -104,5 +104,14 @@ _courtview_swap.log
 weights/
 
 # ==================== Claude Code 로컬 설정 ====================
-.claude/settings.local.json
-.claude/scheduled_tasks.lock
+.claude/
+
+# v0.3.6: AWS credentials embedded at build time (NEVER commit)
+infrastructure/storage/_embedded_creds.py
+
+# ==================== 2026-05-21: 임시/백업/스냅샷 파일 제외 ====================
+*.zip
+*.backup_*
+_session_backup_*/
+_iscc_log.txt
+_installer_upload.txt

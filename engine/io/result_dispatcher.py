@@ -191,6 +191,25 @@ class ResultDispatcher:
         with self._lock:
             self._ws_queue.append(data)
             self._stats.websocket_sent += 1
+            qsize = len(self._ws_queue)
+            sent = self._stats.websocket_sent
+        # ===== DISPATCH 로그 =====
+        # 이벤트 메시지는 매번, frame 메시지는 100건마다 (스팸 방지)
+        msg_type = data.get("type", "?")
+        evt_type = data.get("event_type")
+        is_event = msg_type == "event"
+        if is_event:
+            _logger.info(
+                "[DISPATCH] 📤 ws_queue 적재 → type=%s event_type=%s "
+                "frame=%s (큐크기=%d, 누적=%d)",
+                msg_type, evt_type, data.get("frame_index"),
+                qsize, sent,
+            )
+        elif sent % 100 == 0:
+            _logger.info(
+                "[DISPATCH] 📤 ws_queue 누적 %d (현재 큐크기=%d, 최근 type=%s)",
+                sent, qsize, msg_type,
+            )
         # api_server의 WebSocket manager가 ws_queue를 소비
 
     def _save_json(self, data: dict[str, Any], prefix: str = "result") -> None:

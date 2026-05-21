@@ -214,7 +214,8 @@ class FrameIngestion:
             from concurrent.futures import ThreadPoolExecutor
 
             def _open_analysis(cam_id: str) -> tuple[str, VideoDecoder, bool]:
-                decoder = VideoDecoder()
+                # 2026-05-13 Fix B 재적용: camera_id 전달 → 로그에 [DECODE cam_X] 식별.
+                decoder = VideoDecoder(camera_id=cam_id)
                 opened = False
                 if source_urls and cam_id in source_urls:
                     opened = decoder.open(source_urls[cam_id])
@@ -241,7 +242,8 @@ class FrameIngestion:
                 ]
                 if rec_ids:
                     def _open_recording(cam_id: str) -> tuple[str, VideoDecoder]:
-                        rec_decoder = VideoDecoder()
+                        # Fix B 재적용: 녹화 decoder 도 식별 가능하게.
+                        rec_decoder = VideoDecoder(camera_id=f"{cam_id}_rec")
                         rec_decoder.open(source_urls[f"{cam_id}_recording"])
                         return cam_id, rec_decoder
 
@@ -311,32 +313,108 @@ class FrameIngestion:
         with self._lock:
             # 각 카메라에서 1프레임 디코딩 + 정규화 + 정렬기 투입
             for cam_id, decoder in self._decoders.items():
+                # D1 진단: capture_and_align 이 호출하는 decoder 의 정체 (cam당 첫 1회)
+                try:
+                    from infrastructure.diagnostics.flow_logger import log_flow
+                    log_flow(
+                        "CAA-DECODER-ID",
+                        "cam=%s id=%s is_rtsp=%s ffmpeg=%s latest_frame=%s reader_cnt=%s state=%s file=%s",
+                        cam_id,
+                        id(decoder),
+                        getattr(decoder, "_is_rtsp", "?"),
+                        ("alive" if getattr(decoder, "_ffmpeg_proc", None) is not None else "None"),
+                        ("set" if getattr(decoder, "_latest_frame", None) is not None else "None"),
+                        getattr(decoder, "_reader_frame_counter", "?"),
+                        getattr(getattr(decoder, "_state", None), "name", str(getattr(decoder, "_state", "?"))),
+                        getattr(decoder, "_file_path", "?")[:80],
+                        first_n=8,
+                    )
+                except Exception:
+                    pass
                 try:
                     frame_data = decoder.decode_next()
-                except Exception:
+                except Exception as _de:
                     logger.exception("디코딩 에러: %s", cam_id)
                     self._stats.total_decode_errors += 1
+                    try:
+                        from infrastructure.diagnostics.flow_logger import log_flow
+                        log_flow("CAA-DECODE-EXC", "cam=%s decode_next 예외: %s",
+                                 cam_id, _de, first_n=3, every=200)
+                    except Exception:
+                        pass
                     continue
 
-                if frame_data is None or not frame_data.is_valid:
+                if frame_data is None:
                     self._stats.total_dropped += 1
+                    try:
+                        from infrastructure.diagnostics.flow_logger import log_flow
+                        log_flow("CAA-NONE", "cam=%s decode_next → None (reader buffer empty)",
+                                 cam_id, first_n=8, every=300)
+                    except Exception:
+                        pass
+                    continue
+                if not frame_data.is_valid:
+                    self._stats.total_dropped += 1
+                    try:
+                        from infrastructure.diagnostics.flow_logger import log_flow
+                        log_flow("CAA-INVALID", "cam=%s decode_next → invalid status=%s",
+                                 cam_id, getattr(frame_data, "status", "?"),
+                                 first_n=8, every=300)
+                    except Exception:
+                        pass
                     continue
 
                 self._stats.total_captured += 1
+                # STEP 9 진단: decode 성공 시점
+                try:
+                    from infrastructure.diagnostics.flow_logger import log_flow
+                    log_flow(
+                        "CAA-DECODE-OK",
+                        "cam=%s decode_next OK shape=%s ts=%.3f",
+                        cam_id, frame_data.image.shape, frame_data.timestamp,
+                        first_n=8, every=300,
+                    )
+                except Exception:
+                    pass
 
                 # 정규화 (1920×1080)
                 try:
                     normalized = self._normalizer.normalize(frame_data)
-                except Exception:
+                except Exception as _ne:
                     logger.exception("정규화 에러: %s", cam_id)
                     self._stats.total_normalize_errors += 1
+                    try:
+                        from infrastructure.diagnostics.flow_logger import log_flow
+                        log_flow("CAA-NORM-EXC", "cam=%s normalize 예외: %s",
+                                 cam_id, _ne, first_n=3, every=200)
+                    except Exception:
+                        pass
                     continue
 
                 if not normalized.is_valid:
                     self._stats.total_dropped += 1
+                    try:
+                        from infrastructure.diagnostics.flow_logger import log_flow
+                        log_flow("CAA-NORM-INVALID",
+                                 "cam=%s normalize → invalid status=%s",
+                                 cam_id, getattr(normalized, "status", "?"),
+                                 first_n=8, every=300)
+                    except Exception:
+                        pass
                     continue
 
                 self._stats.total_normalized += 1
+                # STEP 9 진단: aligner.add_frame 직전
+                try:
+                    from infrastructure.diagnostics.flow_logger import log_flow
+                    log_flow(
+                        "CAA-ADD-FRAME",
+                        "cam=%s aligner.add_frame 호출 shape=%s ts=%.3f",
+                        cam_id, normalized.image.shape, normalized.timestamp,
+                        first_n=8, every=300,
+                    )
+                except Exception:
+                    pass
 
                 # 정렬기에 투입
                 self._aligner.add_frame(cam_id, normalized)
@@ -346,6 +424,61 @@ class FrameIngestion:
             if aligned is not None:
                 self._stats.total_aligned_sets += 1
                 self._frame_counter += 1
+                # Plan E STEP 1 (2026-05-13): 카메라 → 파이프라인 데이터 흐름 가시화
+                try:
+                    from infrastructure.diagnostics.flow_logger import log_flow
+                    log_flow(
+                        "INGEST",
+                        "카메라 %d대에서 프레임 수신·정렬 완료 → frame_pipeline 으로 전달 "
+                        "(captured=%d, normalized=%d, dropped=%d)",
+                        len(self._decoders),
+                        self._stats.total_captured,
+                        self._stats.total_normalized,
+                        self._stats.total_dropped,
+                    )
+                except Exception:
+                    pass
+            else:
+                # 2026-05-13: 정렬 실패 진단 — 각 카메라 buffer 의 latest frame
+                # timestamp 와 ref 와의 격차(ms) 출력. 진짜 jitter 측정용.
+                try:
+                    from infrastructure.diagnostics.flow_logger import log_flow
+                    buffers = self._aligner._buffers
+                    # aligner 의 ref_timestamp 선정 알고리즘 그대로 — 첫 비어있지 않은 buffer 의 가장 오래된 frame
+                    ref_ts: float | None = None
+                    latest_ts: dict[str, float] = {}
+                    empty_cams: list[str] = []
+                    for cid, buf in buffers.items():
+                        if buf:
+                            if ref_ts is None:
+                                ref_ts = buf[0].timestamp
+                            latest_ts[cid] = buf[-1].timestamp
+                        else:
+                            empty_cams.append(cid)
+                    if ref_ts is not None and latest_ts:
+                        drifts = [(cid, (ts - ref_ts) * 1000.0) for cid, ts in latest_ts.items()]
+                        drifts.sort(key=lambda x: x[1])
+                        drift_summary = " ".join(f"{cid}={d:+.0f}ms" for cid, d in drifts)
+                        max_abs = max(abs(d) for _, d in drifts)
+                        log_flow(
+                            "INGEST_FAIL",
+                            "정렬실패 tol=%.0fms drift=[%s] max=%.0fms empty=%s → 필요 tolerance >= %.0fms",
+                            self._aligner._config.tolerance_ms,
+                            drift_summary, max_abs,
+                            ",".join(empty_cams) if empty_cams else "(none)",
+                            max_abs,
+                            first_n=5, every=300,
+                        )
+                    else:
+                        log_flow(
+                            "INGEST_FAIL",
+                            "정렬실패 tol=%.0fms — buffer 모두 비어있음 (카메라 frame 도착 안 함) empty=%s",
+                            self._aligner._config.tolerance_ms,
+                            ",".join(empty_cams) if empty_cams else "(none)",
+                            first_n=5, every=300,
+                        )
+                except Exception:
+                    pass
 
             return aligned
 

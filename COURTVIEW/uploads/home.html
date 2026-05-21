@@ -1,0 +1,389 @@
+{% extends "components/layout.html" %}
+{% set active = "home" %}
+{% block title %}COURTVIEW — 홈{% endblock %}
+
+{% block styles %}
+<style>
+.t-banner {
+    background: linear-gradient(135deg, rgba(255,153,51,0.10) 0%, rgba(20,20,30,0) 60%);
+    border: 1px solid var(--border); border-radius: var(--radius-lg);
+    padding: 24px 28px; margin-bottom: 20px; position: relative; overflow: hidden;
+}
+.t-banner::after { content:'';position:absolute;top:-30px;right:-30px;width:160px;height:160px;border-radius:50%;background:radial-gradient(circle,rgba(255,153,51,0.06) 0%,transparent 70%);pointer-events:none; }
+.t-name { font-size:22px; font-weight:800; letter-spacing:-0.5px; }
+.t-meta { font-size:12px; color:var(--text-gray); margin-top:6px; display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+.t-meta-sep { color:var(--border); }
+.t-stat-grid { display:flex; gap:20px; }
+.t-stat { text-align:center; min-width:56px; }
+.t-stat-num { font-size:26px; font-weight:800; line-height:1; }
+.t-stat-label { font-size:9px; color:var(--text-muted); margin-top:4px; text-transform:uppercase; letter-spacing:0.5px; }
+.t-progress { height:4px; background:var(--bg-dark); border-radius:2px; margin-top:16px; overflow:hidden; }
+.t-progress-fill { height:100%; border-radius:2px; background:linear-gradient(90deg,var(--accent-orange),var(--accent-yellow)); transition:width 0.8s ease; }
+
+.tab-bar { display:flex; gap:2px; background:var(--bg-dark); border-radius:8px; padding:3px; margin-bottom:16px; }
+.tab-btn { flex:1; padding:8px 0; border-radius:6px; font-size:12px; font-weight:600; border:none; background:transparent; color:var(--text-muted); cursor:pointer; transition:all 0.2s; text-align:center; }
+.tab-btn:hover { color:var(--text-white); }
+.tab-btn.active { background:var(--bg-card); color:var(--text-white); box-shadow:0 1px 4px rgba(0,0,0,0.3); }
+
+.match-card { background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius-md); padding:16px; cursor:pointer; transition:all 0.2s; position:relative; }
+.match-card:hover { border-color:var(--accent-orange); transform:translateY(-1px); box-shadow:0 4px 12px rgba(255,153,51,0.08); }
+.match-card.is-live { border-color:var(--accent-red); }
+.match-card.is-live::before { content:'';position:absolute;top:12px;right:12px;width:8px;height:8px;border-radius:50%;background:var(--accent-red);animation:livePulse 1.5s ease-in-out infinite; }
+.match-card .mc-top { display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; font-size:11px; }
+.match-card .mc-badge { font-size:9px; font-weight:700; padding:2px 8px; border-radius:4px; }
+.match-card .mc-vs { display:flex; align-items:center; justify-content:center; gap:16px; }
+.match-card .mc-team { flex:1; text-align:center; }
+.match-card .mc-team-name { font-size:15px; font-weight:700; }
+@keyframes livePulse { 0%,100%{opacity:1;} 50%{opacity:0.3;} }
+
+.mini-match { display:grid; grid-template-columns:50px 1fr 60px 50px; align-items:center; gap:8px; padding:10px 12px; border-bottom:1px solid rgba(68,68,68,0.2); font-size:12px; cursor:pointer; transition:background 0.15s; }
+.mini-match:hover { background:rgba(255,153,51,0.04); }
+.mini-match:last-child { border-bottom:none; }
+
+.grp-card { background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius-md); overflow:hidden; }
+.grp-header { padding:12px 16px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; }
+.grp-header h3 { font-size:14px; font-weight:700; margin:0; }
+.grp-table { width:100%; border-collapse:collapse; }
+.grp-table th { font-size:10px; color:var(--text-muted); padding:8px 10px; text-align:center; font-weight:600; border-bottom:1px solid var(--border); }
+.grp-table th:first-child { text-align:left; }
+.grp-table td { font-size:12px; padding:10px; text-align:center; border-bottom:1px solid rgba(68,68,68,0.15); }
+.grp-table td:first-child { text-align:left; font-weight:600; }
+.grp-table tr.qualify td { background:rgba(255,153,51,0.04); }
+.grp-table tr.qualify td:first-child { border-left:3px solid var(--accent-orange); }
+.grp-rank { display:inline-flex; align-items:center; justify-content:center; width:20px; height:20px; border-radius:50%; font-size:10px; font-weight:700; margin-right:6px; }
+.grp-rank.q { background:var(--accent-orange); color:#000; }
+.grp-rank.nq { background:var(--bg-dark); color:var(--text-muted); }
+
+.bracket-slot { display:flex; justify-content:space-between; align-items:center; padding:8px 12px; background:var(--bg-dark); font-size:12px; font-weight:600; border:1px solid var(--border); min-width:140px; }
+.bracket-slot:first-child { border-radius:6px 6px 0 0; }
+.bracket-slot:last-child { border-radius:0 0 6px 6px; }
+.bracket-slot.tbd { color:var(--text-muted); border-style:dashed; font-weight:400; font-style:italic; }
+.trophy-box { display:flex; flex-direction:column; align-items:center; justify-content:center; background:linear-gradient(135deg,rgba(255,153,51,0.08),rgba(255,200,50,0.04)); border:1px dashed var(--accent-orange); border-radius:var(--radius-md); padding:16px 20px; min-width:120px; text-align:center; }
+
+.empty-home {
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    padding:60px 24px; text-align:center; color:var(--text-muted);
+    background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius-lg);
+}
+.empty-home .emoji { font-size:48px; margin-bottom:12px; }
+.empty-home .title { font-size:16px; font-weight:700; color:var(--text-white); margin-bottom:8px; }
+.empty-home .desc { font-size:12px; line-height:1.7; margin-bottom:20px; max-width:420px; }
+.empty-home .cta-row { display:flex; gap:10px; flex-wrap:wrap; justify-content:center; }
+.empty-home .cta { display:inline-block; padding:10px 20px; border-radius:8px; font-size:12px; font-weight:600; text-decoration:none; transition:all 0.15s; }
+.empty-home .cta.primary { background:var(--accent-orange); color:#000; }
+.empty-home .cta.primary:hover { filter:brightness(1.1); }
+.empty-home .cta.secondary { background:var(--bg-dark); color:var(--text-white); border:1px solid var(--border); }
+.empty-home .cta.secondary:hover { border-color:var(--accent-orange); }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- 대회 없음 (초기 상태) -->
+<div id="empty-state" class="empty-home" style="display:none;">
+    <div class="emoji">🏆</div>
+    <div class="title">진행 중인 대회가 없습니다</div>
+    <div class="desc">
+        bkdunk 앱에서 대회·팀·선수를 등록한 뒤<br>
+        [DB 관리] 페이지에서 [☁ Cloud 동기화] 버튼을 눌러 불러오세요.
+    </div>
+    <div class="cta-row">
+        <a href="https://bkdunk.com" target="_blank" class="cta primary">bkdunk 에서 대회 등록 ↗</a>
+        <a href="/database" class="cta secondary">DB 관리로 이동</a>
+    </div>
+</div>
+
+<!-- 대회 있음 (기본 상태) -->
+<div id="active-state" style="display:none;">
+    <div class="t-banner">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+            <div>
+                <div class="t-name" id="t-name">-</div>
+                <div class="t-meta">
+                    <span id="t-dates">-</span>
+                    <span class="t-meta-sep">|</span>
+                    <span id="t-venue">-</span>
+                    <span class="t-meta-sep">|</span>
+                    <span style="color:var(--accent-orange); font-weight:600;" id="t-format">-</span>
+                </div>
+                <div class="t-progress" style="width:280px; margin-top:14px;">
+                    <div class="t-progress-fill" id="t-progress-bar" style="width:0%;"></div>
+                </div>
+                <div style="font-size:10px; color:var(--text-muted); margin-top:4px;" id="t-progress-label">0 / 0 경기 완료</div>
+            </div>
+            <div class="t-stat-grid">
+                <div class="t-stat"><div class="t-stat-num" style="color:var(--accent-orange);" id="t-teams">0</div><div class="t-stat-label">참가팀</div></div>
+                <div class="t-stat"><div class="t-stat-num" id="t-total">0</div><div class="t-stat-label">총 경기</div></div>
+                <div class="t-stat"><div class="t-stat-num" style="color:var(--accent-green);" id="t-done">0</div><div class="t-stat-label">완료</div></div>
+                <div class="t-stat"><div class="t-stat-num" style="color:var(--accent-blue);" id="t-left">0</div><div class="t-stat-label">남은 경기</div></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="tab-bar">
+        <button class="tab-btn active" onclick="switchTab('schedule',this)">경기 일정</button>
+        <button class="tab-btn" onclick="switchTab('group',this)">조별 리그</button>
+        <button class="tab-btn" onclick="switchTab('bracket',this)">대진표</button>
+    </div>
+
+    <div id="tab-schedule">
+        <div style="margin-bottom:16px;">
+            <div style="font-size:13px; font-weight:700; margin-bottom:10px; display:flex; align-items:center; gap:6px;">
+                <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--accent-red);"></span>
+                오늘 경기 <span style="font-weight:400; color:var(--text-muted); font-size:11px;" id="today-date"></span>
+            </div>
+            <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:12px;" id="today-cards"></div>
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+            <div class="card">
+                <div class="card-header"><div class="card-title" style="font-size:13px;">남은 경기</div><span style="font-size:11px;color:var(--text-muted);" id="remaining-label"></span></div>
+                <div id="remaining-matches" style="max-height:300px; overflow-y:auto;"></div>
+            </div>
+            <div class="card">
+                <div class="card-header"><div class="card-title" style="font-size:13px;">완료된 경기</div><span style="font-size:11px;color:var(--text-muted);" id="completed-label"></span></div>
+                <div id="completed-matches" style="max-height:300px; overflow-y:auto;"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="tab-group" style="display:none;">
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;" id="group-tables"></div>
+    </div>
+
+    <div id="tab-bracket" style="display:none;">
+        <div class="card">
+            <div class="card-header"><div class="card-title" style="font-size:13px;">결승 토너먼트</div><span style="font-size:10px;color:var(--text-muted);">각 조 1,2위 진출</span></div>
+            <div style="overflow-x:auto;"><div id="bracket-view" style="display:flex; align-items:stretch; gap:0; padding:20px 10px; min-width:650px;"></div></div>
+        </div>
+    </div>
+
+    <div style="display:flex; gap:16px; margin-top:16px; font-size:11px; color:var(--text-muted); padding:8px 4px;">
+        <span>엔진: <strong id="sys-engine" style="color:var(--accent-green);">IDLE</strong></span>
+        <span>GPU: <strong id="sys-gpu">-</strong></span>
+        <span>VRAM: <strong id="sys-vram">-</strong></span>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// =============================================================================
+// 홈 대시보드 — localStorage 'cv_db' (DB 관리 페이지에서 bkdunk 동기화로 채움)
+// 에서 대회·매치·팀 정보 읽어서 렌더. 데이터 없으면 빈 상태 표시.
+// =============================================================================
+let tournament = null;
+let matches = [];
+
+// 목데이터 마이그레이션: 이전 버전의 defaultData/ensureDB 가 심어놓은
+// 가짜 팀(아울스·덩커스·업템포 등)을 감지하면 로컬 캐시를 비움.
+(function _purgeLegacyMockDB() {
+    try {
+        const raw = localStorage.getItem('cv_db');
+        if (!raw) return;
+        const db = JSON.parse(raw);
+        const mockTeams = new Set(['아울스','덩커스','업템포','청량','싱글벙글','블레이즈','스톰','타이탄','팬텀']);
+        const mockIds = new Set(['T001']);
+        const looksMocked = (db.tourneys || []).some(t =>
+            mockIds.has(t.id) ||
+            t.name === '2026 COURTVIEW 시범 대회' ||
+            t.venue === 'SPOIN 체육관' ||
+            (t.teams || []).some(x => mockTeams.has(x.name))
+        );
+        if (looksMocked) {
+            console.warn('[home] 구버전 목데이터 감지 — cv_db 캐시 정리');
+            localStorage.removeItem('cv_db');
+        }
+    } catch { localStorage.removeItem('cv_db'); }
+})();
+
+function _loadFromLocalDB() {
+    try {
+        const db = JSON.parse(localStorage.getItem('cv_db') || '{}');
+        const t = (db.tourneys || [])[0];   // 현재는 첫 번째 대회만 표시
+        if (!t) return false;
+
+        tournament = {
+            id: t.id,
+            name: t.name || '-',
+            venue: t.venue || '-',
+            startDate: t.startDate || '',
+            endDate: t.endDate || '',
+            format: t.format || '',
+            teams: (t.teams || []).map(x => x.name),
+            groups: t.groups || {},
+            teamObjs: t.teams || [],
+            ruleSet: t.ruleSet || 'fiba',
+        };
+        matches = (t.matches || []).map(m => ({
+            id: m.id || '',
+            phase: m.phase || 'group',
+            group: m.group || '',
+            date: m.date || '',
+            time: m.time || '',
+            home: m.home || '',
+            away: m.away || '',
+            hs: m.hs ?? null,
+            as: m.as ?? null,
+            status: m.status || 'scheduled',
+        }));
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+function _todayMMDD() {
+    const d = new Date();
+    return `${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')}`;
+}
+
+function switchTab(t, el) {
+    ['schedule','group','bracket'].forEach(x => document.getElementById('tab-'+x).style.display = x===t ? 'block' : 'none');
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    el.classList.add('active');
+}
+
+function renderBanner() {
+    if (!tournament) return;
+    document.getElementById('t-name').textContent = tournament.name;
+    document.getElementById('t-dates').textContent = [tournament.startDate, tournament.endDate].filter(Boolean).join(' ~ ') || '-';
+    document.getElementById('t-venue').textContent = tournament.venue;
+    document.getElementById('t-format').textContent = tournament.format || (tournament.ruleSet || 'FIBA').toUpperCase();
+
+    const done = matches.filter(m => m.status === 'done').length;
+    const total = matches.length;
+    const pct = total ? Math.round(done / total * 100) : 0;
+    document.getElementById('t-progress-bar').style.width = pct + '%';
+    document.getElementById('t-progress-label').textContent = `${done} / ${total} 경기 완료 (${pct}%)`;
+    document.getElementById('t-teams').textContent = tournament.teams.length;
+    document.getElementById('t-total').textContent = total;
+    document.getElementById('t-done').textContent = done;
+    document.getElementById('t-left').textContent = Math.max(0, total - done);
+}
+
+function renderSchedule() {
+    if (!matches.length) {
+        document.getElementById('today-cards').innerHTML = '<div style="grid-column:1/-1;text-align:center;color:var(--text-muted);padding:24px;font-size:12px;">등록된 경기가 없습니다</div>';
+        document.getElementById('remaining-matches').innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:24px;font-size:12px;">-</div>';
+        document.getElementById('completed-matches').innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:24px;font-size:12px;">-</div>';
+        document.getElementById('remaining-label').textContent = '0경기';
+        document.getElementById('completed-label').textContent = '0경기';
+        return;
+    }
+    const today = _todayMMDD();
+    document.getElementById('today-date').textContent = today;
+
+    const done   = matches.filter(m => m.status === 'done');
+    const todayM = matches.filter(m => m.date === today && m.status !== 'tbd' && m.status !== 'done');
+    const future = matches.filter(m => m.date > today && m.status !== 'tbd');
+
+    document.getElementById('today-cards').innerHTML = todayM.length ? todayM.map(m => {
+        const ph = m.group ? m.group+'조' : m.phase==='semi' ? '준결승' : '결승';
+        return `<div class="match-card" onclick="confirmStart('${m.home}','${m.away}','${m.group||''}','${m.time}')">
+            <div class="mc-top"><span style="color:var(--text-muted);">${ph}</span><span class="mc-badge" style="background:var(--accent-blue);color:#fff;">${m.time}</span></div>
+            <div class="mc-vs"><div class="mc-team"><div class="mc-team-name">${m.home}</div></div><div style="font-size:16px;color:var(--text-dark);font-weight:300;">VS</div><div class="mc-team"><div class="mc-team-name">${m.away}</div></div></div>
+        </div>`;
+    }).join('') : '<div style="grid-column:1/-1;text-align:center;color:var(--text-muted);padding:24px;font-size:12px;">오늘 예정된 경기가 없습니다</div>';
+
+    document.getElementById('remaining-label').textContent = future.length + '경기';
+    document.getElementById('remaining-matches').innerHTML = future.length ? future.map(m => {
+        const tag = m.group ? m.group+'조' : m.phase==='semi' ? '준결' : '결승';
+        return `<div class="mini-match" onclick="location.href='/game/analysis'"><div style="font-size:10px;color:var(--text-muted);line-height:1.4;">${m.date}<br><strong>${m.time}</strong></div><div style="font-weight:600;">${m.home} <span style="color:var(--text-muted);font-weight:400;">vs</span> ${m.away}</div><div style="text-align:center;font-size:10px;color:var(--text-muted);">${tag}</div><div style="text-align:center;font-size:10px;color:var(--accent-blue);">예정</div></div>`;
+    }).join('') : '<div style="text-align:center;color:var(--text-muted);padding:24px;font-size:12px;">남은 경기 없음</div>';
+
+    document.getElementById('completed-label').textContent = done.length + '경기';
+    document.getElementById('completed-matches').innerHTML = done.length ? done.map(m => {
+        const hw = m.hs > m.as;
+        return `<div class="mini-match" onclick="location.href='/game/result'"><div style="font-size:10px;color:var(--text-muted);line-height:1.4;">${m.date}<br><strong>${m.time}</strong></div><div style="font-weight:600;"><span style="${hw?'color:var(--accent-orange);':''}">${m.home}</span> <span style="color:var(--text-muted);font-weight:400;">vs</span> <span style="${!hw?'color:var(--accent-orange);':''}">${m.away}</span></div><div style="text-align:center;font-weight:700;color:var(--accent-orange);">${m.hs} : ${m.as}</div><div style="text-align:center;"><span style="font-size:9px;padding:2px 6px;border-radius:3px;background:rgba(68,255,68,0.1);color:var(--accent-green);">완료</span></div></div>`;
+    }).join('') : '<div style="text-align:center;color:var(--text-muted);padding:24px;font-size:12px;">-</div>';
+}
+
+function renderGroups() {
+    if (!tournament || !tournament.groups || !Object.keys(tournament.groups).length) {
+        document.getElementById('group-tables').innerHTML = '<div style="grid-column:1/-1;text-align:center;color:var(--text-muted);padding:32px;font-size:12px;">조 편성 정보가 없습니다</div>';
+        return;
+    }
+    const done = matches.filter(m => m.phase==='group' && m.status==='done');
+    document.getElementById('group-tables').innerHTML = Object.entries(tournament.groups).map(([g, teams]) => {
+        const st = teams.map(team => {
+            const pl = done.filter(m => (m.home===team || m.away===team) && m.group===g);
+            let w=0, l=0, pf=0, pa=0;
+            pl.forEach(m => { const h=m.home===team; const my=h?m.hs:m.as, op=h?m.as:m.hs; pf+=my; pa+=op; my>op?w++:l++; });
+            return { team, gp:pl.length, w, l, pf, pa, diff:pf-pa };
+        }).sort((a,b) => b.w-a.w || b.diff-a.diff);
+        return `<div class="grp-card"><div class="grp-header"><h3>${g}조</h3><span style="font-size:11px;color:var(--text-muted);">${teams.length}팀</span></div>
+        <table class="grp-table"><thead><tr><th style="text-align:left;">팀</th><th>경기</th><th>승</th><th>패</th><th>득점</th><th>실점</th><th>+/-</th></tr></thead>
+        <tbody>${st.map((s,i) => `<tr class="${i<2?'qualify':''}"><td><span class="grp-rank ${i<2?'q':'nq'}">${i+1}</span>${s.team}</td><td>${s.gp}</td><td style="font-weight:700;${s.w?'color:var(--accent-green);':''}">${s.w}</td><td style="${s.l?'color:var(--accent-red);':''}">${s.l}</td><td>${s.pf}</td><td>${s.pa}</td><td style="font-weight:700;${s.diff>0?'color:var(--accent-green);':s.diff<0?'color:var(--accent-red);':''}">${s.diff>0?'+':''}${s.diff||0}</td></tr>`).join('')}</tbody></table></div>`;
+    }).join('');
+}
+
+function renderBracket() {
+    const semis = matches.filter(m => m.phase==='semi');
+    const final = matches.find(m => m.phase==='final');
+    const slot = (n, s, c) => `<div class="bracket-slot ${c||''}">${n}${s!==null && s !== undefined ? `<span style="font-weight:800;">${s}</span>` : ''}</div>`;
+
+    if (!semis.length && !final) {
+        document.getElementById('bracket-view').innerHTML = '<div style="width:100%;text-align:center;color:var(--text-muted);padding:32px;font-size:12px;">토너먼트 정보가 없습니다</div>';
+        return;
+    }
+
+    document.getElementById('bracket-view').innerHTML = `
+        <div style="display:flex;flex-direction:column;justify-content:space-around;gap:16px;min-width:160px;">
+            <div style="text-align:center;font-size:10px;color:var(--text-muted);font-weight:600;letter-spacing:1px;margin-bottom:8px;">준결승</div>
+            <div style="display:flex;flex-direction:column;gap:2px;">${slot(semis[0]?.home||'A조 1위',semis[0]?.hs,'tbd')}${slot(semis[0]?.away||'B조 2위',semis[0]?.as,'tbd')}</div>
+            <div style="display:flex;flex-direction:column;gap:2px;">${slot(semis[1]?.home||'B조 1위',semis[1]?.hs,'tbd')}${slot(semis[1]?.away||'A조 2위',semis[1]?.as,'tbd')}</div>
+        </div>
+        <div style="display:flex;flex-direction:column;justify-content:center;gap:60px;padding:30px 0;"><div style="width:30px;border-top:1px solid var(--border);border-right:1px solid var(--border);border-bottom:1px solid var(--border);height:70px;border-radius:0 6px 6px 0;"></div></div>
+        <div style="display:flex;flex-direction:column;justify-content:center;min-width:160px;">
+            <div style="text-align:center;font-size:10px;color:var(--text-muted);font-weight:600;letter-spacing:1px;margin-bottom:8px;">결승</div>
+            <div style="display:flex;flex-direction:column;gap:2px;">${slot(final?.home||'승자 1',final?.hs,'tbd')}${slot(final?.away||'승자 2',final?.as,'tbd')}</div>
+        </div>
+        <div style="display:flex;align-items:center;padding:0 8px;"><div style="width:30px;height:1px;background:var(--border);"></div></div>
+        <div style="display:flex;align-items:center;"><div class="trophy-box"><div style="font-size:36px;margin-bottom:6px;">🏆</div><div style="font-size:14px;font-weight:700;color:var(--accent-orange);">우승</div><div style="font-size:11px;color:var(--text-muted);margin-top:4px;">TBD</div></div></div>`;
+}
+
+async function loadSystem() {
+    try { const r = await fetch('/api/v1/game/status'); const d = await r.json(); document.getElementById('sys-engine').textContent = d.engine_state || 'IDLE'; } catch {}
+    try { const r = await fetch('/api/v1/metrics/gpu'); const d = await r.json(); document.getElementById('sys-gpu').textContent = d.gpu_name || '-'; document.getElementById('sys-vram').textContent = d.vram_used_mb ? `${d.vram_used_mb}/${d.vram_total_mb}MB` : '-'; } catch {}
+}
+
+// 경기 시작 (매치 카드 클릭 → 카드 sessionStorage 에 담고 /game/analysis 이동)
+function confirmStart(home, away, group, time) {
+    if (!confirm(`${home} vs ${away} (${time})\n\n이 경기를 시작하시겠습니까?`)) return;
+
+    let homeTeam = { name: home, players: [] };
+    let awayTeam = { name: away, players: [] };
+    let ruleSet = tournament?.ruleSet || 'fiba';
+
+    if (tournament?.teamObjs) {
+        const h = tournament.teamObjs.find(t => t.name === home);
+        const a = tournament.teamObjs.find(t => t.name === away);
+        if (h) homeTeam = h;
+        if (a) awayTeam = a;
+    }
+
+    sessionStorage.setItem('cv_match', JSON.stringify({
+        homeName: home, awayName: away,
+        homeTeam, awayTeam, ruleSet,
+    }));
+    location.href = '/game/analysis';
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// 초기화
+// ──────────────────────────────────────────────────────────────────────────────
+const hasData = _loadFromLocalDB();
+if (hasData) {
+    document.getElementById('empty-state').style.display = 'none';
+    document.getElementById('active-state').style.display = 'block';
+    renderBanner();
+    renderSchedule();
+    renderGroups();
+    renderBracket();
+    loadSystem();
+    setInterval(loadSystem, 15000);
+} else {
+    document.getElementById('empty-state').style.display = 'flex';
+    document.getElementById('active-state').style.display = 'none';
+}
+</script>
+{% endblock %}
