@@ -45,7 +45,8 @@ docs/
 ├── 📋 루트 TODO/PLAN
 │   ├── MainTODO.md                           ⚡ 성능 최적화 (11 TODO)
 │   ├── MaintenanceTODO.md                    🔧 유지보수 (13 TODO)
-│   └── FOLDER_STRUCTURE_CLEANUP_PLAN.md     📁 폴더 정리 (5 STEP)
+│   ├── FOLDER_STRUCTURE_CLEANUP_PLAN.md     📁 폴더 정리 (5 STEP)
+│   └── UI_INVENTORY.md                       🎨 UI 파일 인벤토리 (78 파일)
 │
 ├── concepts/                                 🧠 일반 개념 (3 문서)
 │   ├── EPIPOLAR_GEOMETRY_EXPLAINED.md
