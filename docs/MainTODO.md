@@ -274,8 +274,8 @@ def capture_and_align(self) -> AlignedFrameSet | None:
 ##### 10) 후속 시너지 (별도 작업)
 
 decode 병렬화 후 추가로 적용 가능:
-- **Plan B** ([_plan_B_hwaccel_2026-05-13.md](../../_plan_B_hwaccel_2026-05-13.md)): ffmpeg `-hwaccel d3d11va` 또는 `cuda` → CPU 부하 80% 감소
-- **Plan D** ([_plan_D_ffmpeg_prescale_2026-05-13.md](../../_plan_D_ffmpeg_prescale_2026-05-13.md)): ffmpeg `-s 1920x1080` 사전 리사이즈 → cv2.resize 제거
+- **Plan B** ([_plan_B_hwaccel_2026-05-13.md](archive/camera-2026-05-13/_plan_B_hwaccel_2026-05-13.md)): ffmpeg `-hwaccel d3d11va` 또는 `cuda` → CPU 부하 80% 감소
+- **Plan D** ([_plan_D_ffmpeg_prescale_2026-05-13.md](archive/camera-2026-05-13/_plan_D_ffmpeg_prescale_2026-05-13.md)): ffmpeg `-s 1920x1080` 사전 리사이즈 → cv2.resize 제거
 - 둘 다 합치면: decode 240~640ms → **~10ms 가능** (32~64배)
 
 ##### 11) 예상 효과 최종
@@ -688,11 +688,11 @@ C:\COURTVIEW-UI\       ← courtview_ui 레포 (spec 이 ../COURTVIEW-UI 참조)
 ### 기존 PLAN 문서 (루트)
 | 목적 | 문서 |
 |---|---|
-| 메모리 감사 | [../PLAN_MEMORY_USAGE_AUDIT.md](../PLAN_MEMORY_USAGE_AUDIT.md) |
-| RTSP 좀비 | [../PLAN_RTSP_ZOMBIE_SHUTDOWN_FIX.md](../PLAN_RTSP_ZOMBIE_SHUTDOWN_FIX.md) |
-| Frame cadence 버그 | [../PLAN_FRAME_CADENCE_BUFFER_GAP.md](../PLAN_FRAME_CADENCE_BUFFER_GAP.md) |
-| Replay ETA UI | [../PLAN_REPLAY_ETA_UI.md](../PLAN_REPLAY_ETA_UI.md) |
-| Replay STOP fix | [../PLAN_REPLAY_STOP_FIX.md](../PLAN_REPLAY_STOP_FIX.md) |
+| 메모리 감사 (완료) | [archive/completed/PLAN_MEMORY_USAGE_AUDIT.md](archive/completed/PLAN_MEMORY_USAGE_AUDIT.md) |
+| RTSP 좀비 (진행 중) | [plans/PLAN_RTSP_ZOMBIE_SHUTDOWN_FIX.md](plans/PLAN_RTSP_ZOMBIE_SHUTDOWN_FIX.md) |
+| Frame cadence 버그 (진행 중) | [plans/PLAN_FRAME_CADENCE_BUFFER_GAP.md](plans/PLAN_FRAME_CADENCE_BUFFER_GAP.md) |
+| Replay ETA UI (진행 중) | [plans/PLAN_REPLAY_ETA_UI.md](plans/PLAN_REPLAY_ETA_UI.md) |
+| Replay STOP fix (완료) | [archive/completed/PLAN_REPLAY_STOP_FIX.md](archive/completed/PLAN_REPLAY_STOP_FIX.md) |
 
 ---
 

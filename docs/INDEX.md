@@ -1,33 +1,98 @@
 # 📚 COURTVIEW Docs 인덱스
 
-> 2026-05-22 세션에서 작성한 분석 문서 10개의 카테고리별 인덱스.
-> 폴더 구조: **concepts/** (일반 개념) vs **project/** (COURTVIEW 프로젝트 특정)
+> COURTVIEW 프로젝트의 모든 분석/계획 문서 인덱스.
+> 폴더 구조: **concepts/** (일반 개념) + **project/** (프로젝트 특정) + **루트 TODO/PLAN 파일**.
 
 ---
 
-## 🗂️ 폴더 구조 한눈에
+## 🎯 작업 트랙 4가지
+
+```mermaid
+flowchart TB
+  WORK["작업 트랙"] --> T1
+  WORK --> T2
+  WORK --> T3
+  WORK --> T4
+
+  T1["⚡ 성능 최적화<br/>MainTODO.md<br/>(11 TODO)"]
+  T2["🔧 유지보수<br/>MaintenanceTODO.md<br/>(13 TODO)"]
+  T3["🛠️ 리팩토링<br/>REFACTOR_INDEX.md<br/>(6 계획서)"]
+  T4["📁 폴더 정리<br/>FOLDER_STRUCTURE_CLEANUP_PLAN.md<br/>(5 STEP)"]
+
+  style T1 fill:#FFB6C6
+  style T2 fill:#FFE4B5
+  style T3 fill:#87CEEB
+  style T4 fill:#90EE90
+```
+
+| 트랙 | 시작 문서 | 용도 | 예상 일정 |
+|---|---|---|---|
+| ⚡ 성능 | [MainTODO.md](MainTODO.md) | REPLAY 1.15 → 30+ fps | 1~2주 |
+| 🔧 유지보수 | [MaintenanceTODO.md](MaintenanceTODO.md) | 테스트 / 에러 / 문서 / 타입 | 10주 |
+| 🛠️ 리팩토링 | [project/architecture/REFACTOR_INDEX.md](project/architecture/REFACTOR_INDEX.md) | 거대 파일 6개 분리 | 6~7주 |
+| 📁 폴더 정리 | [FOLDER_STRUCTURE_CLEANUP_PLAN.md](FOLDER_STRUCTURE_CLEANUP_PLAN.md) | runs/, PLAN, COURTVIEW/ | 1~5일 |
+
+> **권장 순서**: 폴더 정리 (1일) → 성능 (1~2주) → 유지보수 (10주) + 리팩토링 (6주) 병행.
+
+---
+
+## 🗂️ docs/ 폴더 구조 한눈에
 
 ```
 docs/
-├── INDEX.md                          ← 이 파일
+├── INDEX.md                                  ← 이 파일
 │
-├── concepts/                         🧠 일반 개념 (다른 프로젝트에서도 통용)
+├── 📋 루트 TODO/PLAN
+│   ├── MainTODO.md                           ⚡ 성능 최적화 (11 TODO)
+│   ├── MaintenanceTODO.md                    🔧 유지보수 (13 TODO)
+│   └── FOLDER_STRUCTURE_CLEANUP_PLAN.md     📁 폴더 정리 (5 STEP)
+│
+├── concepts/                                 🧠 일반 개념 (3 문서)
 │   ├── EPIPOLAR_GEOMETRY_EXPLAINED.md
 │   ├── BIG_O_DECISIONS.md
 │   └── POSE_FUSION_EXPLAINED.md
 │
-└── project/                          🏗️ COURTVIEW 프로젝트 특정
-    │
-    ├── architecture/                 📐 시스템 구조 / 데이터 흐름
-    │   ├── DATA_FLOW_CONTRACT.md
-    │   └── COMPUTATION_CODES_REFERENCE.md
-    │
-    └── performance/                  ⚡ 성능 / 병목 / 최적화
-        ├── PIPELINE_LATENCY_BUDGET.md
-        ├── PIPELINE_LATENCY_BUDGET_REPLAY.md
-        ├── FUSION_BOTTLENECK_ANALYSIS.md
-        ├── TRIANGULATE_COST_BREAKDOWN.md
-        └── PIPELINE_SPEEDUP_GUIDE.md
+├── project/                                  🏗️ COURTVIEW 특정 (14 문서)
+│   ├── architecture/
+│   │   ├── DATA_FLOW_CONTRACT.md
+│   │   ├── COMPUTATION_CODES_REFERENCE.md
+│   │   ├── REFACTOR_INDEX.md                 🛠️ 리팩토링 인덱스
+│   │   ├── REFACTOR_PLAN_GAME_ORCHESTRATOR.md
+│   │   ├── REFACTOR_PLAN_EXCEPTIONS.md
+│   │   ├── REFACTOR_PLAN_DETECTORS.md
+│   │   ├── REFACTOR_PLAN_BIOMECHANICS_FEEDBACK.md
+│   │   ├── REFACTOR_PLAN_POSE_PROCESSING.md
+│   │   └── REFACTOR_PLAN_SEQUENCE_UTILS.md
+│   └── performance/
+│       ├── PIPELINE_LATENCY_BUDGET.md
+│       ├── PIPELINE_LATENCY_BUDGET_REPLAY.md
+│       ├── FUSION_BOTTLENECK_ANALYSIS.md
+│       ├── TRIANGULATE_COST_BREAKDOWN.md
+│       └── PIPELINE_SPEEDUP_GUIDE.md
+│
+├── plans/                                    📋 진행 중 PLAN (4개)
+│   ├── README.md
+│   ├── PLAN_EVENT_TIMELINE_UI.md
+│   ├── PLAN_FRAME_CADENCE_BUFFER_GAP.md
+│   ├── PLAN_REPLAY_ETA_UI.md
+│   └── PLAN_RTSP_ZOMBIE_SHUTDOWN_FIX.md
+│
+├── archive/                                  📦 완료/보관 (13개)
+│   ├── README.md
+│   ├── completed/                            완료된 PLAN (4개)
+│   │   ├── PLAN_BACKEND_FINALIZE_SAFETY.md
+│   │   ├── PLAN_FFMPEG_STDERR_CAPTURE.md
+│   │   ├── PLAN_MEMORY_USAGE_AUDIT.md
+│   │   └── PLAN_REPLAY_STOP_FIX.md
+│   └── camera-2026-05-13/                    카메라 발견 시리즈 (9개)
+│       ├── _plan_A~H_*.md (8개)
+│       └── _session_changes_2026-05-13.md
+│
+├── audit/                                    🔍 모듈 감사 로그 (54개)
+├── ml/                                       🤖 ML 가중치 매니페스트 (3개)
+├── CALIBRATION_KEYPOINTS.md                  📐 캘리브레이션 키포인트
+├── INTEGRATION_BKDUNK.md                     🔗 BKDUNK 통합
+└── MODULE_AUDIT_STANDARD.md                  📋 감사 표준
 ```
 
 ### 시각화
