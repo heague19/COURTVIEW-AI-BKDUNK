@@ -48,6 +48,13 @@ docs/
 │   ├── FOLDER_STRUCTURE_CLEANUP_PLAN.md     📁 폴더 정리 (5 STEP)
 │   └── UI_INVENTORY.md                       🎨 UI 파일 인벤토리 (78 파일)
 │
+├── 📋 plans/ui-optimization/                 🎨 UI 최적화 (4 Phase, 6주)
+│   ├── UI_OPTIMIZATION_INDEX.md             종합 인덱스
+│   ├── UI_OPT_PHASE1_MEMORY_LEAKS.md        🔴 메모리 누수 (1주)
+│   ├── UI_OPT_PHASE2_INLINE_JS_CSS.md       🟠 인라인 JS/CSS (2주)
+│   ├── UI_OPT_PHASE3_API_WEBSOCKET.md       🟡 API/WebSocket (2주)
+│   └── UI_OPT_PHASE4_MODULARIZATION.md      🟢 모듈화/번들링 (1주)
+│
 ├── concepts/                                 🧠 일반 개념 (3 문서)
 │   ├── EPIPOLAR_GEOMETRY_EXPLAINED.md
 │   ├── BIG_O_DECISIONS.md
