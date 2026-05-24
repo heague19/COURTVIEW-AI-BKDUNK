@@ -47,7 +47,8 @@ docs/
 │   ├── MaintenanceTODO.md                    🔧 유지보수 (13 TODO)
 │   ├── FOLDER_STRUCTURE_CLEANUP_PLAN.md     📁 폴더 정리 (5 STEP)
 │   ├── UI_INVENTORY.md                       🎨 UI 파일 인벤토리 (78 파일)
-│   └── UI_TO_ENGINE_FLOW.md                  🔄 UI → 엔진 호출 흐름 (5계층)
+│   ├── UI_TO_ENGINE_FLOW.md                  🔄 UI → 엔진 호출 흐름 (5계층)
+│   └── API_SERVER_INVENTORY.md               🔧 api_server 인벤토리 (51 파일)
 │
 ├── 📋 plans/ui-optimization/                 🎨 UI 최적화 (4 Phase, 6주)
 │   ├── UI_OPTIMIZATION_INDEX.md             종합 인덱스
